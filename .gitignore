@@ -1,0 +1,9 @@
+Codeman/
+.playwright/
+.playwright-cli/
+.claude/settings.local.json
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
