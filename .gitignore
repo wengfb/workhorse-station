@@ -2,6 +2,7 @@ Codeman/
 .playwright/
 .playwright-cli/
 .claude/settings.local.json
+.claude/worktree/
 node_modules/
 dist/
 coverage/

@@ -1,5 +1,51 @@
 # 开发进度
 
+## 2026-05-21：Phase 1 worktree 管理
+
+### 目标
+- worktree 作为项目级资源管理，按项目过滤列表。
+- worktree 固定存放在项目 `.claude/worktree/` 目录下。
+- 支持创建、选择、状态展示和删除 worktree。
+- 删除 worktree 时同步删除对应本地 git 分支。
+- 删除前前端确认，后端校验分支确认值和项目归属。
+- dirty / missing / unknown / 未合并分支等风险状态默认阻止删除。
+- 右侧终端占位同步显示当前项目、worktree、分支、状态和 cwd。
+
+### API 范围
+- `GET /api/projects/:projectId/worktrees`：返回当前项目 worktree 列表，并刷新 clean / dirty / missing / unknown 状态。
+- `POST /api/projects/:projectId/worktrees`：创建项目级 git worktree，默认分支名为 `workhorse/<name>`。
+- `DELETE /api/projects/:projectId/worktrees/:worktreeId`：删除 worktree 目录、同步删除本地分支并清理记录。
+
+### 安全约定
+- worktree 名称只允许字母、数字、点、下划线和短横线，避免路径穿越。
+- git 命令使用 `execFile` 参数数组执行，不拼 shell 字符串。
+- 删除前校验 worktree 路径仍位于项目 `.claude/worktree/` 下。
+- 删除前确认 git worktree 的 path / branch 与数据库记录一致。
+- dirty worktree 返回 `409 worktree_dirty`，不删除目录、分支或数据库记录。
+- 未合并分支返回 `409 branch_not_merged`，不执行强删。
+- 项目已有 worktree 时，禁止修改项目代码目录或删除项目记录。
+
+### 验收记录
+- `pnpm -r typecheck`：通过。
+- `pnpm -r build`：通过。
+- API 验证：通过。
+  - `GET /health` 正常。
+  - 自动创建 / 复用绑定 `/home/wengfb/projects/workhorse-station` 的项目。
+  - `POST /api/projects/:projectId/worktrees` 可创建 `.claude/worktree/<name>` 下的 worktree。
+  - 重复 worktree 名称返回 `409 worktree_name_exists`。
+  - 非法名称返回 `400 validation_error`。
+  - 制造未跟踪文件后，列表状态刷新为 `dirty`。
+  - dirty worktree 删除返回 `409 worktree_dirty`。
+  - 清理 dirty 文件后，删除 worktree 成功，并同步删除本地分支。
+- 浏览器验证：通过。
+  - 打开 `http://localhost:5173`。
+  - 项目页显示 Worktree 管理区。
+  - 可在浏览器创建 `browser-verify` worktree。
+  - 创建后 Worktree 数量、顶栏当前 worktree、列表状态和右侧终端上下文同步更新。
+  - 删除前出现确认框，确认后列表恢复为空，顶栏和右侧终端上下文同步清空。
+  - 浏览器控制台无错误。
+
+
 ## 2026-05-21：Phase 1 项目 CRUD 和代码目录绑定
 
 ### 目标

@@ -1,13 +1,29 @@
 import type {
   ApiResponse,
   CreateProjectRequest,
+  CreateWorktreeRequest,
   DeleteProjectResponse,
+  DeleteWorktreeRequest,
+  DeleteWorktreeResponse,
   HealthResponse,
   MetaResponse,
   ProjectResponse,
   ProjectsResponse,
-  UpdateProjectRequest
+  UpdateProjectRequest,
+  WorktreeResponse,
+  WorktreesResponse
 } from "@workhorse-station/shared";
+
+export class ApiError extends Error {
+  constructor(
+    public code: string,
+    message: string,
+    public status: number
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 export function getHealth() {
   return fetchJson<HealthResponse>("/health");
@@ -41,6 +57,24 @@ export function deleteProject(id: string) {
   });
 }
 
+export function getWorktrees(projectId: string) {
+  return fetchJson<WorktreesResponse>(`/api/projects/${projectId}/worktrees`);
+}
+
+export function createWorktree(projectId: string, input: CreateWorktreeRequest) {
+  return fetchJson<WorktreeResponse>(`/api/projects/${projectId}/worktrees`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function deleteWorktree(projectId: string, worktreeId: string, input: DeleteWorktreeRequest) {
+  return fetchJson<DeleteWorktreeResponse>(`/api/projects/${projectId}/worktrees/${worktreeId}`, {
+    method: "DELETE",
+    body: input
+  });
+}
+
 type FetchOptions = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
@@ -56,7 +90,11 @@ async function fetchJson<T>(url: string, options: FetchOptions = {}): Promise<T>
   const payload = (await response.json()) as ApiResponse<T>;
 
   if (!response.ok || !payload.ok) {
-    throw new Error(payload.ok ? `${url} 返回 ${response.status}` : payload.error.message);
+    if (payload.ok) {
+      throw new ApiError("http_error", `${url} 返回 ${response.status}`, response.status);
+    }
+
+    throw new ApiError(payload.error.code, payload.error.message, response.status);
   }
 
   return payload.data;

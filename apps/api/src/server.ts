@@ -4,6 +4,7 @@ import type { ApiResponse, HealthResponse, MetaResponse } from "@workhorse-stati
 import { initDatabase } from "./db/init.js";
 import { isHttpError } from "./projects/http-error.js";
 import { registerProjectRoutes } from "./projects/project-routes.js";
+import { registerWorktreeRoutes } from "./worktrees/worktree-routes.js";
 
 const host = process.env.API_HOST ?? "0.0.0.0";
 const port = Number(process.env.API_PORT ?? 3001);
@@ -66,6 +67,7 @@ server.get("/api/meta", async (): Promise<ApiResponse<MetaResponse>> => ({
 }));
 
 await registerProjectRoutes(server, database);
+await registerWorktreeRoutes(server, database);
 
 const close = async () => {
   await server.close();

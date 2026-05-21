@@ -19,6 +19,7 @@ import {
   updateProject,
   type ProjectWriteInput
 } from "./project-repository.js";
+import { listWorktrees } from "../worktrees/worktree-repository.js";
 
 type ProjectParams = {
   id: string;
@@ -67,6 +68,11 @@ export async function registerProjectRoutes(server: FastifyInstance, database: D
       }
 
       const input = await buildUpdateInput(database, currentProject, request.body);
+
+      if (input.path !== currentProject.path && listWorktrees(database.db, currentProject.id).length > 0) {
+        throw new HttpError(409, "project_has_worktrees", "该项目已有 worktree，请先删除 worktree 后再修改代码目录");
+      }
+
       const project = updateProject(database.db, currentProject.id, input);
       database.persist();
 
@@ -88,6 +94,10 @@ export async function registerProjectRoutes(server: FastifyInstance, database: D
 
       if (!project) {
         throw new HttpError(404, "project_not_found", "项目不存在");
+      }
+
+      if (listWorktrees(database.db, project.id).length > 0) {
+        throw new HttpError(409, "project_has_worktrees", "该项目已有 worktree，请先删除 worktree 后再删除项目记录");
       }
 
       deleteProject(database.db, request.params.id);

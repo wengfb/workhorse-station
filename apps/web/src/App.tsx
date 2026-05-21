@@ -1,6 +1,23 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import type { HealthResponse, MetaResponse, ProjectSummary } from "@workhorse-station/shared";
-import { createProject, deleteProject, getHealth, getMeta, getProjects, updateProject } from "./api";
+import type {
+  CreateWorktreeRequest,
+  HealthResponse,
+  MetaResponse,
+  ProjectSummary,
+  WorktreeStatus,
+  WorktreeSummary
+} from "@workhorse-station/shared";
+import {
+  createProject,
+  createWorktree,
+  deleteProject,
+  deleteWorktree,
+  getHealth,
+  getMeta,
+  getProjects,
+  getWorktrees,
+  updateProject
+} from "./api";
 
 type ApiState = {
   health: HealthResponse | null;
@@ -14,6 +31,12 @@ type ProjectDraft = {
   path: string;
   defaultBranch: string;
   description: string;
+};
+
+type WorktreeDraft = {
+  name: string;
+  branch: string;
+  baseBranch: string;
 };
 
 type ProjectMode = "create" | "edit";
@@ -38,6 +61,13 @@ export function App() {
   const [projectError, setProjectError] = useState<string | null>(null);
   const [savingProject, setSavingProject] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
+  const [worktrees, setWorktrees] = useState<WorktreeSummary[]>([]);
+  const [worktreesLoading, setWorktreesLoading] = useState(false);
+  const [selectedWorktreeId, setSelectedWorktreeId] = useState<string | null>(null);
+  const [worktreeDraft, setWorktreeDraft] = useState<WorktreeDraft>(emptyWorktreeDraft());
+  const [worktreeError, setWorktreeError] = useState<string | null>(null);
+  const [savingWorktree, setSavingWorktree] = useState(false);
+  const [deletingWorktreeId, setDeletingWorktreeId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,7 +95,7 @@ export function App() {
           setApiState((current) => ({
             ...current,
             loading: false,
-            error: error instanceof Error ? error.message : "API 连接失败"
+            error: formatError(error, "API 连接失败")
           }));
           setProjectsLoading(false);
         }
@@ -79,12 +109,58 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedProjectId) {
+      setWorktrees([]);
+      setSelectedWorktreeId(null);
+      setWorktreesLoading(false);
+      setWorktreeError(null);
+      return;
+    }
+
+    async function loadWorktrees(projectId: string) {
+      setWorktreesLoading(true);
+      setWorktreeError(null);
+
+      try {
+        const data = await getWorktrees(projectId);
+
+        if (cancelled) {
+          return;
+        }
+
+        const nextWorktree = data.worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? data.worktrees[0] ?? null;
+        setWorktrees(data.worktrees);
+        setSelectedWorktreeId(nextWorktree?.id ?? null);
+      } catch (error) {
+        if (!cancelled) {
+          setWorktreeError(formatError(error, "Worktree 列表加载失败"));
+          setWorktrees([]);
+          setSelectedWorktreeId(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setWorktreesLoading(false);
+        }
+      }
+    }
+
+    void loadWorktrees(selectedProjectId);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProjectId]);
+
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
+  const selectedWorktree = worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? null;
   const apiConnected = apiState.health?.status === "ok";
   const databaseInfo = apiState.meta?.database ?? null;
   const featureCards = [
     { title: "项目", value: String(projects.length), detail: "已接入项目 CRUD 和目录绑定" },
-    { title: "Worktree", value: "0", detail: "下一步接入项目级 worktree" },
+    { title: "Worktree", value: String(worktrees.length), detail: selectedProject ? "当前项目 worktree" : "选择项目后查看" },
     { title: "待办", value: "0", detail: "Phase 2 支持笔记转待办" },
     { title: "会话", value: "0", detail: "Phase 5 接入 Claude Code" }
   ];
@@ -98,8 +174,8 @@ export function App() {
       return <SessionPlaceholder />;
     }
 
-    return <TerminalPlaceholder apiConnected={apiConnected} selectedProject={selectedProject} />;
-  }, [activeSideTab, apiConnected, selectedProject]);
+    return <TerminalPlaceholder apiConnected={apiConnected} selectedProject={selectedProject} selectedWorktree={selectedWorktree} />;
+  }, [activeSideTab, apiConnected, selectedProject, selectedWorktree]);
 
   async function reloadProjects(preferredProjectId?: string | null) {
     setProjectsLoading(true);
@@ -116,6 +192,11 @@ export function App() {
       setProjectError(null);
 
       if (nextProject) {
+        if (nextProject.id !== selectedProjectId) {
+          setWorktrees([]);
+          setSelectedWorktreeId(null);
+        }
+
         setSelectedProjectId(nextProject.id);
         setProjectMode("edit");
         setProjectDraft(projectToDraft(nextProject));
@@ -123,31 +204,67 @@ export function App() {
         setSelectedProjectId(null);
         setProjectMode("create");
         setProjectDraft(emptyProjectDraft());
+        setWorktrees([]);
+        setSelectedWorktreeId(null);
       }
     } catch (error) {
-      setProjectError(error instanceof Error ? error.message : "项目列表加载失败");
+      setProjectError(formatError(error, "项目列表加载失败"));
     } finally {
       setProjectsLoading(false);
+    }
+  }
+
+  async function reloadWorktrees(projectId: string, preferredWorktreeId?: string | null) {
+    setWorktreesLoading(true);
+
+    try {
+      const data = await getWorktrees(projectId);
+      const nextWorktree =
+        (preferredWorktreeId ? data.worktrees.find((worktree) => worktree.id === preferredWorktreeId) : null) ??
+        data.worktrees.find((worktree) => worktree.id === selectedWorktreeId) ??
+        data.worktrees[0] ??
+        null;
+
+      setWorktrees(data.worktrees);
+      setSelectedWorktreeId(nextWorktree?.id ?? null);
+      setWorktreeError(null);
+    } catch (error) {
+      setWorktreeError(formatError(error, "Worktree 列表加载失败"));
+    } finally {
+      setWorktreesLoading(false);
     }
   }
 
   function startCreateProject() {
     setActiveMainTab("项目");
     setSelectedProjectId(null);
+    setSelectedWorktreeId(null);
+    setWorktrees([]);
     setProjectMode("create");
     setProjectDraft(emptyProjectDraft());
     setProjectError(null);
+    setWorktreeError(null);
   }
 
   function selectProject(project: ProjectSummary) {
     setSelectedProjectId(project.id);
+    setSelectedWorktreeId(null);
+    setWorktrees([]);
     setProjectMode("edit");
     setProjectDraft(projectToDraft(project));
     setProjectError(null);
+    setWorktreeError(null);
   }
 
   function updateProjectDraft(field: keyof ProjectDraft, value: string) {
     setProjectDraft((current) => ({
+      ...current,
+      [field]: value
+    }));
+  }
+
+  function updateWorktreeDraft(field: keyof WorktreeDraft, value: string) {
+    setWorktreeDraft((current) => ({
       ...current,
       [field]: value
     }));
@@ -167,7 +284,7 @@ export function App() {
         await reloadProjects(data.project.id);
       }
     } catch (error) {
-      setProjectError(error instanceof Error ? error.message : "项目保存失败");
+      setProjectError(formatError(error, "项目保存失败"));
     } finally {
       setSavingProject(false);
     }
@@ -178,7 +295,7 @@ export function App() {
       return;
     }
 
-    const confirmed = window.confirm("删除项目只会移除 Workhorse Station 中的记录，不会删除本地代码目录。确认删除？");
+    const confirmed = window.confirm("删除项目只会移除 Workhorse Station 中的记录，不会删除本地代码目录。若项目仍有 worktree，需要先删除 worktree。确认删除？");
 
     if (!confirmed) {
       return;
@@ -191,9 +308,56 @@ export function App() {
       await deleteProject(selectedProject.id);
       await reloadProjects(null);
     } catch (error) {
-      setProjectError(error instanceof Error ? error.message : "项目删除失败");
+      setProjectError(formatError(error, "项目删除失败"));
     } finally {
       setDeletingProject(false);
+    }
+  }
+
+  async function handleWorktreeSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedProject) {
+      return;
+    }
+
+    setSavingWorktree(true);
+    setWorktreeError(null);
+
+    try {
+      const data = await createWorktree(selectedProject.id, worktreeDraftToRequest(worktreeDraft));
+      setWorktreeDraft(emptyWorktreeDraft());
+      await reloadWorktrees(selectedProject.id, data.worktree.id);
+    } catch (error) {
+      setWorktreeError(formatError(error, "Worktree 创建失败"));
+    } finally {
+      setSavingWorktree(false);
+    }
+  }
+
+  async function handleWorktreeDelete(worktree: WorktreeSummary) {
+    if (!selectedProject) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `确认删除 worktree「${worktree.name}」？\n\n将删除目录：${worktree.path}\n将删除本地分支：${worktree.branch}\n\n如果存在未提交改动或未合并提交，后端会阻止删除。`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingWorktreeId(worktree.id);
+    setWorktreeError(null);
+
+    try {
+      await deleteWorktree(selectedProject.id, worktree.id, { confirmBranch: worktree.branch });
+      await reloadWorktrees(selectedProject.id, null);
+    } catch (error) {
+      setWorktreeError(formatError(error, "Worktree 删除失败"));
+    } finally {
+      setDeletingWorktreeId(null);
     }
   }
 
@@ -202,7 +366,7 @@ export function App() {
       <header className="flex h-16 items-center gap-3 border-b border-white/10 bg-[#111318] px-5">
         <div className="mr-2">
           <div className="text-sm font-semibold tracking-wide">Workhorse Station</div>
-          <div className="text-xs text-slate-400">Phase 1 项目管理</div>
+          <div className="text-xs text-slate-400">Phase 1 项目与 Worktree</div>
         </div>
         <button
           onClick={() => setActiveMainTab("项目")}
@@ -212,6 +376,12 @@ export function App() {
         </button>
         <button className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200">
           默认分支：{selectedProject?.defaultBranch ?? "main"}
+        </button>
+        <button
+          onClick={() => setActiveMainTab("项目")}
+          className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10"
+        >
+          Worktree：{selectedWorktree?.name ?? "未选择"}
         </button>
         <input
           className="min-w-72 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none placeholder:text-slate-500 focus:border-slate-400"
@@ -246,7 +416,7 @@ export function App() {
                 <h1 className="text-2xl font-semibold">{activeMainTab}</h1>
                 <p className="mt-1 text-sm text-slate-400">
                   {activeMainTab === "项目"
-                    ? "绑定本机 Git 仓库目录，作为 worktree、待办和会话的父级上下文。"
+                    ? "绑定本机 Git 仓库目录，并管理项目级 worktree。"
                     : "Notion 风格的列表 / 详情联动区域，当前保留后续模块占位。"}
                 </p>
               </div>
@@ -267,17 +437,28 @@ export function App() {
               <ProjectWorkspace
                 projects={projects}
                 selectedProject={selectedProject}
+                selectedWorktree={selectedWorktree}
                 mode={projectMode}
                 draft={projectDraft}
+                worktreeDraft={worktreeDraft}
+                worktrees={worktrees}
                 loading={projectsLoading}
+                worktreesLoading={worktreesLoading}
                 saving={savingProject}
                 deleting={deletingProject}
+                savingWorktree={savingWorktree}
+                deletingWorktreeId={deletingWorktreeId}
                 error={projectError}
+                worktreeError={worktreeError}
                 onCreate={startCreateProject}
                 onSelect={selectProject}
                 onDraftChange={updateProjectDraft}
                 onSubmit={handleProjectSubmit}
                 onDelete={handleProjectDelete}
+                onWorktreeDraftChange={updateWorktreeDraft}
+                onWorktreeSubmit={handleWorktreeSubmit}
+                onWorktreeSelect={(worktree) => setSelectedWorktreeId(worktree.id)}
+                onWorktreeDelete={handleWorktreeDelete}
               />
             ) : (
               <PlaceholderWorkspace apiConnected={apiConnected} apiError={apiState.error} databaseInfo={databaseInfo} />
@@ -309,34 +490,56 @@ export function App() {
 function ProjectWorkspace({
   projects,
   selectedProject,
+  selectedWorktree,
   mode,
   draft,
+  worktreeDraft,
+  worktrees,
   loading,
+  worktreesLoading,
   saving,
   deleting,
+  savingWorktree,
+  deletingWorktreeId,
   error,
+  worktreeError,
   onCreate,
   onSelect,
   onDraftChange,
   onSubmit,
-  onDelete
+  onDelete,
+  onWorktreeDraftChange,
+  onWorktreeSubmit,
+  onWorktreeSelect,
+  onWorktreeDelete
 }: {
   projects: ProjectSummary[];
   selectedProject: ProjectSummary | null;
+  selectedWorktree: WorktreeSummary | null;
   mode: ProjectMode;
   draft: ProjectDraft;
+  worktreeDraft: WorktreeDraft;
+  worktrees: WorktreeSummary[];
   loading: boolean;
+  worktreesLoading: boolean;
   saving: boolean;
   deleting: boolean;
+  savingWorktree: boolean;
+  deletingWorktreeId: string | null;
   error: string | null;
+  worktreeError: string | null;
   onCreate: () => void;
   onSelect: (project: ProjectSummary) => void;
   onDraftChange: (field: keyof ProjectDraft, value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onDelete: () => void;
+  onWorktreeDraftChange: (field: keyof WorktreeDraft, value: string) => void;
+  onWorktreeSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onWorktreeSelect: (worktree: WorktreeSummary) => void;
+  onWorktreeDelete: (worktree: WorktreeSummary) => void;
 }) {
   return (
-    <div className="mt-5 grid grid-cols-[minmax(0,0.95fr)_minmax(320px,0.65fr)] gap-4">
+    <div className="mt-5 grid grid-cols-[minmax(0,0.95fr)_minmax(360px,0.75fr)] gap-4">
       <section className="rounded-xl border border-white/10 bg-[#151821]">
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div className="text-sm font-medium">项目列表</div>
@@ -384,71 +587,199 @@ function ProjectWorkspace({
       </section>
 
       <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">
-          {mode === "create" ? "新建项目" : "项目详情 / 属性"}
+        <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">{mode === "create" ? "新建项目" : "项目详情 / 属性"}</div>
+        <div className="space-y-4 p-4 text-sm text-slate-300">
+          <form onSubmit={onSubmit} className="space-y-4">
+            <Field label="名称">
+              <input
+                value={draft.name}
+                onChange={(event) => onDraftChange("name", event.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
+                placeholder="workhorse-station"
+              />
+            </Field>
+            <Field label="代码目录">
+              <input
+                value={draft.path}
+                onChange={(event) => onDraftChange("path", event.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
+                placeholder="/home/wengfb/projects/workhorse-station"
+              />
+            </Field>
+            <Field label="默认分支">
+              <input
+                value={draft.defaultBranch}
+                onChange={(event) => onDraftChange("defaultBranch", event.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
+                placeholder="main"
+              />
+            </Field>
+            <Field label="备注">
+              <textarea
+                value={draft.description}
+                onChange={(event) => onDraftChange("description", event.target.value)}
+                className="min-h-24 w-full resize-none rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
+                placeholder="记录项目用途、约束或当前阶段"
+              />
+            </Field>
+
+            {selectedProject && mode === "edit" ? (
+              <div className="space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <DetailRow label="创建时间" value={formatDateTime(selectedProject.createdAt)} />
+                <DetailRow label="更新时间" value={formatDateTime(selectedProject.updatedAt)} />
+                <DetailRow label="Worktree 目录" value={`${selectedProject.path}/.claude/worktree/`} />
+              </div>
+            ) : null}
+
+            {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+
+            <div className="flex gap-2">
+              <button disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-60">
+                {saving ? "保存中..." : mode === "create" ? "创建项目" : "保存修改"}
+              </button>
+              {mode === "edit" ? (
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={onDelete}
+                  className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 disabled:opacity-60"
+                >
+                  {deleting ? "删除中..." : "删除项目"}
+                </button>
+              ) : null}
+            </div>
+          </form>
+
+          {selectedProject && mode === "edit" ? (
+            <WorktreePanel
+              project={selectedProject}
+              worktrees={worktrees}
+              selectedWorktree={selectedWorktree}
+              draft={worktreeDraft}
+              loading={worktreesLoading}
+              saving={savingWorktree}
+              deletingWorktreeId={deletingWorktreeId}
+              error={worktreeError}
+              onDraftChange={onWorktreeDraftChange}
+              onSubmit={onWorktreeSubmit}
+              onSelect={onWorktreeSelect}
+              onDelete={onWorktreeDelete}
+            />
+          ) : null}
         </div>
-        <form onSubmit={onSubmit} className="space-y-4 p-4 text-sm text-slate-300">
+      </section>
+    </div>
+  );
+}
+
+function WorktreePanel({
+  project,
+  worktrees,
+  selectedWorktree,
+  draft,
+  loading,
+  saving,
+  deletingWorktreeId,
+  error,
+  onDraftChange,
+  onSubmit,
+  onSelect,
+  onDelete
+}: {
+  project: ProjectSummary;
+  worktrees: WorktreeSummary[];
+  selectedWorktree: WorktreeSummary | null;
+  draft: WorktreeDraft;
+  loading: boolean;
+  saving: boolean;
+  deletingWorktreeId: string | null;
+  error: string | null;
+  onDraftChange: (field: keyof WorktreeDraft, value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSelect: (worktree: WorktreeSummary) => void;
+  onDelete: (worktree: WorktreeSummary) => void;
+}) {
+  return (
+    <section className="space-y-4 rounded-lg border border-white/10 bg-black/10 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium text-slate-100">Worktree 管理</div>
+          <div className="mt-1 text-xs text-slate-500">{project.path}/.claude/worktree/</div>
+        </div>
+        <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-400">{worktrees.length} 个</span>
+      </div>
+
+      <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+        <div className="grid grid-cols-3 gap-2">
           <Field label="名称">
             <input
               value={draft.name}
               onChange={(event) => onDraftChange("name", event.target.value)}
               className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
-              placeholder="workhorse-station"
+              placeholder="phase-1-task"
             />
           </Field>
-          <Field label="代码目录">
+          <Field label="分支（可选）">
             <input
-              value={draft.path}
-              onChange={(event) => onDraftChange("path", event.target.value)}
+              value={draft.branch}
+              onChange={(event) => onDraftChange("branch", event.target.value)}
               className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
-              placeholder="/home/wengfb/projects/workhorse-station"
+              placeholder="workhorse/name"
             />
           </Field>
-          <Field label="默认分支">
+          <Field label="基准（可选）">
             <input
-              value={draft.defaultBranch}
-              onChange={(event) => onDraftChange("defaultBranch", event.target.value)}
+              value={draft.baseBranch}
+              onChange={(event) => onDraftChange("baseBranch", event.target.value)}
               className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
-              placeholder="main"
+              placeholder={project.defaultBranch}
             />
           </Field>
-          <Field label="备注">
-            <textarea
-              value={draft.description}
-              onChange={(event) => onDraftChange("description", event.target.value)}
-              className="min-h-24 w-full resize-none rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
-              placeholder="记录项目用途、约束或当前阶段"
-            />
-          </Field>
+        </div>
+        <button disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-60">
+          {saving ? "创建中..." : "创建 worktree"}
+        </button>
+      </form>
 
-          {selectedProject && mode === "edit" ? (
-            <div className="space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3">
-              <DetailRow label="创建时间" value={formatDateTime(selectedProject.createdAt)} />
-              <DetailRow label="更新时间" value={formatDateTime(selectedProject.updatedAt)} />
-              <DetailRow label="Worktree 目录" value={`${selectedProject.path}/.claude/worktree/`} />
-            </div>
-          ) : null}
+      {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+      {loading ? <div className="rounded-lg border border-white/10 p-3 text-xs text-slate-400">Worktree 加载中...</div> : null}
+      {!loading && worktrees.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-white/10 p-4 text-xs text-slate-500">当前项目还没有 worktree。</div>
+      ) : null}
 
-          {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-
-          <div className="flex gap-2">
-            <button disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-60">
-              {saving ? "保存中..." : mode === "create" ? "创建项目" : "保存修改"}
-            </button>
-            {mode === "edit" ? (
+      {!loading && worktrees.length > 0 ? (
+        <div className="space-y-2">
+          {worktrees.map((worktree) => (
+            <div
+              key={worktree.id}
+              className={`flex items-start gap-3 rounded-lg border p-3 ${
+                selectedWorktree?.id === worktree.id ? "border-slate-300/50 bg-white/[0.08]" : "border-white/10 bg-white/[0.03]"
+              }`}
+            >
+              <button type="button" onClick={() => onSelect(worktree)} className="min-w-0 flex-1 text-left">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-medium text-slate-100">{worktree.name}</span>
+                  <WorktreeStatusPill status={worktree.status} />
+                </div>
+                <div className="mt-1 truncate text-xs text-slate-500">{worktree.path}</div>
+                <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500">
+                  <span className="truncate">分支：{worktree.branch}</span>
+                  <span className="shrink-0">更新：{formatDateTime(worktree.updatedAt)}</span>
+                </div>
+              </button>
               <button
                 type="button"
-                disabled={deleting}
-                onClick={onDelete}
-                className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 disabled:opacity-60"
+                disabled={deletingWorktreeId !== null}
+                onClick={() => onDelete(worktree)}
+                className="shrink-0 rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-200 disabled:opacity-60"
               >
-                {deleting ? "删除中..." : "删除项目"}
+                {deletingWorktreeId === worktree.id ? "删除中" : "删除"}
               </button>
-            ) : null}
-          </div>
-        </form>
-      </section>
-    </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -510,6 +841,24 @@ function StatusPill({ connected, loading }: { connected: boolean; loading: boole
   return <span className={`rounded-full border px-3 py-1 text-xs ${className}`}>{label}</span>;
 }
 
+function WorktreeStatusPill({ status }: { status: WorktreeStatus }) {
+  const styles: Record<WorktreeStatus, string> = {
+    clean: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
+    dirty: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+    missing: "border-red-400/30 bg-red-500/10 text-red-200",
+    unknown: "border-slate-400/30 bg-slate-400/10 text-slate-300"
+  };
+
+  const labels: Record<WorktreeStatus, string> = {
+    clean: "clean",
+    dirty: "dirty",
+    missing: "missing",
+    unknown: "unknown"
+  };
+
+  return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${styles[status]}`}>{labels[status]}</span>;
+}
+
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4">
@@ -519,7 +868,17 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function TerminalPlaceholder({ apiConnected, selectedProject }: { apiConnected: boolean; selectedProject: ProjectSummary | null }) {
+function TerminalPlaceholder({
+  apiConnected,
+  selectedProject,
+  selectedWorktree
+}: {
+  apiConnected: boolean;
+  selectedProject: ProjectSummary | null;
+  selectedWorktree: WorktreeSummary | null;
+}) {
+  const cwd = selectedWorktree?.path ?? selectedProject?.path ?? "-";
+
   return (
     <div className="h-full rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-emerald-200">
       <div>$ workhorse-station</div>
@@ -527,7 +886,10 @@ function TerminalPlaceholder({ apiConnected, selectedProject }: { apiConnected: 
       <div className="mt-4">API: {apiConnected ? "connected" : "waiting"}</div>
       <div className="mt-1">phase: 1</div>
       <div className="mt-1">project: {selectedProject?.name ?? "none"}</div>
-      <div className="mt-1 truncate">path: {selectedProject?.path ?? "-"}</div>
+      <div className="mt-1">worktree: {selectedWorktree?.name ?? "none"}</div>
+      <div className="mt-1">branch: {selectedWorktree?.branch ?? selectedProject?.defaultBranch ?? "-"}</div>
+      <div className="mt-1">status: {selectedWorktree?.status ?? "-"}</div>
+      <div className="mt-1 truncate">cwd: {cwd}</div>
       <div className="mt-1 animate-pulse">_</div>
     </div>
   );
@@ -561,6 +923,14 @@ function emptyProjectDraft(): ProjectDraft {
   };
 }
 
+function emptyWorktreeDraft(): WorktreeDraft {
+  return {
+    name: "",
+    branch: "",
+    baseBranch: ""
+  };
+}
+
 function projectToDraft(project: ProjectSummary): ProjectDraft {
   return {
     name: project.name,
@@ -577,6 +947,18 @@ function projectDraftToRequest(draft: ProjectDraft) {
     defaultBranch: draft.defaultBranch || "main",
     description: draft.description || null
   };
+}
+
+function worktreeDraftToRequest(draft: WorktreeDraft): CreateWorktreeRequest {
+  return {
+    name: draft.name,
+    branch: draft.branch.trim() || undefined,
+    baseBranch: draft.baseBranch.trim() || undefined
+  };
+}
+
+function formatError(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function formatDateTime(value: string) {

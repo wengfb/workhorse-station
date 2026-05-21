@@ -59,3 +59,39 @@ export type UpdateProjectRequest = Partial<CreateProjectRequest>;
 export type DeleteProjectResponse = {
   deleted: true;
 };
+
+export type WorktreeStatus = "clean" | "dirty" | "missing" | "unknown";
+
+export type WorktreeSummary = {
+  id: string;
+  projectId: string;
+  name: string;
+  path: string;
+  branch: string;
+  status: WorktreeStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorktreesResponse = {
+  worktrees: WorktreeSummary[];
+};
+
+export type WorktreeResponse = {
+  worktree: WorktreeSummary;
+};
+
+export type CreateWorktreeRequest = {
+  name: string;
+  branch?: string;
+  baseBranch?: string;
+};
+
+export type DeleteWorktreeRequest = {
+  confirmBranch: string;
+};
+
+export type DeleteWorktreeResponse = {
+  deleted: true;
+  deletedBranch: string;
+};
