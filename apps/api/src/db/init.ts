@@ -22,6 +22,7 @@ export async function initDatabase(databasePath = process.env.DATABASE_PATH ?? d
   const SQL = await initSqlJs();
   const db = existsSync(resolvedPath) ? new SQL.Database(readFileSync(resolvedPath)) : new SQL.Database();
 
+  db.exec("PRAGMA foreign_keys = ON;");
   createTables(db);
 
   const persist = () => {

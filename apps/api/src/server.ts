@@ -1,7 +1,9 @@
 import cors from "@fastify/cors";
 import Fastify from "fastify";
-import type { ApiResponse, HealthResponse, MetaResponse, ProjectsResponse } from "@workhorse-station/shared";
+import type { ApiResponse, HealthResponse, MetaResponse } from "@workhorse-station/shared";
 import { initDatabase } from "./db/init.js";
+import { isHttpError } from "./projects/http-error.js";
+import { registerProjectRoutes } from "./projects/project-routes.js";
 
 const host = process.env.API_HOST ?? "0.0.0.0";
 const port = Number(process.env.API_PORT ?? 3001);
@@ -18,6 +20,18 @@ await server.register(cors, {
 });
 
 server.setErrorHandler((error, _request, reply) => {
+  if (isHttpError(error)) {
+    const response: ApiResponse<never> = {
+      ok: false,
+      error: {
+        code: error.code,
+        message: error.message
+      }
+    };
+    reply.status(error.statusCode).send(response);
+    return;
+  }
+
   server.log.error(error);
   const response: ApiResponse<never> = {
     ok: false,
@@ -42,7 +56,7 @@ server.get("/api/meta", async (): Promise<ApiResponse<MetaResponse>> => ({
   ok: true,
   data: {
     appName: "Workhorse Station",
-    phase: "Phase 0",
+    phase: "Phase 1",
     database: {
       connected: database.connected,
       path: database.path,
@@ -51,12 +65,7 @@ server.get("/api/meta", async (): Promise<ApiResponse<MetaResponse>> => ({
   }
 }));
 
-server.get("/api/projects", async (): Promise<ApiResponse<ProjectsResponse>> => ({
-  ok: true,
-  data: {
-    projects: []
-  }
-}));
+await registerProjectRoutes(server, database);
 
 const close = async () => {
   await server.close();

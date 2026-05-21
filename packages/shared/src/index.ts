@@ -21,7 +21,7 @@ export type HealthResponse = {
 
 export type MetaResponse = {
   appName: "Workhorse Station";
-  phase: "Phase 0";
+  phase: "Phase 1";
   database: {
     connected: boolean;
     path: string;
@@ -41,4 +41,21 @@ export type ProjectSummary = {
 
 export type ProjectsResponse = {
   projects: ProjectSummary[];
+};
+
+export type ProjectResponse = {
+  project: ProjectSummary;
+};
+
+export type CreateProjectRequest = {
+  name: string;
+  path: string;
+  defaultBranch?: string;
+  description?: string | null;
+};
+
+export type UpdateProjectRequest = Partial<CreateProjectRequest>;
+
+export type DeleteProjectResponse = {
+  deleted: true;
 };
