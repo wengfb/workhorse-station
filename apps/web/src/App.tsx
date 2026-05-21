@@ -79,10 +79,12 @@ type MockSession = {
   createdAt: string;
 };
 
-const homeModes: Array<{ id: HomeMode; label: string; description: string }> = [
+const topModes: Array<{ id: HomeMode; label: string; description: string }> = [
   { id: "chat", label: "聊天", description: "左侧聊天会话列表，右侧简洁聊天区" },
   { id: "overview", label: "概览", description: "管理全局笔记、全局 Skill、最近项目和运行中会话" }
 ];
+
+const homeModes = topModes;
 
 const projectTabs: Array<{ id: ProjectTab; label: string }> = [
   { id: "overview", label: "总览" },
@@ -135,6 +137,7 @@ export function App() {
   const [chatDraft, setChatDraft] = useState("");
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [activeProjectTab, setActiveProjectTab] = useState<ProjectTab>("overview");
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [worktreeDialogOpen, setWorktreeDialogOpen] = useState(false);
   const [sessionModalOpen, setSessionModalOpen] = useState(false);
@@ -342,9 +345,7 @@ export function App() {
     setProjectDialogOpen(true);
   }
 
-  function selectProject(project: ProjectSummary) {
-    setWorkspaceScope("project");
-    setActiveProjectTab("overview");
+  function setCurrentProject(project: ProjectSummary) {
     setSelectedProjectId(project.id);
     setSelectedWorktreeId(null);
     setWorktrees([]);
@@ -352,6 +353,13 @@ export function App() {
     setProjectDraft(projectToDraft(project));
     setProjectError(null);
     setWorktreeError(null);
+  }
+
+  function selectProject(project: ProjectSummary) {
+    setCurrentProject(project);
+    setWorkspaceScope("project");
+    setActiveProjectTab("overview");
+    setProjectMenuOpen(false);
   }
 
   function updateProjectDraft(field: keyof ProjectDraft, value: string) {
@@ -567,40 +575,37 @@ export function App() {
           <div className="text-xs text-slate-400">全局工作台 / 项目执行上下文</div>
         </div>
 
-        {workspaceScope === "home" ? (
-          <HomeModeSelector value={activeHomeMode} modes={homeModes} onChange={setActiveHomeMode} />
-        ) : (
-          <button onClick={() => setWorkspaceScope("home")} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10">
-            返回首页
-          </button>
-        )}
-
-        <button
-          onClick={() => {
-            setWorkspaceScope("project");
-            setActiveProjectTab("overview");
+        <TopModeNav
+          value={workspaceScope === "home" ? activeHomeMode : null}
+          modes={topModes}
+          onChange={(mode) => {
+            setProjectMenuOpen(false);
+            setWorkspaceScope("home");
+            setActiveHomeMode(mode);
           }}
-          className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10"
-        >
-          项目：{selectedProject?.name ?? "未选择"}
-        </button>
-        <button className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200">
-          Worktree：{selectedWorktree?.name ?? "未选择"}
-        </button>
+        />
+
+        <ProjectMenu
+          open={projectMenuOpen}
+          projects={projects}
+          selectedProject={selectedProject}
+          loading={projectsLoading}
+          onToggle={() => setProjectMenuOpen((current) => !current)}
+          onSelect={(project) => {
+            setCurrentProject(project);
+            setProjectMenuOpen(false);
+          }}
+          onEnter={(project) => selectProject(project)}
+          onCreate={() => {
+            setProjectMenuOpen(false);
+            startCreateProject();
+          }}
+        />
+
         <input
           className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none placeholder:text-slate-500 focus:border-slate-400 max-md:hidden"
           placeholder="搜索项目、笔记、待办、Skill"
         />
-        <button onClick={startCreateProject} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
-          新建项目
-        </button>
-        <button
-          disabled={!selectedProject}
-          onClick={() => openSessionModal("direct")}
-          className="rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          新建会话
-        </button>
         <StatusPill connected={apiConnected} loading={apiState.loading} />
       </header>
 
@@ -700,27 +705,78 @@ export function App() {
   );
 }
 
-function HomeModeSelector({
+function TopModeNav({
   value,
   modes,
   onChange
 }: {
-  value: HomeMode;
+  value: HomeMode | null;
   modes: Array<{ id: HomeMode; label: string; description: string }>;
   onChange: (value: HomeMode) => void;
 }) {
   return (
-    <select
-      value={value}
-      onChange={(event) => onChange(event.target.value as HomeMode)}
-      className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-    >
+    <nav className="flex rounded-lg border border-white/10 bg-black/20 p-1">
       {modes.map((mode) => (
-        <option key={mode.id} value={mode.id}>
+        <button
+          key={mode.id}
+          onClick={() => onChange(mode.id)}
+          className={`rounded-md px-3 py-1.5 text-sm ${value === mode.id ? "bg-white text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-slate-100"}`}
+        >
           {mode.label}
-        </option>
+        </button>
       ))}
-    </select>
+    </nav>
+  );
+}
+
+function ProjectMenu({
+  open,
+  projects,
+  selectedProject,
+  loading,
+  onToggle,
+  onSelect,
+  onEnter,
+  onCreate
+}: {
+  open: boolean;
+  projects: ProjectSummary[];
+  selectedProject: ProjectSummary | null;
+  loading: boolean;
+  onToggle: () => void;
+  onSelect: (project: ProjectSummary) => void;
+  onEnter: (project: ProjectSummary) => void;
+  onCreate: () => void;
+}) {
+  return (
+    <div className="relative">
+      <button onClick={onToggle} className="min-w-44 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-slate-200 hover:bg-white/10">
+        <span className="block truncate">项目：{selectedProject?.name ?? "未选择"}</span>
+      </button>
+      {open ? (
+        <div className="absolute left-0 top-full z-30 mt-2 w-80 overflow-hidden rounded-xl border border-white/10 bg-[#151821] shadow-2xl">
+          <div className="border-b border-white/10 px-3 py-2 text-xs text-slate-500">项目列表</div>
+          <div className="max-h-80 overflow-auto p-2">
+            {loading ? <div className="px-3 py-3 text-sm text-slate-400">项目加载中...</div> : null}
+            {!loading && projects.length === 0 ? <div className="px-3 py-3 text-sm text-slate-500">还没有项目。</div> : null}
+            {projects.map((project) => (
+              <div key={project.id} className={`flex items-center gap-2 rounded-lg p-2 ${selectedProject?.id === project.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}>
+                <button onClick={() => onSelect(project)} className="min-w-0 flex-1 text-left">
+                  <div className="truncate text-sm text-slate-100">{project.name}</div>
+                  <div className="mt-1 truncate text-xs text-slate-500">{project.path}</div>
+                </button>
+                <button onClick={() => onEnter(project)} className="shrink-0 rounded-md border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/5">
+                  进入
+                </button>
+              </div>
+            ))}
+          </div>
+          <button onClick={onCreate} className="block w-full border-t border-white/10 px-3 py-2 text-left text-sm text-slate-200 hover:bg-white/5">
+            添加项目
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -767,28 +823,6 @@ function HomeWorkspace({
 }) {
   return (
     <div className={activeMode === "chat" ? "flex min-h-[calc(100vh-104px)] w-full flex-col" : "mx-auto flex w-full max-w-7xl flex-col gap-5"}>
-      {activeMode !== "chat" ? (
-        <div className="flex flex-col justify-between gap-3 rounded-2xl border border-white/10 bg-[#151821] p-5 sm:flex-row sm:items-start">
-          <div>
-            <div className="text-xs text-slate-500">首页 / {activeModeInfo.label}</div>
-            <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">{activeModeInfo.label}</h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-400">{activeModeInfo.description}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={onEnterProject} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10">
-              进入项目工作台
-            </button>
-            <button
-              disabled={!selectedProject}
-              onClick={onCreateSession}
-              className="rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              创建 Claude Code 会话
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       {activeMode === "chat" ? (
         <HomeChatWorkspace
           selectedProject={selectedProject}
@@ -941,7 +975,6 @@ function HomeOverviewWorkspace({
 }) {
   return (
     <div className="space-y-5">
-      <FeatureCardGrid cards={featureCards} />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.65fr)]">
         <CollectionPlaceholder
           title="全局管理入口"
