@@ -1,15 +1,25 @@
 import type {
   ApiResponse,
+  CreateNoteRequest,
   CreateProjectRequest,
+  CreateTodoRequest,
   CreateWorktreeRequest,
+  DeleteNoteResponse,
   DeleteProjectResponse,
+  DeleteTodoResponse,
   DeleteWorktreeRequest,
   DeleteWorktreeResponse,
   HealthResponse,
   MetaResponse,
+  NoteResponse,
+  NotesResponse,
   ProjectResponse,
   ProjectsResponse,
+  TodoResponse,
+  TodosResponse,
+  UpdateNoteRequest,
   UpdateProjectRequest,
+  UpdateTodoRequest,
   WorktreeResponse,
   WorktreesResponse
 } from "@workhorse-station/shared";
@@ -72,6 +82,54 @@ export function deleteWorktree(projectId: string, worktreeId: string, input: Del
   return fetchJson<DeleteWorktreeResponse>(`/api/projects/${projectId}/worktrees/${worktreeId}`, {
     method: "DELETE",
     body: input
+  });
+}
+
+export function getNotes(projectId: string) {
+  return fetchJson<NotesResponse>(`/api/projects/${projectId}/notes`);
+}
+
+export function createNote(projectId: string, input: CreateNoteRequest) {
+  return fetchJson<NoteResponse>(`/api/projects/${projectId}/notes`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function updateNote(projectId: string, noteId: string, input: UpdateNoteRequest) {
+  return fetchJson<NoteResponse>(`/api/projects/${projectId}/notes/${noteId}`, {
+    method: "PATCH",
+    body: input
+  });
+}
+
+export function deleteNote(projectId: string, noteId: string) {
+  return fetchJson<DeleteNoteResponse>(`/api/projects/${projectId}/notes/${noteId}`, {
+    method: "DELETE"
+  });
+}
+
+export function getTodos(projectId: string) {
+  return fetchJson<TodosResponse>(`/api/projects/${projectId}/todos`);
+}
+
+export function createTodo(projectId: string, input: CreateTodoRequest) {
+  return fetchJson<TodoResponse>(`/api/projects/${projectId}/todos`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function updateTodo(projectId: string, todoId: string, input: UpdateTodoRequest) {
+  return fetchJson<TodoResponse>(`/api/projects/${projectId}/todos/${todoId}`, {
+    method: "PATCH",
+    body: input
+  });
+}
+
+export function deleteTodo(projectId: string, todoId: string) {
+  return fetchJson<DeleteTodoResponse>(`/api/projects/${projectId}/todos/${todoId}`, {
+    method: "DELETE"
   });
 }
 

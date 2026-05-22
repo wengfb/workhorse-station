@@ -89,20 +89,22 @@
 - [x] 验证记录见 `docs/dev-progress.md`
 
 ### Phase 1：项目与 worktree
-- 项目 CRUD
-- 代码目录绑定
-- 项目级 worktree 管理（每个项目的 `.claude/worktree/` 下按名称保存）
-- worktree 列表、选择、状态展示
-- 基于任务启动会话时，可填写或选择已有 worktree 名称
-- 删除 worktree 时同步删除对应的本地 git 分支
-- 项目状态总览
+- [x] 项目 CRUD
+- [x] 代码目录绑定
+- [x] 项目级 worktree 管理（每个项目的 `.claude/worktree/` 下按名称保存）
+- [x] worktree 列表、选择、状态展示
+- [ ] 基于任务启动会话时，可填写或选择已有 worktree 名称
+- [x] 删除 worktree 时同步删除对应的本地 git 分支
+- [ ] 项目状态总览
+
+说明：会话启动时填写或选择已有 worktree 名称依赖真实 Claude Code 会话 / PTY / 会话系统，当前仍未接入；项目状态总览当前只有基础卡片和项目详情占位，尚未形成完整总览面板。
 
 ### Phase 2：笔记与待办
-- 全局笔记与项目笔记 CRUD
-- 笔记标签与搜索
-- 笔记转待办
-- 项目内待办状态、标签、来源关联
-- 从待办生成 prompt 草稿
+- [ ] 全局笔记与项目笔记 CRUD
+- [ ] 笔记标签与搜索
+- [ ] 笔记转待办
+- [ ] 项目内待办状态、标签、来源关联
+- [ ] 从待办生成 prompt 草稿
 
 ### Phase 3：Skill 系统
 - 全局 Skill 管理

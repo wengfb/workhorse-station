@@ -3,20 +3,31 @@ import type {
   CreateWorktreeRequest,
   HealthResponse,
   MetaResponse,
+  NoteSummary,
   ProjectSummary,
+  TodoStatus,
+  TodoSummary,
   WorktreeStatus,
   WorktreeSummary
 } from "@workhorse-station/shared";
 import {
+  createNote,
   createProject,
+  createTodo,
   createWorktree,
+  deleteNote,
   deleteProject,
+  deleteTodo,
   deleteWorktree,
   getHealth,
   getMeta,
+  getNotes,
   getProjects,
+  getTodos,
   getWorktrees,
-  updateProject
+  updateNote,
+  updateProject,
+  updateTodo
 } from "./api";
 
 type ApiState = {
@@ -37,6 +48,20 @@ type WorktreeDraft = {
   name: string;
   branch: string;
   baseBranch: string;
+};
+
+type NoteDraft = {
+  title: string;
+  content: string;
+  tags: string;
+};
+
+type TodoDraft = {
+  title: string;
+  description: string;
+  status: TodoStatus;
+  tags: string;
+  sourceNoteId: string;
 };
 
 type ProjectMode = "create" | "edit";
@@ -93,6 +118,13 @@ const projectTabs: Array<{ id: ProjectTab; label: string }> = [
   { id: "skills", label: "Skill" },
   { id: "sessions", label: "会话" },
   { id: "worktrees", label: "Worktree" }
+];
+
+const todoStatusOptions: Array<{ value: TodoStatus; label: string }> = [
+  { value: "draft", label: "草稿" },
+  { value: "pending", label: "待处理" },
+  { value: "in_progress", label: "进行中" },
+  { value: "completed", label: "已完成" }
 ];
 
 const mockTodos: MockTodo[] = [
@@ -166,6 +198,20 @@ export function App() {
   const [worktreeError, setWorktreeError] = useState<string | null>(null);
   const [savingWorktree, setSavingWorktree] = useState(false);
   const [deletingWorktreeId, setDeletingWorktreeId] = useState<string | null>(null);
+  const [notes, setNotes] = useState<NoteSummary[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState<NoteDraft>(emptyNoteDraft());
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [savingNote, setSavingNote] = useState(false);
+  const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
+  const [todos, setTodos] = useState<TodoSummary[]>([]);
+  const [todosLoading, setTodosLoading] = useState(false);
+  const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
+  const [todoDraft, setTodoDraft] = useState<TodoDraft>(emptyTodoDraft());
+  const [todosError, setTodosError] = useState<string | null>(null);
+  const [savingTodo, setSavingTodo] = useState(false);
+  const [deletingTodoId, setDeletingTodoId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -215,37 +261,74 @@ export function App() {
       setSelectedWorktreeId(null);
       setWorktreesLoading(false);
       setWorktreeError(null);
+      setNotes([]);
+      setSelectedNoteId(null);
+      setNotesLoading(false);
+      setNotesError(null);
+      setTodos([]);
+      setSelectedTodoId(null);
+      setTodosLoading(false);
+      setTodosError(null);
       return;
     }
 
-    async function loadWorktrees(projectId: string) {
+    async function loadProjectResources(projectId: string) {
       setWorktreesLoading(true);
       setWorktreeError(null);
+      setNotesLoading(true);
+      setNotesError(null);
+      setTodosLoading(true);
+      setTodosError(null);
 
-      try {
-        const data = await getWorktrees(projectId);
+      const [worktreesResult, notesResult, todosResult] = await Promise.allSettled([
+        getWorktrees(projectId),
+        getNotes(projectId),
+        getTodos(projectId)
+      ]);
 
-        if (cancelled) {
-          return;
-        }
-
-        const nextWorktree = data.worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? data.worktrees[0] ?? null;
-        setWorktrees(data.worktrees);
-        setSelectedWorktreeId(nextWorktree?.id ?? null);
-      } catch (error) {
-        if (!cancelled) {
-          setWorktreeError(formatError(error, "Worktree 列表加载失败"));
-          setWorktrees([]);
-          setSelectedWorktreeId(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setWorktreesLoading(false);
-        }
+      if (cancelled) {
+        return;
       }
+
+      if (worktreesResult.status === "fulfilled") {
+        const nextWorktree = worktreesResult.value.worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? worktreesResult.value.worktrees[0] ?? null;
+        setWorktrees(worktreesResult.value.worktrees);
+        setSelectedWorktreeId(nextWorktree?.id ?? null);
+        setWorktreeError(null);
+      } else {
+        setWorktrees([]);
+        setSelectedWorktreeId(null);
+        setWorktreeError(formatError(worktreesResult.reason, "Worktree 列表加载失败"));
+      }
+
+      if (notesResult.status === "fulfilled") {
+        const nextNote = notesResult.value.notes.find((note) => note.id === selectedNoteId) ?? notesResult.value.notes[0] ?? null;
+        setNotes(notesResult.value.notes);
+        setSelectedNoteId(nextNote?.id ?? null);
+        setNotesError(null);
+      } else {
+        setNotes([]);
+        setSelectedNoteId(null);
+        setNotesError(formatError(notesResult.reason, "项目笔记加载失败"));
+      }
+
+      if (todosResult.status === "fulfilled") {
+        const nextTodo = todosResult.value.todos.find((todo) => todo.id === selectedTodoId) ?? todosResult.value.todos[0] ?? null;
+        setTodos(todosResult.value.todos);
+        setSelectedTodoId(nextTodo?.id ?? null);
+        setTodosError(null);
+      } else {
+        setTodos([]);
+        setSelectedTodoId(null);
+        setTodosError(formatError(todosResult.reason, "项目待办加载失败"));
+      }
+
+      setWorktreesLoading(false);
+      setNotesLoading(false);
+      setTodosLoading(false);
     }
 
-    void loadWorktrees(selectedProjectId);
+    void loadProjectResources(selectedProjectId);
 
     return () => {
       cancelled = true;
@@ -254,8 +337,29 @@ export function App() {
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
   const selectedWorktree = worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? null;
+  const selectedNote = notes.find((note) => note.id === selectedNoteId) ?? null;
+  const selectedTodo = todos.find((todo) => todo.id === selectedTodoId) ?? null;
   const selectedSession = localSessions.find((session) => session.id === selectedSessionId) ?? localSessions[0] ?? null;
   const apiConnected = apiState.health?.status === "ok";
+
+  useEffect(() => {
+    if (selectedNote) {
+      setNoteDraft(noteToDraft(selectedNote));
+      return;
+    }
+
+    setNoteDraft(emptyNoteDraft());
+  }, [selectedNoteId, selectedProjectId]);
+
+  useEffect(() => {
+    if (selectedTodo) {
+      setTodoDraft(todoToDraft(selectedTodo));
+      return;
+    }
+
+    setTodoDraft(emptyTodoDraft());
+  }, [selectedTodoId, selectedProjectId]);
+
   const databaseInfo = apiState.meta?.database ?? null;
   const runningSessionCount = localSessions.filter((session) => session.status === "running").length;
   const homeMode = homeModes.find((mode) => mode.id === activeHomeMode) ?? homeModes[0];
@@ -325,6 +429,42 @@ export function App() {
     }
   }
 
+  async function reloadNotes(projectId: string, preferredNoteId?: string | null) {
+    setNotesLoading(true);
+
+    try {
+      const data = await getNotes(projectId);
+      const nextNote =
+        (preferredNoteId ? data.notes.find((note) => note.id === preferredNoteId) : null) ?? data.notes.find((note) => note.id === selectedNoteId) ?? data.notes[0] ?? null;
+
+      setNotes(data.notes);
+      setSelectedNoteId(nextNote?.id ?? null);
+      setNotesError(null);
+    } catch (error) {
+      setNotesError(formatError(error, "项目笔记加载失败"));
+    } finally {
+      setNotesLoading(false);
+    }
+  }
+
+  async function reloadTodos(projectId: string, preferredTodoId?: string | null) {
+    setTodosLoading(true);
+
+    try {
+      const data = await getTodos(projectId);
+      const nextTodo =
+        (preferredTodoId ? data.todos.find((todo) => todo.id === preferredTodoId) : null) ?? data.todos.find((todo) => todo.id === selectedTodoId) ?? data.todos[0] ?? null;
+
+      setTodos(data.todos);
+      setSelectedTodoId(nextTodo?.id ?? null);
+      setTodosError(null);
+    } catch (error) {
+      setTodosError(formatError(error, "项目待办加载失败"));
+    } finally {
+      setTodosLoading(false);
+    }
+  }
+
   function startCreateProject() {
     setWorkspaceScope("project");
     setActiveProjectTab("overview");
@@ -371,6 +511,20 @@ export function App() {
 
   function updateWorktreeDraft(field: keyof WorktreeDraft, value: string) {
     setWorktreeDraft((current) => ({
+      ...current,
+      [field]: value
+    }));
+  }
+
+  function updateNoteDraft(field: keyof NoteDraft, value: string) {
+    setNoteDraft((current) => ({
+      ...current,
+      [field]: value
+    }));
+  }
+
+  function updateTodoDraft(field: keyof TodoDraft, value: string) {
+    setTodoDraft((current) => ({
       ...current,
       [field]: value
     }));
@@ -472,10 +626,151 @@ export function App() {
     }
   }
 
+  async function handleNoteSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedProject) {
+      return;
+    }
+
+    setSavingNote(true);
+    setNotesError(null);
+
+    try {
+      const request = noteDraftToRequest(noteDraft);
+
+      if (selectedNote) {
+        const data = await updateNote(selectedProject.id, selectedNote.id, request);
+        await reloadNotes(selectedProject.id, data.note.id);
+      } else {
+        const data = await createNote(selectedProject.id, request);
+        await reloadNotes(selectedProject.id, data.note.id);
+      }
+    } catch (error) {
+      setNotesError(formatError(error, "项目笔记保存失败"));
+    } finally {
+      setSavingNote(false);
+    }
+  }
+
+  async function handleNoteDelete(note: NoteSummary) {
+    if (!selectedProject) {
+      return;
+    }
+
+    const confirmed = window.confirm(`确认删除笔记「${note.title}」？如果有待办引用它，来源关联会被清空。`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingNoteId(note.id);
+    setNotesError(null);
+
+    try {
+      await deleteNote(selectedProject.id, note.id);
+      await Promise.all([reloadNotes(selectedProject.id, null), reloadTodos(selectedProject.id, null)]);
+      setNoteDraft(emptyNoteDraft());
+    } catch (error) {
+      setNotesError(formatError(error, "项目笔记删除失败"));
+    } finally {
+      setDeletingNoteId(null);
+    }
+  }
+
+  async function handleCreateTodoFromNote() {
+    if (!selectedProject || !selectedNote) {
+      return;
+    }
+
+    setSavingTodo(true);
+    setTodosError(null);
+
+    try {
+      const data = await createTodo(selectedProject.id, {
+        title: selectedNote.title,
+        description: selectedNote.content,
+        sourceNoteId: selectedNote.id,
+        status: "draft",
+        tags: selectedNote.tags
+      });
+      await reloadTodos(selectedProject.id, data.todo.id);
+      setActiveProjectTab("todos");
+    } catch (error) {
+      setTodosError(formatError(error, "从笔记创建待办失败"));
+    } finally {
+      setSavingTodo(false);
+    }
+  }
+
+  async function handleTodoSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedProject) {
+      return;
+    }
+
+    setSavingTodo(true);
+    setTodosError(null);
+
+    try {
+      const request = todoDraftToRequest(todoDraft);
+
+      if (selectedTodo) {
+        const data = await updateTodo(selectedProject.id, selectedTodo.id, request);
+        await reloadTodos(selectedProject.id, data.todo.id);
+      } else {
+        const data = await createTodo(selectedProject.id, request);
+        await reloadTodos(selectedProject.id, data.todo.id);
+      }
+    } catch (error) {
+      setTodosError(formatError(error, "项目待办保存失败"));
+    } finally {
+      setSavingTodo(false);
+    }
+  }
+
+  async function handleTodoDelete(todo: TodoSummary) {
+    if (!selectedProject) {
+      return;
+    }
+
+    const confirmed = window.confirm(`确认删除待办「${todo.title}」？`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingTodoId(todo.id);
+    setTodosError(null);
+
+    try {
+      await deleteTodo(selectedProject.id, todo.id);
+      await reloadTodos(selectedProject.id, null);
+      setTodoDraft(emptyTodoDraft());
+    } catch (error) {
+      setTodosError(formatError(error, "项目待办删除失败"));
+    } finally {
+      setDeletingTodoId(null);
+    }
+  }
+
   function openWorktreeDialog() {
     setWorktreeDraft(emptyWorktreeDraft());
     setWorktreeError(null);
     setWorktreeDialogOpen(true);
+  }
+
+  function startCreateNote() {
+    setSelectedNoteId(null);
+    setNoteDraft(emptyNoteDraft());
+    setNotesError(null);
+  }
+
+  function startCreateTodo() {
+    setSelectedTodoId(null);
+    setTodoDraft(emptyTodoDraft());
+    setTodosError(null);
   }
 
   function createChatSession() {
@@ -647,6 +942,20 @@ export function App() {
             deletingWorktreeId={deletingWorktreeId}
             projectError={projectError}
             worktreeError={worktreeError}
+            notes={notes}
+            selectedNote={selectedNote}
+            notesLoading={notesLoading}
+            notesError={notesError}
+            noteDraft={noteDraft}
+            savingNote={savingNote}
+            deletingNoteId={deletingNoteId}
+            todos={todos}
+            selectedTodo={selectedTodo}
+            todosLoading={todosLoading}
+            todosError={todosError}
+            todoDraft={todoDraft}
+            savingTodo={savingTodo}
+            deletingTodoId={deletingTodoId}
             localSessions={localSessions}
             mockTodos={mockTodos}
             onCreateProject={startCreateProject}
@@ -656,6 +965,17 @@ export function App() {
             onCreateWorktree={openWorktreeDialog}
             onWorktreeSelect={(worktree) => setSelectedWorktreeId(worktree.id)}
             onWorktreeDelete={handleWorktreeDelete}
+            onCreateNote={startCreateNote}
+            onSelectNote={(note) => setSelectedNoteId(note.id)}
+            onNoteDraftChange={updateNoteDraft}
+            onSaveNote={handleNoteSave}
+            onDeleteNote={handleNoteDelete}
+            onCreateTodoFromNote={handleCreateTodoFromNote}
+            onCreateTodo={startCreateTodo}
+            onSelectTodo={(todo) => setSelectedTodoId(todo.id)}
+            onTodoDraftChange={updateTodoDraft}
+            onSaveTodo={handleTodoSave}
+            onDeleteTodo={handleTodoDelete}
             onOpenSession={openSessionModal}
           />
         )}
@@ -1022,6 +1342,20 @@ function ProjectWorkspacePage({
   deletingWorktreeId,
   projectError,
   worktreeError,
+  notes,
+  selectedNote,
+  notesLoading,
+  notesError,
+  noteDraft,
+  savingNote,
+  deletingNoteId,
+  todos,
+  selectedTodo,
+  todosLoading,
+  todosError,
+  todoDraft,
+  savingTodo,
+  deletingTodoId,
   localSessions,
   mockTodos,
   onCreateProject,
@@ -1031,6 +1365,17 @@ function ProjectWorkspacePage({
   onCreateWorktree,
   onWorktreeSelect,
   onWorktreeDelete,
+  onCreateNote,
+  onSelectNote,
+  onNoteDraftChange,
+  onSaveNote,
+  onDeleteNote,
+  onCreateTodoFromNote,
+  onCreateTodo,
+  onSelectTodo,
+  onTodoDraftChange,
+  onSaveTodo,
+  onDeleteTodo,
   onOpenSession
 }: {
   activeTab: ProjectTab;
@@ -1046,6 +1391,20 @@ function ProjectWorkspacePage({
   deletingWorktreeId: string | null;
   projectError: string | null;
   worktreeError: string | null;
+  notes: NoteSummary[];
+  selectedNote: NoteSummary | null;
+  notesLoading: boolean;
+  notesError: string | null;
+  noteDraft: NoteDraft;
+  savingNote: boolean;
+  deletingNoteId: string | null;
+  todos: TodoSummary[];
+  selectedTodo: TodoSummary | null;
+  todosLoading: boolean;
+  todosError: string | null;
+  todoDraft: TodoDraft;
+  savingTodo: boolean;
+  deletingTodoId: string | null;
   localSessions: MockSession[];
   mockTodos: MockTodo[];
   onCreateProject: () => void;
@@ -1055,6 +1414,17 @@ function ProjectWorkspacePage({
   onCreateWorktree: () => void;
   onWorktreeSelect: (worktree: WorktreeSummary) => void;
   onWorktreeDelete: (worktree: WorktreeSummary) => void;
+  onCreateNote: () => void;
+  onSelectNote: (note: NoteSummary) => void;
+  onNoteDraftChange: (field: keyof NoteDraft, value: string) => void;
+  onSaveNote: (event: FormEvent<HTMLFormElement>) => void;
+  onDeleteNote: (note: NoteSummary) => void;
+  onCreateTodoFromNote: () => void;
+  onCreateTodo: () => void;
+  onSelectTodo: (todo: TodoSummary) => void;
+  onTodoDraftChange: (field: keyof TodoDraft, value: string) => void;
+  onSaveTodo: (event: FormEvent<HTMLFormElement>) => void;
+  onDeleteTodo: (todo: TodoSummary) => void;
   onOpenSession: (source: SessionLaunchSource, todo?: MockTodo, sessionId?: string) => void;
 }) {
   return (
@@ -1097,6 +1467,20 @@ function ProjectWorkspacePage({
         deletingWorktreeId={deletingWorktreeId}
         projectError={projectError}
         worktreeError={worktreeError}
+        notes={notes}
+        selectedNote={selectedNote}
+        notesLoading={notesLoading}
+        notesError={notesError}
+        noteDraft={noteDraft}
+        savingNote={savingNote}
+        deletingNoteId={deletingNoteId}
+        todos={todos}
+        selectedTodo={selectedTodo}
+        todosLoading={todosLoading}
+        todosError={todosError}
+        todoDraft={todoDraft}
+        savingTodo={savingTodo}
+        deletingTodoId={deletingTodoId}
         localSessions={localSessions}
         mockTodos={mockTodos}
         onCreateProject={onCreateProject}
@@ -1106,6 +1490,17 @@ function ProjectWorkspacePage({
         onCreateWorktree={onCreateWorktree}
         onWorktreeSelect={onWorktreeSelect}
         onWorktreeDelete={onWorktreeDelete}
+        onCreateNote={onCreateNote}
+        onSelectNote={onSelectNote}
+        onNoteDraftChange={onNoteDraftChange}
+        onSaveNote={onSaveNote}
+        onDeleteNote={onDeleteNote}
+        onCreateTodoFromNote={onCreateTodoFromNote}
+        onCreateTodo={onCreateTodo}
+        onSelectTodo={onSelectTodo}
+        onTodoDraftChange={onTodoDraftChange}
+        onSaveTodo={onSaveTodo}
+        onDeleteTodo={onDeleteTodo}
         onOpenSession={onOpenSession}
       />
     </div>
@@ -1143,6 +1538,20 @@ function ProjectTabWorkspace({
   deletingWorktreeId,
   projectError,
   worktreeError,
+  notes,
+  selectedNote,
+  notesLoading,
+  notesError,
+  noteDraft,
+  savingNote,
+  deletingNoteId,
+  todos,
+  selectedTodo,
+  todosLoading,
+  todosError,
+  todoDraft,
+  savingTodo,
+  deletingTodoId,
   localSessions,
   mockTodos,
   onCreateProject,
@@ -1152,6 +1561,17 @@ function ProjectTabWorkspace({
   onCreateWorktree,
   onWorktreeSelect,
   onWorktreeDelete,
+  onCreateNote,
+  onSelectNote,
+  onNoteDraftChange,
+  onSaveNote,
+  onDeleteNote,
+  onCreateTodoFromNote,
+  onCreateTodo,
+  onSelectTodo,
+  onTodoDraftChange,
+  onSaveTodo,
+  onDeleteTodo,
   onOpenSession
 }: {
   activeTab: ProjectTab;
@@ -1166,6 +1586,20 @@ function ProjectTabWorkspace({
   deletingWorktreeId: string | null;
   projectError: string | null;
   worktreeError: string | null;
+  notes: NoteSummary[];
+  selectedNote: NoteSummary | null;
+  notesLoading: boolean;
+  notesError: string | null;
+  noteDraft: NoteDraft;
+  savingNote: boolean;
+  deletingNoteId: string | null;
+  todos: TodoSummary[];
+  selectedTodo: TodoSummary | null;
+  todosLoading: boolean;
+  todosError: string | null;
+  todoDraft: TodoDraft;
+  savingTodo: boolean;
+  deletingTodoId: string | null;
   localSessions: MockSession[];
   mockTodos: MockTodo[];
   onCreateProject: () => void;
@@ -1175,6 +1609,17 @@ function ProjectTabWorkspace({
   onCreateWorktree: () => void;
   onWorktreeSelect: (worktree: WorktreeSummary) => void;
   onWorktreeDelete: (worktree: WorktreeSummary) => void;
+  onCreateNote: () => void;
+  onSelectNote: (note: NoteSummary) => void;
+  onNoteDraftChange: (field: keyof NoteDraft, value: string) => void;
+  onSaveNote: (event: FormEvent<HTMLFormElement>) => void;
+  onDeleteNote: (note: NoteSummary) => void;
+  onCreateTodoFromNote: () => void;
+  onCreateTodo: () => void;
+  onSelectTodo: (todo: TodoSummary) => void;
+  onTodoDraftChange: (field: keyof TodoDraft, value: string) => void;
+  onSaveTodo: (event: FormEvent<HTMLFormElement>) => void;
+  onDeleteTodo: (todo: TodoSummary) => void;
   onOpenSession: (source: SessionLaunchSource, todo?: MockTodo, sessionId?: string) => void;
 }) {
   if (activeTab === "worktrees") {
@@ -1210,27 +1655,44 @@ function ProjectTabWorkspace({
 
   if (activeTab === "todos") {
     return (
-      <ProjectCollectionPlaceholder
-        title="项目待办"
-        description="待办属于具体项目，可从笔记或聊天生成，并可继续创建 Claude Code 会话。"
-        items={mockTodos.map((todo) => `${todo.priority} · ${todo.title}`)}
-        detailTitle="待办详情"
-        selectedProject={selectedProject}
-        actionLabel="从待办创建会话"
-        onAction={() => onOpenSession("todo", mockTodos[0])}
+      <TodoPanel
+        project={selectedProject}
+        notes={notes}
+        todos={todos}
+        selectedTodo={selectedTodo}
+        loading={todosLoading}
+        error={todosError}
+        draft={todoDraft}
+        saving={savingTodo}
+        deletingTodoId={deletingTodoId}
+        onCreate={onCreateTodo}
+        onSelect={onSelectTodo}
+        onDraftChange={onTodoDraftChange}
+        onSave={onSaveTodo}
+        onDelete={onDeleteTodo}
+        onOpenSession={onOpenSession}
       />
     );
   }
 
   if (activeTab === "notes") {
     return (
-      <ProjectCollectionPlaceholder
-        title="项目笔记"
-        description="项目笔记用于沉淀当前项目上下文，可转成待办草稿。"
-        items={["UI 信息架构调整", "Worktree 删除风险", "会话后台运行说明"]}
-        detailTitle="项目笔记详情"
-        selectedProject={selectedProject}
-        actionLabel="生成待办草稿"
+      <NotePanel
+        project={selectedProject}
+        notes={notes}
+        selectedNote={selectedNote}
+        loading={notesLoading}
+        error={notesError}
+        draft={noteDraft}
+        saving={savingNote}
+        creatingTodo={savingTodo}
+        deletingNoteId={deletingNoteId}
+        onCreate={onCreateNote}
+        onSelect={onSelectNote}
+        onDraftChange={onNoteDraftChange}
+        onSave={onSaveNote}
+        onDelete={onDeleteNote}
+        onCreateTodo={onCreateTodoFromNote}
       />
     );
   }
@@ -1991,7 +2453,7 @@ function PlaceholderWorkspace({
       <section className="rounded-xl border border-white/10 bg-[#151821]">
         <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">系统状态</div>
         <div className="space-y-4 p-4 text-sm text-slate-300">
-          <DetailRow label="当前阶段" value="Phase 1 + UI 方向调整" />
+          <DetailRow label="当前阶段" value="Phase 2" />
           <DetailRow label="API 状态" value={apiConnected ? "已连接" : "未连接"} />
           <DetailRow label="SQLite" value={databaseInfo?.connected ? "已初始化" : "等待后端"} />
           <DetailRow label="FTS5" value={databaseInfo ? (databaseInfo.fts5 ? "可用" : "不可用") : "未知"} />
@@ -2139,6 +2601,383 @@ function worktreeDraftToRequest(draft: WorktreeDraft): CreateWorktreeRequest {
     branch: draft.branch.trim() || undefined,
     baseBranch: draft.baseBranch.trim() || undefined
   };
+}
+
+function emptyNoteDraft(): NoteDraft {
+  return {
+    title: "",
+    content: "",
+    tags: ""
+  };
+}
+
+function emptyTodoDraft(): TodoDraft {
+  return {
+    title: "",
+    description: "",
+    status: "pending",
+    tags: "",
+    sourceNoteId: ""
+  };
+}
+
+function noteToDraft(note: NoteSummary): NoteDraft {
+  return {
+    title: note.title,
+    content: note.content,
+    tags: note.tags.join(", ")
+  };
+}
+
+function todoToDraft(todo: TodoSummary): TodoDraft {
+  return {
+    title: todo.title,
+    description: todo.description,
+    status: todo.status,
+    tags: todo.tags.join(", "),
+    sourceNoteId: todo.sourceNoteId ?? ""
+  };
+}
+
+function parseTagsInput(input: string): string[] {
+  return input
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+function noteDraftToRequest(draft: NoteDraft) {
+  return {
+    title: draft.title.trim(),
+    content: draft.content,
+    tags: parseTagsInput(draft.tags)
+  };
+}
+
+function todoDraftToRequest(draft: TodoDraft) {
+  return {
+    title: draft.title.trim(),
+    description: draft.description,
+    status: draft.status,
+    tags: parseTagsInput(draft.tags),
+    sourceNoteId: draft.sourceNoteId || null
+  };
+}
+
+function NotePanel({
+  project,
+  notes,
+  selectedNote,
+  loading,
+  error,
+  draft,
+  saving,
+  creatingTodo,
+  deletingNoteId,
+  onCreate,
+  onSelect,
+  onDraftChange,
+  onSave,
+  onDelete,
+  onCreateTodo
+}: {
+  project: ProjectSummary | null;
+  notes: NoteSummary[];
+  selectedNote: NoteSummary | null;
+  loading: boolean;
+  error: string | null;
+  draft: NoteDraft;
+  saving: boolean;
+  creatingTodo: boolean;
+  deletingNoteId: string | null;
+  onCreate: () => void;
+  onSelect: (note: NoteSummary) => void;
+  onDraftChange: (field: keyof NoteDraft, value: string) => void;
+  onSave: (event: FormEvent<HTMLFormElement>) => void;
+  onDelete: (note: NoteSummary) => void;
+  onCreateTodo: () => void;
+}) {
+  if (!project) {
+    return <EmptyProjectNotice onCreateProject={() => undefined} />;
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.8fr)]">
+      <section className="rounded-xl border border-white/10 bg-[#151821]">
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+          <div>
+            <div className="text-sm font-medium">项目笔记</div>
+            <div className="mt-1 text-xs text-slate-500">沉淀项目上下文，并可直接生成来源待办。</div>
+          </div>
+          <button onClick={onCreate} className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950">
+            新建笔记
+          </button>
+        </div>
+        <div className="min-h-[320px] divide-y divide-white/10">
+          {loading ? <div className="px-4 py-6 text-sm text-slate-400">项目笔记加载中...</div> : null}
+          {!loading && notes.length === 0 ? <div className="px-4 py-8 text-sm text-slate-500">当前项目还没有笔记，先创建一条上下文记录。</div> : null}
+          {!loading
+            ? notes.map((note) => (
+                <button
+                  key={note.id}
+                  onClick={() => onSelect(note)}
+                  className={`block w-full px-4 py-3 text-left text-sm ${selectedNote?.id === note.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-slate-100">{note.title}</div>
+                      <div className="mt-1 line-clamp-2 text-xs text-slate-500">{note.content || "暂无正文"}</div>
+                    </div>
+                    <span className="shrink-0 text-xs text-slate-500">{formatDateTime(note.updatedAt)}</span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {note.tags.length > 0 ? note.tags.map((tag) => <span key={tag} className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-slate-300">{tag}</span>) : <span className="text-xs text-slate-600">无标签</span>}
+                  </div>
+                </button>
+              ))
+            : null}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
+        <div className="flex items-center justify-between gap-3">
+          <div className="font-medium text-slate-100">{selectedNote ? "笔记详情" : "新建笔记"}</div>
+          {selectedNote ? (
+            <button
+              type="button"
+              disabled={creatingTodo}
+              onClick={onCreateTodo}
+              className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 disabled:opacity-50"
+            >
+              {creatingTodo ? "创建中..." : "创建待办"}
+            </button>
+          ) : null}
+        </div>
+        <form onSubmit={onSave} className="mt-4 space-y-4">
+          <Field label="标题">
+            <input
+              value={draft.title}
+              onChange={(event) => onDraftChange("title", event.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+              placeholder="例如：会话入口梳理"
+            />
+          </Field>
+          <Field label="标签">
+            <input
+              value={draft.tags}
+              onChange={(event) => onDraftChange("tags", event.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+              placeholder="逗号分隔，例如：ui, session"
+            />
+          </Field>
+          <Field label="正文">
+            <textarea
+              value={draft.content}
+              onChange={(event) => onDraftChange("content", event.target.value)}
+              className="min-h-52 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+              placeholder="记录项目上下文、约束或想法。"
+            />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <button disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
+              {saving ? "保存中..." : selectedNote ? "保存修改" : "创建笔记"}
+            </button>
+            {selectedNote ? (
+              <button
+                type="button"
+                disabled={deletingNoteId === selectedNote.id}
+                onClick={() => onDelete(selectedNote)}
+                className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
+              >
+                {deletingNoteId === selectedNote.id ? "删除中..." : "删除笔记"}
+              </button>
+            ) : null}
+          </div>
+          {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function TodoPanel({
+  project,
+  notes,
+  todos,
+  selectedTodo,
+  loading,
+  error,
+  draft,
+  saving,
+  deletingTodoId,
+  onCreate,
+  onSelect,
+  onDraftChange,
+  onSave,
+  onDelete,
+  onOpenSession
+}: {
+  project: ProjectSummary | null;
+  notes: NoteSummary[];
+  todos: TodoSummary[];
+  selectedTodo: TodoSummary | null;
+  loading: boolean;
+  error: string | null;
+  draft: TodoDraft;
+  saving: boolean;
+  deletingTodoId: string | null;
+  onCreate: () => void;
+  onSelect: (todo: TodoSummary) => void;
+  onDraftChange: (field: keyof TodoDraft, value: string) => void;
+  onSave: (event: FormEvent<HTMLFormElement>) => void;
+  onDelete: (todo: TodoSummary) => void;
+  onOpenSession: (source: SessionLaunchSource, todo?: MockTodo, sessionId?: string) => void;
+}) {
+  if (!project) {
+    return <EmptyProjectNotice onCreateProject={() => undefined} />;
+  }
+
+  const noteOptions = notes.map((note) => ({ id: note.id, title: note.title }));
+  const linkedNote = draft.sourceNoteId ? noteOptions.find((note) => note.id === draft.sourceNoteId) ?? null : null;
+
+  return (
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.8fr)]">
+      <section className="rounded-xl border border-white/10 bg-[#151821]">
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+          <div>
+            <div className="text-sm font-medium">项目待办</div>
+            <div className="mt-1 text-xs text-slate-500">待办属于具体项目，可保留状态、标签和来源笔记关联。</div>
+          </div>
+          <button onClick={onCreate} className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950">
+            新建待办
+          </button>
+        </div>
+        <div className="min-h-[320px] divide-y divide-white/10">
+          {loading ? <div className="px-4 py-6 text-sm text-slate-400">项目待办加载中...</div> : null}
+          {!loading && todos.length === 0 ? <div className="px-4 py-8 text-sm text-slate-500">当前项目还没有待办，可以手动创建或从笔记生成。</div> : null}
+          {!loading
+            ? todos.map((todo) => (
+                <button
+                  key={todo.id}
+                  onClick={() => onSelect(todo)}
+                  className={`block w-full px-4 py-3 text-left text-sm ${selectedTodo?.id === todo.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-slate-100">{todo.title}</div>
+                      <div className="mt-1 line-clamp-2 text-xs text-slate-500">{todo.description || "暂无描述"}</div>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-slate-300">{formatTodoStatus(todo.status)}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500">
+                    <span className="truncate">来源：{todo.sourceNoteId ? "关联笔记" : "无"}</span>
+                    <span>{formatDateTime(todo.updatedAt)}</span>
+                  </div>
+                </button>
+              ))
+            : null}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
+        <div className="flex items-center justify-between gap-3">
+          <div className="font-medium text-slate-100">{selectedTodo ? "待办详情" : "新建待办"}</div>
+          {selectedTodo ? (
+            <button
+              type="button"
+              onClick={() => onOpenSession("todo", { id: selectedTodo.id, title: selectedTodo.title, status: "", priority: "", source: "" })}
+              className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200"
+            >
+              从待办创建会话
+            </button>
+          ) : null}
+        </div>
+        <form onSubmit={onSave} className="mt-4 space-y-4">
+          <Field label="标题">
+            <input
+              value={draft.title}
+              onChange={(event) => onDraftChange("title", event.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+              placeholder="例如：补完项目页 notes/todos 面板"
+            />
+          </Field>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="状态">
+              <select
+                value={draft.status}
+                onChange={(event) => onDraftChange("status", event.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+              >
+                {todoStatusOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="来源笔记">
+              <select
+                value={draft.sourceNoteId}
+                onChange={(event) => onDraftChange("sourceNoteId", event.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+              >
+                <option value="">不关联</option>
+                {noteOptions.map((note) => (
+                  <option key={note.id} value={note.id}>
+                    {note.title}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <Field label="标签">
+            <input
+              value={draft.tags}
+              onChange={(event) => onDraftChange("tags", event.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+              placeholder="逗号分隔，例如：phase2, api"
+            />
+          </Field>
+          <Field label="描述">
+            <textarea
+              value={draft.description}
+              onChange={(event) => onDraftChange("description", event.target.value)}
+              className="min-h-40 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+              placeholder="补充待办目标、验收点或限制。"
+            />
+          </Field>
+          {linkedNote ? <p className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">当前关联笔记：{linkedNote.title}</p> : null}
+          <div className="flex flex-wrap gap-2">
+            <button disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
+              {saving ? "保存中..." : selectedTodo ? "保存修改" : "创建待办"}
+            </button>
+            {selectedTodo ? (
+              <button
+                type="button"
+                disabled={deletingTodoId === selectedTodo.id}
+                onClick={() => onDelete(selectedTodo)}
+                className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
+              >
+                {deletingTodoId === selectedTodo.id ? "删除中..." : "删除待办"}
+              </button>
+            ) : null}
+          </div>
+          {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function formatTodoStatus(status: TodoStatus) {
+  const labels: Record<TodoStatus, string> = {
+    draft: "草稿",
+    pending: "待处理",
+    in_progress: "进行中",
+    completed: "已完成"
+  };
+
+  return labels[status];
 }
 
 function formatError(error: unknown, fallback: string) {

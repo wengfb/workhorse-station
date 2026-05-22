@@ -5,10 +5,11 @@
 
 ## 文档索引
 - `./CLAUDE.md`：当前项目的协作约定、设计原则、技术路线
-- `./dev-management-plan.md`：整体开发计划、阶段拆分、参考 Codeman 的结论
-- `./dev-management-prototype.md`：原型阶段的页面布局和交互草图
-- `./dev-management-mvp.md`：MVP 范围、核心功能和验收标准
-- `./dev-management-tech-stack.md`：技术选型说明和方案取舍
+- `./docs/dev-management-plan.md`：整体开发计划、阶段拆分、参考 Codeman 的结论
+- `./docs/dev-management-prototype.md`：原型阶段的页面布局和交互草图
+- `./docs/dev-management-mvp.md`：MVP 范围、核心功能和验收标准
+- `./docs/dev-management-tech-stack.md`：技术选型说明和方案取舍
+- `./docs/dev-progress.md`：实际开发进度、阶段结论和验收记录
 - `./Codeman/`：参考项目本体，当前项目只借鉴其实现思路，不直接把它当成本项目
 
 ## 设计约定
