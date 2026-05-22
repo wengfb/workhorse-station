@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { SessionSource, SessionStatus, SessionSummary } from "@workhorse-station/shared";
+import type { SessionRuntimeStatus, SessionSource, SessionStatus, SessionSummary } from "@workhorse-station/shared";
 import type { Database } from "sql.js";
 
 export type SessionWriteInput = {
@@ -13,7 +13,13 @@ export type SessionWriteInput = {
   name: string;
   prompt: string;
   status: SessionStatus;
+  runtimeStatus: SessionRuntimeStatus | null;
   summary: string | null;
+  pid: number | null;
+  cwd: string | null;
+  resolvedWorktreePath: string | null;
+  exitCode: number | null;
+  lastActivityAt: string | null;
 };
 
 type SessionRow = {
@@ -27,7 +33,13 @@ type SessionRow = {
   name: string;
   prompt: string;
   status: SessionStatus;
+  runtime_status: SessionRuntimeStatus | null;
   summary: string | null;
+  pid: number | null;
+  cwd: string | null;
+  resolved_worktree_path: string | null;
+  exit_code: number | null;
+  last_activity_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -35,7 +47,7 @@ type SessionRow = {
 export function listSessions(db: Database, projectId: string) {
   return selectRows(
     db,
-    `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, summary, created_at, updated_at
+    `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, created_at, updated_at
      FROM sessions
      WHERE project_id = ?
      ORDER BY updated_at DESC, created_at DESC`,
@@ -46,7 +58,7 @@ export function listSessions(db: Database, projectId: string) {
 export function getProjectSession(db: Database, projectId: string, sessionId: string) {
   return selectOne(
     db,
-    `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, summary, created_at, updated_at
+    `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, created_at, updated_at
      FROM sessions
      WHERE project_id = ? AND id = ?`,
     [projectId, sessionId]
@@ -56,8 +68,8 @@ export function getProjectSession(db: Database, projectId: string, sessionId: st
 export function createSessionRecord(db: Database, input: SessionWriteInput) {
   const id = input.id ?? randomUUID();
   db.run(
-    `INSERT INTO sessions (id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, summary)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO sessions (id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.projectId,
@@ -69,7 +81,13 @@ export function createSessionRecord(db: Database, input: SessionWriteInput) {
       input.name,
       input.prompt,
       input.status,
-      input.summary
+      input.runtimeStatus,
+      input.summary,
+      input.pid,
+      input.cwd,
+      input.resolvedWorktreePath,
+      input.exitCode,
+      input.lastActivityAt
     ]
   );
 
@@ -88,18 +106,105 @@ export function updateSessionRecord(
   sessionId: string,
   updates: {
     name: string;
-    status: SessionStatus;
     summary: string | null;
   }
 ) {
   db.run(
     `UPDATE sessions
-     SET name = ?, status = ?, summary = ?, updated_at = CURRENT_TIMESTAMP
+     SET name = ?, summary = ?, updated_at = CURRENT_TIMESTAMP
      WHERE project_id = ? AND id = ?`,
-    [updates.name, updates.status, updates.summary, projectId, sessionId]
+    [updates.name, updates.summary, projectId, sessionId]
   );
 
   return getProjectSession(db, projectId, sessionId);
+}
+
+export function updateSessionLaunch(
+  db: Database,
+  projectId: string,
+  sessionId: string,
+  updates: {
+    status: SessionStatus;
+    runtimeStatus: SessionRuntimeStatus | null;
+    worktreeId: string | null;
+    requestedWorktreeName: string | null;
+    pid: number | null;
+    cwd: string | null;
+    resolvedWorktreePath: string | null;
+    lastActivityAt: string | null;
+    summary: string | null;
+  }
+) {
+  db.run(
+    `UPDATE sessions
+     SET status = ?, runtime_status = ?, worktree_id = ?, requested_worktree_name = ?, pid = ?, cwd = ?, resolved_worktree_path = ?, last_activity_at = ?, summary = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE project_id = ? AND id = ?`,
+    [
+      updates.status,
+      updates.runtimeStatus,
+      updates.worktreeId,
+      updates.requestedWorktreeName,
+      updates.pid,
+      updates.cwd,
+      updates.resolvedWorktreePath,
+      updates.lastActivityAt,
+      updates.summary,
+      projectId,
+      sessionId
+    ]
+  );
+
+  return getProjectSession(db, projectId, sessionId);
+}
+
+export function updateSessionRuntime(
+  db: Database,
+  projectId: string,
+  sessionId: string,
+  updates: {
+    runtimeStatus: SessionRuntimeStatus | null;
+    pid: number | null;
+    lastActivityAt: string | null;
+  }
+) {
+  db.run(
+    `UPDATE sessions
+     SET runtime_status = ?, pid = ?, last_activity_at = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE project_id = ? AND id = ?`,
+    [updates.runtimeStatus, updates.pid, updates.lastActivityAt, projectId, sessionId]
+  );
+
+  return getProjectSession(db, projectId, sessionId);
+}
+
+export function updateSessionCompletion(
+  db: Database,
+  projectId: string,
+  sessionId: string,
+  updates: {
+    status: SessionStatus;
+    runtimeStatus: SessionRuntimeStatus | null;
+    exitCode: number | null;
+    lastActivityAt: string | null;
+    summary: string | null;
+  }
+) {
+  db.run(
+    `UPDATE sessions
+     SET status = ?, runtime_status = ?, pid = NULL, exit_code = ?, last_activity_at = ?, summary = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE project_id = ? AND id = ?`,
+    [updates.status, updates.runtimeStatus, updates.exitCode, updates.lastActivityAt, updates.summary, projectId, sessionId]
+  );
+
+  return getProjectSession(db, projectId, sessionId);
+}
+
+export function reconcileSessionsOnStartup(db: Database) {
+  db.run(
+    `UPDATE sessions
+     SET status = 'completed', runtime_status = 'stopped', pid = NULL, updated_at = CURRENT_TIMESTAMP
+     WHERE status IN ('running', 'queued') OR runtime_status IN ('starting', 'running', 'stopping')`
+  );
 }
 
 export function deleteSessionRecord(db: Database, projectId: string, sessionId: string) {
@@ -148,7 +253,13 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     name: row.name,
     prompt: row.prompt,
     status: row.status,
+    runtimeStatus: row.runtime_status,
     summary: row.summary,
+    pid: row.pid,
+    cwd: row.cwd,
+    resolvedWorktreePath: row.resolved_worktree_path,
+    exitCode: row.exit_code,
+    lastActivityAt: row.last_activity_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

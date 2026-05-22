@@ -1,5 +1,6 @@
 import type { FormEvent, ReactNode } from "react";
-import type { ProjectSummary, PromptDraftSummary, SessionSource, SessionStatus, SessionSummary, TodoSummary, WorktreeSummary } from "@workhorse-station/shared";
+import type { ProjectSummary, PromptDraftSummary, SessionSource, SessionStatus, SessionStreamEvent, SessionSummary, TodoSummary, WorktreeSummary } from "@workhorse-station/shared";
+import { SessionTerminal } from "./session-terminal";
 
 export type SessionEditorDraft = {
   sessionName: string;
@@ -46,7 +47,7 @@ export function SessionsWorkspace({
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <div>
             <div className="text-sm font-medium text-slate-100">Claude Code 会话</div>
-            <p className="mt-1 text-xs text-slate-500">会话记录已持久化，PTY / Claude Code 运行还未接入。</p>
+            <p className="mt-1 text-xs text-slate-500">会话已接入真实启动，可绑定已有 Worktree 或在启动时自动创建新 Worktree。</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button onClick={() => onOpenSession("direct")} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
@@ -96,7 +97,7 @@ export function SessionsWorkspace({
           <DetailRow label="Prompt 草稿" value={String(promptDrafts.length)} />
           <DetailRow label="关闭窗口" value="后台运行，不停止会话" />
         </div>
-        <p className="mt-4 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100">当前版本只保存 prompt 草稿和会话元数据，真实终端执行会在下一阶段接入。</p>
+        <p className="mt-4 rounded-lg border border-emerald-400/30 bg-emerald-400/10 p-3 text-xs text-emerald-100">当前版本支持真实 Claude Code 会话启动、终端输出和停止操作；删除会话不会自动删除关联 Worktree。</p>
       </section>
     </div>
   );
@@ -143,7 +144,7 @@ export function CreateSessionModal({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
           <div>
             <div className="text-sm font-semibold text-slate-100">创建 Claude Code 会话</div>
-            <div className="mt-1 text-xs text-slate-500">先确认 prompt 草稿，再创建会话记录；创建成功后进入会话窗口。</div>
+            <div className="mt-1 text-xs text-slate-500">先确认 prompt 草稿，再真实启动 Claude Code 会话并打开终端。</div>
           </div>
           <button onClick={onClose} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10">
             关闭
@@ -218,6 +219,7 @@ export function CreateSessionModal({
                 />
               </Field>
             </div>
+            <p className="mt-2 text-xs text-slate-500">已有 Worktree 和新 Worktree 名称二选一；填写新名称时会在启动会话时自动创建。</p>
             <div className="mt-4">
               <Field label="Prompt 正文">
                 <textarea
@@ -252,7 +254,7 @@ export function CreateSessionModal({
                 onClick={onCreateSession}
                 className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {creatingSession ? "创建中..." : "创建会话并打开"}
+                {creatingSession ? "启动中..." : "启动会话并打开"}
               </button>
             </div>
           </section>
@@ -265,7 +267,6 @@ export function CreateSessionModal({
 export function SessionModal({
   sessions,
   selectedSession,
-  selectedPromptDraft,
   selectedProject,
   selectedWorktree,
   todos,
@@ -282,11 +283,11 @@ export function SessionModal({
   onSelectSession,
   onStopSession,
   onDeleteSession,
+  onRuntimeEvent,
   onClose
 }: {
   sessions: SessionSummary[];
   selectedSession: SessionSummary | null;
-  selectedPromptDraft: PromptDraftSummary | null;
   selectedProject: ProjectSummary | null;
   selectedWorktree: WorktreeSummary | null;
   todos: TodoSummary[];
@@ -303,12 +304,14 @@ export function SessionModal({
   onSelectSession: (session: SessionSummary) => void;
   onStopSession: (session: SessionSummary) => void;
   onDeleteSession: (session: SessionSummary) => void;
+  onRuntimeEvent: (event: SessionStreamEvent) => void;
   onClose: () => void;
 }) {
   const sessionWorktree = selectedSession?.worktreeId ? worktrees.find((worktree) => worktree.id === selectedSession.worktreeId) ?? null : null;
   const sessionSource = selectedSession?.source ?? source;
   const sessionStatus = selectedSession?.status ?? "draft";
   const selectedSessionTodo = selectedSession?.todoId ? todos.find((todo) => todo.id === selectedSession.todoId) ?? null : null;
+  const runtimeStatus = selectedSession?.runtimeStatus ?? null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 p-0 md:p-6">
@@ -316,7 +319,7 @@ export function SessionModal({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-slate-100">会话执行：{selectedSession?.name || draft.sessionName || "新会话"}</div>
-            <div className="mt-1 text-xs text-slate-500">这里只展示已创建会话的记录和占位终端，真实 PTY 尚未接入。</div>
+            <div className="mt-1 text-xs text-slate-500">真实 Claude Code PTY 已接入，可查看输出并发送终端输入。</div>
           </div>
           <button onClick={onClose} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10">
             关闭
@@ -356,12 +359,13 @@ export function SessionModal({
                           <MetaTag label="项目" value={selectedProject?.name ?? "未选择"} />
                           <MetaTag label="待办" value={todo?.title ?? "未关联"} />
                           <MetaTag label="Worktree" value={worktree?.name ?? session.requestedWorktreeName ?? "未选择"} />
+                          <MetaTag label="运行态" value={session.runtimeStatus ?? "stopped"} />
                         </div>
                         <div className="mt-2 text-[11px] text-slate-500">{formatDateTime(session.createdAt)}</div>
                       </button>
                       <div className="flex shrink-0 gap-1">
                         <button
-                          disabled={updatingSessionId === session.id || session.status === "completed"}
+                          disabled={updatingSessionId === session.id || session.runtimeStatus === "stopped" || session.runtimeStatus === "failed"}
                           onClick={() => onStopSession(session)}
                           className="rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -399,26 +403,32 @@ export function SessionModal({
                   </button>
                 ))}
               </div>
-              <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-xs text-amber-100">会话记录已保存 / PTY 未接入</span>
+              <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">{runtimeStatus ?? "stopped"}</span>
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-4">
               {view === "terminal" ? (
-                <section className="rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-emerald-200">
-                  <div>$ workhorse-station session</div>
-                  <div className="mt-2 text-slate-500">会话终端占位，后续接入 xterm.js、PTY 和 Claude Code。</div>
-                  <div className="mt-4">api: {apiConnected ? "connected" : "waiting"}</div>
-                  <div className="mt-1">project: {selectedProject?.name ?? "none"}</div>
-                  <div className="mt-1">todo: {selectedSessionTodo?.title ?? "none"}</div>
-                  <div className="mt-1">worktree: {sessionWorktree?.name || selectedWorktree?.name || draft.requestedWorktreeName || "none"}</div>
-                  <div className="mt-1">session: {selectedSession?.name || draft.sessionName || "new"}</div>
-                  <div className="mt-1">status: {sessionStatus}</div>
-                  <div className="mt-2 animate-pulse">_</div>
-                </section>
+                selectedSession && selectedProject ? (
+                  <div className="space-y-3">
+                    <SessionTerminal projectId={selectedProject.id} sessionId={selectedSession.id} runtimeStatus={runtimeStatus} onRuntimeEvent={onRuntimeEvent} />
+                    <div className="rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-xs text-slate-300">
+                      <div>api: {apiConnected ? "connected" : "waiting"}</div>
+                      <div className="mt-1">project: {selectedProject?.name ?? "none"}</div>
+                      <div className="mt-1">todo: {selectedSessionTodo?.title ?? "none"}</div>
+                      <div className="mt-1">worktree: {sessionWorktree?.name || selectedWorktree?.name || draft.requestedWorktreeName || "none"}</div>
+                      <div className="mt-1">cwd: {selectedSession.cwd || selectedSession.resolvedWorktreePath || "none"}</div>
+                      <div className="mt-1">pid: {selectedSession.pid ?? "none"}</div>
+                      <div className="mt-1">status: {sessionStatus}</div>
+                      <div className="mt-1">runtime: {runtimeStatus ?? "stopped"}</div>
+                    </div>
+                  </div>
+                ) : (
+                  <section className="rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">请先选择一个已创建会话。</section>
+                )
               ) : (
                 <section className="space-y-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-300">
                   <div>
                     <div className="font-medium text-slate-100">会话历史</div>
-                    <p className="mt-2 text-slate-400">当前保存的是会话元数据和 prompt 快照，后续再补真实输出流和摘要。</p>
+                    <p className="mt-2 text-slate-400">当前保存会话元数据、最近运行态和 prompt 快照；终端输出以实时窗口和内存快照为主。</p>
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <DetailCard label="会话" value={selectedSession?.name || draft.sessionName || "未选择"} />
@@ -427,6 +437,8 @@ export function SessionModal({
                     <DetailCard label="待办" value={selectedSessionTodo?.title ?? "未关联"} />
                     <DetailCard label="Worktree" value={sessionWorktree?.name || selectedWorktree?.name || draft.requestedWorktreeName || "未选择"} />
                     <DetailCard label="状态" value={sessionStatus} />
+                    <DetailCard label="运行态" value={runtimeStatus ?? "stopped"} />
+                    <DetailCard label="运行目录" value={selectedSession?.cwd || selectedSession?.resolvedWorktreePath || "未选择"} />
                   </div>
                   <div className="rounded-lg border border-white/10 bg-black/20 p-3">
                     <div className="text-xs text-slate-500">Prompt 快照</div>
@@ -468,7 +480,8 @@ function SessionStatusPill({ status }: { status: SessionStatus }) {
     draft: "border-amber-400/30 bg-amber-400/10 text-amber-200",
     queued: "border-sky-400/30 bg-sky-400/10 text-sky-200",
     running: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
-    completed: "border-slate-400/30 bg-slate-400/10 text-slate-300"
+    completed: "border-slate-400/30 bg-slate-400/10 text-slate-300",
+    failed: "border-red-400/30 bg-red-500/10 text-red-200"
   };
 
   return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${styles[status]}`}>{status}</span>;

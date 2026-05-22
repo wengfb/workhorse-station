@@ -1,5 +1,21 @@
 # 开发进度
 
+## 2026-05-22：真实 Claude Code 会话与终端接入
+
+### 已完成
+- 会话创建已从“记录”升级为真实启动 Claude Code PTY，支持项目根目录、已有 worktree，以及按名称自动创建 worktree。
+- 会话后端新增 runtime manager、PTY 封装、Claude 可执行文件解析、SSE 事件流和 terminal snapshot 接口。
+- 会话停止 / 删除改为真实进程控制，不再只是更新状态字段；停止后的会话会收敛为 `completed` / `stopped`。
+- 前端会话模态框接入 xterm.js，运行中显示实时终端，停止后切换为静态快照，避免继续挂载 resize 逻辑。
+- 进入项目时会强制重载 worktrees / notes / todos / prompt drafts / sessions，避免初次进入时状态过旧。
+
+### 验收记录
+- 浏览器验证：通过。
+  - 项目页进入后，worktree 列表和上下文能即时同步到最新状态。
+  - 会话弹层可以打开，运行中会话使用真实终端渲染，停止后显示终端快照。
+  - 停止后的会话不再继续触发 xterm viewport / resize 报错。
+  - 会话停止、删除路径仍可用，停会话后状态会回到 `completed` / `stopped`。
+
 ## 2026-05-22：Prompt 草稿与项目会话最小闭环
 
 ### 已完成

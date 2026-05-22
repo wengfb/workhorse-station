@@ -1,14 +1,37 @@
 import type { FastifyInstance } from "fastify";
-import type { ApiResponse, CreateSessionRequest, DeleteSessionResponse, SessionResponse, SessionsResponse, SessionSource, SessionStatus, UpdateSessionRequest } from "@workhorse-station/shared";
+import type {
+  ApiResponse,
+  CreateSessionRequest,
+  DeleteSessionResponse,
+  SessionInputRequest,
+  SessionResponse,
+  SessionResizeRequest,
+  SessionsResponse,
+  SessionSource,
+  SessionStatus,
+  SessionTerminalSnapshotResponse,
+  StopSessionResponse,
+  UpdateSessionRequest
+} from "@workhorse-station/shared";
 import type { DatabaseState } from "../db/init.js";
 import { getProject } from "../projects/project-repository.js";
 import { HttpError } from "../projects/http-error.js";
 import { getProjectPromptDraft } from "../prompt-drafts/prompt-draft-repository.js";
 import { getProjectTodo } from "../todos/todo-repository.js";
-import { getProjectWorktree } from "../worktrees/worktree-repository.js";
-import { createSessionRecord, deleteSessionRecord, getProjectSession, listSessions, updateSessionRecord, type SessionWriteInput } from "./session-repository.js";
+import {
+  createSessionRecord,
+  deleteSessionRecord,
+  getProjectSession,
+  listSessions,
+  updateSessionCompletion,
+  updateSessionLaunch,
+  updateSessionRecord,
+  type SessionWriteInput
+} from "./session-repository.js";
+import { resolveSessionWorktree } from "./resolve-session-worktree.js";
+import { SessionRuntimeManager } from "./session-runtime-manager.js";
 
-type ProjectParams = {
+ type ProjectParams = {
   projectId: string;
 };
 
@@ -17,9 +40,9 @@ type ProjectSessionParams = ProjectParams & {
 };
 
 const sessionSources: SessionSource[] = ["direct", "todo"];
-const sessionStatuses: SessionStatus[] = ["draft", "queued", "running", "completed"];
+const sessionStatuses: SessionStatus[] = ["draft", "queued", "running", "completed", "failed"];
 
-export async function registerSessionRoutes(server: FastifyInstance, database: DatabaseState) {
+export async function registerSessionRoutes(server: FastifyInstance, database: DatabaseState, runtimeManager: SessionRuntimeManager) {
   server.get<{ Params: ProjectParams }>("/api/projects/:projectId/sessions", async (request): Promise<ApiResponse<SessionsResponse>> => {
     assertProjectExists(database, request.params.projectId);
 
@@ -34,14 +57,67 @@ export async function registerSessionRoutes(server: FastifyInstance, database: D
   server.post<{ Params: ProjectParams; Body: CreateSessionRequest }>("/api/projects/:projectId/sessions", async (request, reply): Promise<ApiResponse<SessionResponse>> => {
     assertProjectExists(database, request.params.projectId);
     const input = buildSessionInput(database, request.params.projectId, request.body);
-    const session = createSessionRecord(database.db, input);
-    database.persist();
-    reply.status(201);
+    const resolvedWorktree = await resolveSessionWorktree(database, {
+      projectId: request.params.projectId,
+      worktreeId: input.worktreeId,
+      requestedWorktreeName: input.requestedWorktreeName
+    });
 
-    return {
-      ok: true,
-      data: { session }
-    };
+    const session = createSessionRecord(database.db, {
+      ...input,
+      worktreeId: resolvedWorktree.worktreeId,
+      requestedWorktreeName: resolvedWorktree.requestedWorktreeName,
+      status: "queued",
+      runtimeStatus: "starting",
+      pid: null,
+      cwd: resolvedWorktree.cwd,
+      resolvedWorktreePath: resolvedWorktree.resolvedWorktreePath,
+      exitCode: null,
+      lastActivityAt: null
+    });
+    database.persist();
+
+    try {
+      const runtime = await runtimeManager.startSession({
+        sessionId: session.id,
+        projectId: request.params.projectId,
+        cwd: resolvedWorktree.cwd,
+        resolvedWorktreePath: resolvedWorktree.resolvedWorktreePath
+      });
+
+      const launchedSession = updateSessionLaunch(database.db, request.params.projectId, session.id, {
+        status: "running",
+        runtimeStatus: runtime.runtimeStatus,
+        worktreeId: resolvedWorktree.worktreeId,
+        requestedWorktreeName: resolvedWorktree.requestedWorktreeName,
+        pid: runtime.pid,
+        cwd: runtime.cwd,
+        resolvedWorktreePath: resolvedWorktree.resolvedWorktreePath,
+        lastActivityAt: runtime.lastActivityAt,
+        summary: input.summary
+      });
+      database.persist();
+      reply.status(201);
+
+      if (!launchedSession) {
+        throw new Error("Failed to read launched session");
+      }
+
+      return {
+        ok: true,
+        data: { session: launchedSession }
+      };
+    } catch (error) {
+      updateSessionCompletion(database.db, request.params.projectId, session.id, {
+        status: "failed",
+        runtimeStatus: "failed",
+        exitCode: 1,
+        lastActivityAt: new Date().toISOString(),
+        summary: error instanceof Error ? error.message : "Claude Code 启动失败"
+      });
+      database.persist();
+      throw new HttpError(500, "session_start_failed", error instanceof Error ? error.message : "Claude Code 启动失败");
+    }
   });
 
   server.patch<{ Params: ProjectSessionParams; Body: UpdateSessionRequest }>("/api/projects/:projectId/sessions/:sessionId", async (request): Promise<ApiResponse<SessionResponse>> => {
@@ -54,7 +130,6 @@ export async function registerSessionRoutes(server: FastifyInstance, database: D
 
     const session = updateSessionRecord(database.db, request.params.projectId, request.params.sessionId, {
       name: normalizeName(request.body?.name ?? currentSession.name, currentSession.source, currentSession.todoId),
-      status: normalizeStatus(request.body?.status ?? currentSession.status),
       summary: normalizeSummary(request.body?.summary === undefined ? currentSession.summary : request.body.summary)
     });
     database.persist();
@@ -69,8 +144,121 @@ export async function registerSessionRoutes(server: FastifyInstance, database: D
     };
   });
 
+  server.post<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/stop", async (request): Promise<ApiResponse<StopSessionResponse>> => {
+    assertProjectExists(database, request.params.projectId);
+    const currentSession = getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+
+    if (!currentSession) {
+      throw new HttpError(404, "session_not_found", "会话不存在");
+    }
+
+    runtimeManager.stopSession(request.params.projectId, request.params.sessionId);
+    const session = getProjectSession(database.db, request.params.projectId, request.params.sessionId) ?? currentSession;
+
+    return {
+      ok: true,
+      data: { session }
+    };
+  });
+
+  server.get<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/terminal", async (request): Promise<ApiResponse<SessionTerminalSnapshotResponse>> => {
+    assertProjectExists(database, request.params.projectId);
+    const currentSession = getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+
+    if (!currentSession) {
+      throw new HttpError(404, "session_not_found", "会话不存在");
+    }
+
+    const snapshot = runtimeManager.getSnapshot(request.params.sessionId);
+
+    return {
+      ok: true,
+      data: snapshot ?? {
+        sessionId: currentSession.id,
+        buffer: "",
+        runtimeStatus: currentSession.runtimeStatus,
+        cwd: currentSession.cwd
+      }
+    };
+  });
+
+  server.post<{ Params: ProjectSessionParams; Body: SessionInputRequest }>("/api/projects/:projectId/sessions/:sessionId/input", async (request): Promise<ApiResponse<SessionResponse>> => {
+    assertProjectExists(database, request.params.projectId);
+    const session = getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+
+    if (!session) {
+      throw new HttpError(404, "session_not_found", "会话不存在");
+    }
+
+    if (!isObject(request.body) || typeof request.body.data !== "string") {
+      throw new HttpError(400, "validation_error", "终端输入必须是文本");
+    }
+
+    if (!runtimeManager.write(request.params.sessionId, request.body.data)) {
+      throw new HttpError(409, "session_not_running", "会话当前未运行");
+    }
+
+    return {
+      ok: true,
+      data: { session }
+    };
+  });
+
+  server.post<{ Params: ProjectSessionParams; Body: SessionResizeRequest }>("/api/projects/:projectId/sessions/:sessionId/resize", async (request): Promise<ApiResponse<SessionResponse>> => {
+    assertProjectExists(database, request.params.projectId);
+    const session = getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+
+    if (!session) {
+      throw new HttpError(404, "session_not_found", "会话不存在");
+    }
+
+    if (!isObject(request.body) || !Number.isInteger(request.body.cols) || !Number.isInteger(request.body.rows)) {
+      throw new HttpError(400, "validation_error", "终端尺寸不合法");
+    }
+
+    if (!runtimeManager.resize(request.params.sessionId, request.body.cols, request.body.rows)) {
+      throw new HttpError(409, "session_not_running", "会话当前未运行");
+    }
+
+    return {
+      ok: true,
+      data: { session }
+    };
+  });
+
+  server.get<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/events", async (request, reply) => {
+    assertProjectExists(database, request.params.projectId);
+
+    if (!getProjectSession(database.db, request.params.projectId, request.params.sessionId)) {
+      throw new HttpError(404, "session_not_found", "会话不存在");
+    }
+
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive"
+    });
+    reply.raw.write("\n");
+
+    const onEvent = (event: { sessionId: string }) => {
+      if (event.sessionId !== request.params.sessionId) {
+        return;
+      }
+
+      reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    runtimeManager.on("event", onEvent);
+    request.raw.on("close", () => {
+      runtimeManager.off("event", onEvent);
+      reply.raw.end();
+    });
+  });
+
   server.delete<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId", async (request): Promise<ApiResponse<DeleteSessionResponse>> => {
     assertProjectExists(database, request.params.projectId);
+    const stoppedRuntime = runtimeManager.stopSession(request.params.projectId, request.params.sessionId);
 
     if (!deleteSessionRecord(database.db, request.params.projectId, request.params.sessionId)) {
       throw new HttpError(404, "session_not_found", "会话不存在");
@@ -80,7 +268,7 @@ export async function registerSessionRoutes(server: FastifyInstance, database: D
 
     return {
       ok: true,
-      data: { deleted: true }
+      data: { deleted: true, stoppedRuntime }
     };
   });
 }
@@ -105,10 +293,6 @@ function buildSessionInput(database: DatabaseState, projectId: string, body: Cre
     throw new HttpError(400, "todo_not_found", "待办不存在或不属于当前项目");
   }
 
-  if (worktreeId && !getProjectWorktree(database.db, projectId, worktreeId)) {
-    throw new HttpError(400, "worktree_not_found", "Worktree 不存在或不属于当前项目");
-  }
-
   if (promptDraftId && !getProjectPromptDraft(database.db, projectId, promptDraftId)) {
     throw new HttpError(400, "prompt_draft_not_found", "Prompt 草稿不存在或不属于当前项目");
   }
@@ -126,7 +310,13 @@ function buildSessionInput(database: DatabaseState, projectId: string, body: Cre
     name: normalizeName(body.name, source, todoId),
     prompt,
     status: normalizeStatus(body.status),
-    summary: normalizeSummary(body.summary)
+    runtimeStatus: null,
+    summary: normalizeSummary(body.summary),
+    pid: null,
+    cwd: null,
+    resolvedWorktreePath: null,
+    exitCode: null,
+    lastActivityAt: null
   };
 }
 

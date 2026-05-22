@@ -22,8 +22,13 @@ import type {
   PromptDraftPreviewResponse,
   PromptDraftResponse,
   PromptDraftsResponse,
+  SessionInputRequest,
+  SessionResizeRequest,
   SessionResponse,
   SessionsResponse,
+  SessionStreamEvent,
+  SessionTerminalSnapshotResponse,
+  StopSessionResponse,
   TodoResponse,
   TodosResponse,
   UpdateNoteRequest,
@@ -185,6 +190,38 @@ export function updateSession(projectId: string, sessionId: string, input: Updat
     method: "PATCH",
     body: input
   });
+}
+
+export function stopSession(projectId: string, sessionId: string) {
+  return fetchJson<StopSessionResponse>(`/api/projects/${projectId}/sessions/${sessionId}/stop`, {
+    method: "POST"
+  });
+}
+
+export function getSessionTerminal(projectId: string, sessionId: string) {
+  return fetchJson<SessionTerminalSnapshotResponse>(`/api/projects/${projectId}/sessions/${sessionId}/terminal`);
+}
+
+export function sendSessionInput(projectId: string, sessionId: string, input: SessionInputRequest) {
+  return fetchJson<SessionResponse>(`/api/projects/${projectId}/sessions/${sessionId}/input`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function resizeSessionTerminal(projectId: string, sessionId: string, input: SessionResizeRequest) {
+  return fetchJson<SessionResponse>(`/api/projects/${projectId}/sessions/${sessionId}/resize`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function createSessionEventSource(projectId: string, sessionId: string, onEvent: (event: SessionStreamEvent) => void) {
+  const source = new EventSource(`/api/projects/${projectId}/sessions/${sessionId}/events`);
+  source.onmessage = (message) => {
+    onEvent(JSON.parse(message.data) as SessionStreamEvent);
+  };
+  return source;
 }
 
 export function deleteSession(projectId: string, sessionId: string) {

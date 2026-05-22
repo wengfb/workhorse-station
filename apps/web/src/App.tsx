@@ -7,6 +7,7 @@ import type {
   ProjectSummary,
   PromptDraftSummary,
   SessionSource,
+  SessionStreamEvent,
   SessionSummary,
   TodoStatus,
   TodoSummary,
@@ -34,6 +35,7 @@ import {
   getTodos,
   getWorktrees,
   previewPromptDraft,
+  stopSession,
   updateNote,
   updateProject,
   updatePromptDraft,
@@ -400,7 +402,7 @@ export function App() {
   const featureCards = [
     { title: "项目", value: String(projects.length), detail: "已接入项目 CRUD 和目录绑定" },
     { title: "Worktree", value: String(worktrees.length), detail: selectedProject ? "当前项目 worktree" : "选择项目后查看" },
-    { title: "运行中会话", value: String(runningSessionCount), detail: "前端占位，后续接入 Claude Code" },
+    { title: "运行中会话", value: String(runningSessionCount), detail: "真实 Claude Code 会话与终端已接入" },
     { title: "SQLite", value: databaseInfo?.connected ? "已连接" : "等待中", detail: databaseInfo ? `FTS5: ${databaseInfo.fts5 ? "可用" : "不可用"}` : "等待后端" }
   ];
 
@@ -572,6 +574,13 @@ export function App() {
     setWorkspaceScope("project");
     setActiveProjectTab("overview");
     setProjectMenuOpen(false);
+    void Promise.all([
+      reloadWorktrees(project.id, null),
+      reloadNotes(project.id, null),
+      reloadTodos(project.id, null),
+      reloadPromptDrafts(project.id, null),
+      reloadSessions(project.id, null)
+    ]);
   }
 
   function updateProjectDraft(field: keyof ProjectDraft, value: string) {
@@ -603,10 +612,28 @@ export function App() {
   }
 
   function updateSessionDraft(field: keyof SessionEditorDraft, value: string) {
-    setSessionDraft((current) => ({
-      ...current,
-      [field]: value
-    }));
+    setSessionDraft((current) => {
+      if (field === "worktreeId") {
+        return {
+          ...current,
+          worktreeId: value,
+          requestedWorktreeName: value ? "" : current.requestedWorktreeName
+        };
+      }
+
+      if (field === "requestedWorktreeName") {
+        return {
+          ...current,
+          requestedWorktreeName: value,
+          worktreeId: value.trim() ? "" : current.worktreeId
+        };
+      }
+
+      return {
+        ...current,
+        [field]: value
+      };
+    });
   }
 
   async function handleProjectSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1034,15 +1061,16 @@ export function App() {
       setSelectedSessionId(data.session.id);
       setSelectedPromptDraftId(data.session.promptDraftId ?? null);
       setSessionDraft(sessionToDraft(data.session, promptDrafts));
-      await reloadSessions(selectedProject.id, data.session.id);
-      if (sessionDraft.promptDraftId) {
-        await reloadPromptDrafts(selectedProject.id, sessionDraft.promptDraftId);
-      }
+      await Promise.all([
+        reloadSessions(selectedProject.id, data.session.id),
+        reloadWorktrees(selectedProject.id, data.session.worktreeId ?? selectedWorktreeId),
+        sessionDraft.promptDraftId ? reloadPromptDrafts(selectedProject.id, sessionDraft.promptDraftId) : Promise.resolve()
+      ]);
       setSessionCreateModalOpen(false);
       setSessionView("terminal");
       setSessionModalOpen(true);
     } catch (error) {
-      setSessionsError(formatError(error, "会话记录创建失败"));
+      setSessionsError(formatError(error, "会话启动失败"));
     } finally {
       setCreatingSession(false);
     }
@@ -1057,17 +1085,25 @@ export function App() {
     setSessionsError(null);
 
     try {
-      await updateSession(selectedProject.id, session.id, {
-        name: session.name,
-        status: "completed",
-        summary: session.summary
-      });
+      await stopSession(selectedProject.id, session.id);
       await reloadSessions(selectedProject.id, session.id);
     } catch (error) {
       setSessionsError(formatError(error, "会话停止失败"));
     } finally {
       setUpdatingSessionId(null);
     }
+  }
+
+  async function handleSessionRuntimeEvent(event: SessionStreamEvent) {
+    if (!selectedProject || event.sessionId !== selectedSessionId) {
+      return;
+    }
+
+    if (event.type === "session.output") {
+      return;
+    }
+
+    await reloadSessions(selectedProject.id, event.sessionId);
   }
 
   async function handleDeleteSession(session: SessionSummary) {
@@ -1282,7 +1318,6 @@ export function App() {
         <SessionModalPanel
           sessions={sessions}
           selectedSession={selectedSession}
-          selectedPromptDraft={selectedPromptDraft}
           selectedProject={selectedProject}
           selectedWorktree={selectedWorktree}
           todos={todos}
@@ -1299,6 +1334,7 @@ export function App() {
           onSelectSession={(session) => setSelectedSessionId(session.id)}
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
+          onRuntimeEvent={handleSessionRuntimeEvent}
           onClose={() => setSessionModalOpen(false)}
         />
       ) : null}
@@ -2555,14 +2591,16 @@ function SessionStatusPill({ status }: { status: SessionSummary["status"] }) {
     draft: "border-amber-400/30 bg-amber-400/10 text-amber-200",
     queued: "border-sky-400/30 bg-sky-400/10 text-sky-200",
     running: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
-    completed: "border-slate-400/30 bg-slate-400/10 text-slate-300"
+    completed: "border-slate-400/30 bg-slate-400/10 text-slate-300",
+    failed: "border-red-400/30 bg-red-500/10 text-red-200"
   };
 
   const labels: Record<SessionSummary["status"], string> = {
     draft: "draft",
     queued: "queued",
     running: "running",
-    completed: "completed"
+    completed: "completed",
+    failed: "failed"
   };
 
   return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${styles[status]}`}>{labels[status]}</span>;

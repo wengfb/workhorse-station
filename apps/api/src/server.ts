@@ -7,12 +7,17 @@ import { registerPromptDraftRoutes } from "./prompt-drafts/prompt-draft-routes.j
 import { isHttpError } from "./projects/http-error.js";
 import { registerProjectRoutes } from "./projects/project-routes.js";
 import { registerSessionRoutes } from "./sessions/session-routes.js";
+import { reconcileSessionsOnStartup } from "./sessions/session-repository.js";
+import { SessionRuntimeManager } from "./sessions/session-runtime-manager.js";
 import { registerTodoRoutes } from "./todos/todo-routes.js";
 import { registerWorktreeRoutes } from "./worktrees/worktree-routes.js";
 
 const host = process.env.API_HOST ?? "0.0.0.0";
 const port = Number(process.env.API_PORT ?? 3001);
 const database = await initDatabase();
+reconcileSessionsOnStartup(database.db);
+database.persist();
+const sessionRuntimeManager = new SessionRuntimeManager(database);
 
 const server = Fastify({
   logger: {
@@ -75,7 +80,7 @@ await registerWorktreeRoutes(server, database);
 await registerNoteRoutes(server, database);
 await registerTodoRoutes(server, database);
 await registerPromptDraftRoutes(server, database);
-await registerSessionRoutes(server, database);
+await registerSessionRoutes(server, database, sessionRuntimeManager);
 
 const close = async () => {
   await server.close();

@@ -142,7 +142,13 @@ function createTables(db: Database) {
       name TEXT NOT NULL DEFAULT '未命名会话',
       prompt TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'draft',
+      runtime_status TEXT,
       summary TEXT,
+      pid INTEGER,
+      cwd TEXT,
+      resolved_worktree_path TEXT,
+      exit_code INTEGER,
+      last_activity_at TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
@@ -156,6 +162,12 @@ function createTables(db: Database) {
   ensureColumn(db, "sessions", "requested_worktree_name", "TEXT");
   ensureColumn(db, "sessions", "source", "TEXT NOT NULL DEFAULT 'direct'");
   ensureColumn(db, "sessions", "name", "TEXT NOT NULL DEFAULT '未命名会话'");
+  ensureColumn(db, "sessions", "runtime_status", "TEXT");
+  ensureColumn(db, "sessions", "pid", "INTEGER");
+  ensureColumn(db, "sessions", "cwd", "TEXT");
+  ensureColumn(db, "sessions", "resolved_worktree_path", "TEXT");
+  ensureColumn(db, "sessions", "exit_code", "INTEGER");
+  ensureColumn(db, "sessions", "last_activity_at", "TEXT");
 }
 
 function ensureColumn(db: Database, tableName: string, columnName: string, definition: string) {

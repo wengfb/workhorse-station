@@ -164,7 +164,8 @@ export type DeleteTodoResponse = {
 
 export type SessionSource = "direct" | "todo";
 export type PromptDraftStatus = "draft" | "confirmed" | "archived";
-export type SessionStatus = "draft" | "queued" | "running" | "completed";
+export type SessionStatus = "draft" | "queued" | "running" | "completed" | "failed";
+export type SessionRuntimeStatus = "starting" | "running" | "stopping" | "stopped" | "failed";
 
 export type PromptDraftSummary = {
   id: string;
@@ -228,7 +229,13 @@ export type SessionSummary = {
   name: string;
   prompt: string;
   status: SessionStatus;
+  runtimeStatus: SessionRuntimeStatus | null;
   summary: string | null;
+  pid: number | null;
+  cwd: string | null;
+  resolvedWorktreePath: string | null;
+  exitCode: number | null;
+  lastActivityAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -241,8 +248,43 @@ export type SessionResponse = {
   session: SessionSummary;
 };
 
+export type StopSessionResponse = {
+  session: SessionSummary;
+};
+
 export type DeleteSessionResponse = {
   deleted: true;
+  stoppedRuntime: boolean;
+};
+
+export type SessionTerminalSnapshotResponse = {
+  sessionId: string;
+  buffer: string;
+  runtimeStatus: SessionRuntimeStatus | null;
+  cwd: string | null;
+};
+
+export type SessionInputRequest = {
+  data: string;
+};
+
+export type SessionResizeRequest = {
+  cols: number;
+  rows: number;
+};
+
+export type SessionStreamEventType = "session.started" | "session.runtime" | "session.output" | "session.exit" | "session.error";
+
+export type SessionStreamEvent = {
+  type: SessionStreamEventType;
+  sessionId: string;
+  timestamp: string;
+  runtimeStatus?: SessionRuntimeStatus | null;
+  pid?: number | null;
+  cwd?: string | null;
+  output?: string;
+  exitCode?: number | null;
+  message?: string;
 };
 
 export type CreateSessionRequest = {
@@ -259,6 +301,5 @@ export type CreateSessionRequest = {
 
 export type UpdateSessionRequest = {
   name?: string;
-  status?: SessionStatus;
   summary?: string | null;
 };
