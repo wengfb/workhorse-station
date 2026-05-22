@@ -10,7 +10,7 @@ import type {
 import type { DatabaseState } from "../db/init.js";
 import { HttpError } from "../projects/http-error.js";
 import { getProject } from "../projects/project-repository.js";
-import { createNote, deleteNote, getProjectNote, listNotes, updateNote, type NoteWriteInput } from "./note-repository.js";
+import { createNote, deleteGlobalNote, deleteNote, getGlobalNote, getProjectNote, listGlobalNotes, listNotes, updateGlobalNote, updateNote, type NoteWriteInput } from "./note-repository.js";
 
 type ProjectParams = {
   projectId: string;
@@ -21,6 +21,63 @@ type ProjectNoteParams = ProjectParams & {
 };
 
 export async function registerNoteRoutes(server: FastifyInstance, database: DatabaseState) {
+  server.get("/api/notes", async (): Promise<ApiResponse<NotesResponse>> => ({
+    ok: true,
+    data: {
+      notes: listGlobalNotes(database.db)
+    }
+  }));
+
+  server.post<{ Body: CreateNoteRequest }>("/api/notes", async (request, reply): Promise<ApiResponse<NoteResponse>> => {
+    const input = buildNoteInput(null, request.body);
+    const note = createNote(database.db, input);
+    database.persist();
+    reply.status(201);
+
+    return {
+      ok: true,
+      data: { note }
+    };
+  });
+
+  server.patch<{ Params: { noteId: string }; Body: UpdateNoteRequest }>("/api/notes/:noteId", async (request): Promise<ApiResponse<NoteResponse>> => {
+    const currentNote = getGlobalNote(database.db, request.params.noteId);
+
+    if (!currentNote) {
+      throw new HttpError(404, "note_not_found", "笔记不存在");
+    }
+
+    const input = buildNoteInput(null, {
+      title: request.body?.title ?? currentNote.title,
+      content: request.body?.content ?? currentNote.content,
+      tags: request.body?.tags ?? currentNote.tags
+    });
+    const note = updateGlobalNote(database.db, request.params.noteId, input);
+    database.persist();
+
+    if (!note) {
+      throw new HttpError(404, "note_not_found", "笔记不存在");
+    }
+
+    return {
+      ok: true,
+      data: { note }
+    };
+  });
+
+  server.delete<{ Params: { noteId: string } }>("/api/notes/:noteId", async (request): Promise<ApiResponse<DeleteNoteResponse>> => {
+    if (!deleteGlobalNote(database.db, request.params.noteId)) {
+      throw new HttpError(404, "note_not_found", "笔记不存在");
+    }
+
+    database.persist();
+
+    return {
+      ok: true,
+      data: { deleted: true }
+    };
+  });
+
   server.get<{ Params: ProjectParams }>("/api/projects/:projectId/notes", async (request): Promise<ApiResponse<NotesResponse>> => {
     assertProjectExists(database, request.params.projectId);
 
@@ -102,7 +159,7 @@ function assertProjectExists(database: DatabaseState, projectId: string) {
   }
 }
 
-function buildNoteInput(projectId: string, body: CreateNoteRequest | undefined): NoteWriteInput {
+function buildNoteInput(projectId: string | null, body: CreateNoteRequest | undefined): NoteWriteInput {
   if (!isObject(body)) {
     throw new HttpError(400, "validation_error", "请求体必须是 JSON 对象");
   }

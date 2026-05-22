@@ -1,5 +1,25 @@
 # 开发进度
 
+## 2026-05-22：全局笔记 CRUD 首切片
+
+### 已完成
+- 后端新增全局笔记 API：`GET /api/notes`、`POST /api/notes`、`PATCH /api/notes/:noteId`、`DELETE /api/notes/:noteId`。
+- 全局笔记复用 `notes` 表，使用 `project_id IS NULL` 与项目笔记区分；共享 `NoteSummary` 继续保留 `projectId: null`。
+- 首页概览接入全局笔记管理区，复用项目笔记编辑器交互，支持列表、创建、自动保存、属性编辑、删除。
+- 全局笔记模式隐藏“创建任务”动作，避免跨项目笔记直接绑定项目任务。
+- 同步更新开发计划：标记首页聊天、默认草稿建议、全局笔记 CRUD 和已完成的 Skill 文件夹管理项。
+
+### 验收记录
+- `pnpm --filter @workhorse-station/api typecheck`：通过。
+- `pnpm --filter @workhorse-station/web typecheck`：通过。
+- `pnpm -r build`：通过。
+- 浏览器验证：通过。
+  - 打开首页概览后可看到“全局笔记”管理区。
+  - 新建全局笔记并立即保存后，列表出现该笔记。
+  - 打开属性弹窗后可保存标签，列表中显示 `global` / `crud` 标签。
+  - 删除测试全局笔记后，列表恢复为空状态。
+  - 浏览器控制台无错误，仅有 React DevTools 信息提示。
+
 ## 2026-05-22：Skill 文件夹管理首切片
 
 ### 已完成

@@ -15,11 +15,34 @@ type NoteRow = {
 
 export type NoteWriteInput = Required<Pick<CreateNoteRequest, "title">> & {
   id?: string;
-  projectId: string;
+  projectId: string | null;
   content: string;
   tags: string[];
   sourceChatSuggestion: ChatArtifactSourceRef | null;
 };
+
+type SqlParam = string | null;
+
+export function listGlobalNotes(db: Database) {
+  return selectRows(
+    db,
+    `SELECT id, project_id, title, content, tags, source_chat_suggestion_json, created_at, updated_at
+     FROM notes
+     WHERE project_id IS NULL
+     ORDER BY updated_at DESC, created_at DESC`,
+    []
+  );
+}
+
+export function getGlobalNote(db: Database, noteId: string) {
+  return selectOne(
+    db,
+    `SELECT id, project_id, title, content, tags, source_chat_suggestion_json, created_at, updated_at
+     FROM notes
+     WHERE project_id IS NULL AND id = ?`,
+    [noteId]
+  );
+}
 
 export function listNotes(db: Database, projectId: string) {
   return selectRows(
@@ -50,13 +73,24 @@ export function createNote(db: Database, input: NoteWriteInput) {
     [id, input.projectId, input.title, input.content, JSON.stringify(input.tags), serializeSourceChatSuggestion(input.sourceChatSuggestion)]
   );
 
-  const note = getProjectNote(db, input.projectId, id);
+  const note = getNoteByScope(db, input.projectId, id);
 
   if (!note) {
     throw new Error("Failed to read created note");
   }
 
   return note;
+}
+
+export function updateGlobalNote(db: Database, noteId: string, input: NoteWriteInput) {
+  db.run(
+    `UPDATE notes
+     SET title = ?, content = ?, tags = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE project_id IS NULL AND id = ?`,
+    [input.title, input.content, JSON.stringify(input.tags), noteId]
+  );
+
+  return getGlobalNote(db, noteId);
 }
 
 export function updateNote(db: Database, projectId: string, noteId: string, input: NoteWriteInput) {
@@ -75,7 +109,16 @@ export function deleteNote(db: Database, projectId: string, noteId: string) {
   return db.getRowsModified() > 0;
 }
 
-function selectRows(db: Database, sql: string, params: string[]) {
+export function deleteGlobalNote(db: Database, noteId: string) {
+  db.run("DELETE FROM notes WHERE project_id IS NULL AND id = ?", [noteId]);
+  return db.getRowsModified() > 0;
+}
+
+function getNoteByScope(db: Database, projectId: string | null, noteId: string) {
+  return projectId ? getProjectNote(db, projectId, noteId) : getGlobalNote(db, noteId);
+}
+
+function selectRows(db: Database, sql: string, params: SqlParam[]) {
   const statement = db.prepare(sql, params);
   const rows: NoteSummary[] = [];
 
@@ -90,7 +133,7 @@ function selectRows(db: Database, sql: string, params: string[]) {
   return rows;
 }
 
-function selectOne(db: Database, sql: string, params: string[]) {
+function selectOne(db: Database, sql: string, params: SqlParam[]) {
   const statement = db.prepare(sql, params);
 
   try {

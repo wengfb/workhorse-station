@@ -213,6 +213,30 @@ export function deleteWorktree(projectId: string, worktreeId: string, input: Del
   });
 }
 
+export function getGlobalNotes() {
+  return fetchJson<NotesResponse>("/api/notes");
+}
+
+export function createGlobalNote(input: CreateNoteRequest) {
+  return fetchJson<NoteResponse>("/api/notes", {
+    method: "POST",
+    body: input
+  });
+}
+
+export function updateGlobalNote(noteId: string, input: UpdateNoteRequest) {
+  return fetchJson<NoteResponse>(`/api/notes/${noteId}`, {
+    method: "PATCH",
+    body: input
+  });
+}
+
+export function deleteGlobalNote(noteId: string) {
+  return fetchJson<DeleteNoteResponse>(`/api/notes/${noteId}`, {
+    method: "DELETE"
+  });
+}
+
 export function getNotes(projectId: string) {
   return fetchJson<NotesResponse>(`/api/projects/${projectId}/notes`);
 }

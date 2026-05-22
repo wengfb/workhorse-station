@@ -24,6 +24,7 @@ import {
   copyGlobalSkillToProject,
   copyProjectSkillToGlobal,
   createGlobalSkill,
+  createGlobalNote,
   createProjectSkill,
   createNote,
   createProject,
@@ -35,6 +36,7 @@ import {
   applyChatSuggestion as applyChatSuggestionRequest,
   deleteChatSession,
   deleteGlobalSkill,
+  deleteGlobalNote,
   deleteProjectSkill,
   deleteNote,
   deleteProject,
@@ -44,6 +46,7 @@ import {
   getChatSessions,
   getHealth,
   getMeta,
+  getGlobalNotes,
   getGlobalSkills,
   getNotes,
   getProjectSkills,
@@ -57,6 +60,7 @@ import {
   renameProjectSkill,
   sendChatMessage,
   stopSession,
+  updateGlobalNote,
   updateNote,
   updateProject,
   updatePromptDraft,
@@ -212,6 +216,16 @@ export function App() {
   const [creatingSession, setCreatingSession] = useState(false);
   const [updatingSessionId, setUpdatingSessionId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [globalNotes, setGlobalNotes] = useState<NoteSummary[]>([]);
+  const [globalNotesLoading, setGlobalNotesLoading] = useState(true);
+  const [selectedGlobalNoteId, setSelectedGlobalNoteId] = useState<string | null>(null);
+  const [globalNoteDraft, setGlobalNoteDraft] = useState<NoteDraft>(emptyNoteDraft());
+  const [globalNotesError, setGlobalNotesError] = useState<string | null>(null);
+  const [savingGlobalNote, setSavingGlobalNote] = useState(false);
+  const [deletingGlobalNoteId, setDeletingGlobalNoteId] = useState<string | null>(null);
+  const [globalNoteSettingsOpen, setGlobalNoteSettingsOpen] = useState(false);
+  const [globalNoteTitleLocked, setGlobalNoteTitleLocked] = useState(false);
+  const globalNoteAutosaveSkipRef = useRef(false);
   const [globalSkills, setGlobalSkills] = useState<SkillSummary[]>([]);
   const [globalSkillsLoading, setGlobalSkillsLoading] = useState(true);
   const [globalSkillsError, setGlobalSkillsError] = useState<string | null>(null);
@@ -226,7 +240,7 @@ export function App() {
 
     async function loadAppState() {
       try {
-        const [health, meta, projectsData, chatData, globalSkillsData] = await Promise.all([getHealth(), getMeta(), getProjects(), getChatSessions(), getGlobalSkills()]);
+        const [health, meta, projectsData, chatData, globalNotesData, globalSkillsData] = await Promise.all([getHealth(), getMeta(), getProjects(), getChatSessions(), getGlobalNotes(), getGlobalSkills()]);
 
         if (cancelled) {
           return;
@@ -234,10 +248,15 @@ export function App() {
 
         const firstProject = projectsData.projects[0] ?? null;
         const firstChat = chatData.chatSessions[0] ?? null;
+        const firstGlobalNote = globalNotesData.notes[0] ?? null;
         setApiState({ health, meta, loading: false, error: null });
         setProjects(projectsData.projects);
         setProjectsLoading(false);
         setChatSessions(chatData.chatSessions);
+        setGlobalNotes(globalNotesData.notes);
+        setSelectedGlobalNoteId(firstGlobalNote?.id ?? null);
+        setGlobalNotesLoading(false);
+        setGlobalNotesError(null);
         setGlobalSkills(globalSkillsData.skills);
         setGlobalSkillsLoading(false);
         setGlobalSkillsError(null);
@@ -260,6 +279,8 @@ export function App() {
           setProjectsLoading(false);
           setChatLoading(false);
           setChatError(formatError(error, "聊天会话加载失败"));
+          setGlobalNotesLoading(false);
+          setGlobalNotesError(formatError(error, "全局笔记加载失败"));
           setGlobalSkillsLoading(false);
           setGlobalSkillsError(formatError(error, "全局 Skill 加载失败"));
         }
@@ -409,11 +430,42 @@ export function App() {
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
   const selectedWorktree = worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? null;
+  const selectedGlobalNote = globalNotes.find((note) => note.id === selectedGlobalNoteId) ?? null;
   const selectedNote = notes.find((note) => note.id === selectedNoteId) ?? null;
   const selectedTodo = todos.find((todo) => todo.id === selectedTodoId) ?? null;
   const selectedSession = selectedSessionId ? sessions.find((session) => session.id === selectedSessionId) ?? null : null;
   const selectedPromptDraft = selectedPromptDraftId ? promptDrafts.find((promptDraft) => promptDraft.id === selectedPromptDraftId) ?? null : null;
   const apiConnected = apiState.health?.status === "ok";
+
+  useEffect(() => {
+    if (selectedGlobalNote) {
+      globalNoteAutosaveSkipRef.current = true;
+      setGlobalNoteTitleLocked(true);
+      setGlobalNoteDraft(noteToDraft(selectedGlobalNote));
+      return;
+    }
+
+    globalNoteAutosaveSkipRef.current = true;
+    setGlobalNoteTitleLocked(false);
+    setGlobalNoteDraft(emptyNoteDraft());
+  }, [selectedGlobalNoteId]);
+
+  useEffect(() => {
+    if (globalNoteAutosaveSkipRef.current) {
+      globalNoteAutosaveSkipRef.current = false;
+      return;
+    }
+
+    if (!selectedGlobalNote && !globalNoteDraft.title.trim() && !globalNoteDraft.content.trim() && !globalNoteDraft.tags.trim()) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void persistGlobalNoteDraft();
+    }, 650);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [globalNoteDraft.content, globalNoteDraft.tags, globalNoteDraft.title, selectedGlobalNoteId]);
 
   useEffect(() => {
     if (selectedNote) {
@@ -564,6 +616,24 @@ export function App() {
       setWorktreeError(formatError(error, "Worktree 列表加载失败"));
     } finally {
       setWorktreesLoading(false);
+    }
+  }
+
+  async function reloadGlobalNotes(preferredNoteId?: string | null) {
+    setGlobalNotesLoading(true);
+
+    try {
+      const data = await getGlobalNotes();
+      const nextNote =
+        (preferredNoteId ? data.notes.find((note) => note.id === preferredNoteId) : null) ?? data.notes.find((note) => note.id === selectedGlobalNoteId) ?? data.notes[0] ?? null;
+
+      setGlobalNotes(data.notes);
+      setSelectedGlobalNoteId(nextNote?.id ?? null);
+      setGlobalNotesError(null);
+    } catch (error) {
+      setGlobalNotesError(formatError(error, "全局笔记加载失败"));
+    } finally {
+      setGlobalNotesLoading(false);
     }
   }
 
@@ -734,6 +804,32 @@ export function App() {
       ...current,
       [field]: value
     }));
+  }
+
+  function updateGlobalNoteDraft(field: keyof NoteDraft, value: string) {
+    setGlobalNoteDraft((current) => {
+      if (field === "title") {
+        setGlobalNoteTitleLocked(value.trim().length > 0);
+        return {
+          ...current,
+          title: value
+        };
+      }
+
+      if (field === "content") {
+        const nextDraft = {
+          ...current,
+          content: value
+        };
+
+        return globalNoteTitleLocked ? nextDraft : syncNoteTitleFromContent(nextDraft);
+      }
+
+      return {
+        ...current,
+        [field]: value
+      };
+    });
   }
 
   function updateNoteDraft(field: keyof NoteDraft, value: string) {
@@ -1077,6 +1173,56 @@ export function App() {
     }
   }
 
+  async function persistGlobalNoteDraft() {
+    const request = noteDraftToRequest(globalNoteDraft);
+    if (!request.title && !request.content && !request.tags.length) {
+      return;
+    }
+
+    setSavingGlobalNote(true);
+    setGlobalNotesError(null);
+
+    try {
+      if (selectedGlobalNote) {
+        const data = await updateGlobalNote(selectedGlobalNote.id, request);
+        await reloadGlobalNotes(data.note.id);
+      } else {
+        const data = await createGlobalNote(request);
+        await reloadGlobalNotes(data.note.id);
+      }
+    } catch (error) {
+      setGlobalNotesError(formatError(error, "全局笔记保存失败"));
+    } finally {
+      setSavingGlobalNote(false);
+    }
+  }
+
+  async function handleGlobalNoteSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await persistGlobalNoteDraft();
+  }
+
+  async function handleGlobalNoteDelete(note: NoteSummary) {
+    const confirmed = window.confirm(`确认删除全局笔记「${note.title}」？`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingGlobalNoteId(note.id);
+    setGlobalNotesError(null);
+
+    try {
+      await deleteGlobalNote(note.id);
+      await reloadGlobalNotes(null);
+      setGlobalNoteSettingsOpen(false);
+    } catch (error) {
+      setGlobalNotesError(formatError(error, "全局笔记删除失败"));
+    } finally {
+      setDeletingGlobalNoteId(null);
+    }
+  }
+
   async function persistNoteDraft() {
     if (!selectedProject) {
       return;
@@ -1216,6 +1362,15 @@ export function App() {
     setWorktreeDraft(emptyWorktreeDraft());
     setWorktreeError(null);
     setWorktreeDialogOpen(true);
+  }
+
+  function startCreateGlobalNote() {
+    setSelectedGlobalNoteId(null);
+    setGlobalNoteSettingsOpen(false);
+    setGlobalNoteTitleLocked(false);
+    globalNoteAutosaveSkipRef.current = true;
+    setGlobalNoteDraft(emptyNoteDraft());
+    setGlobalNotesError(null);
   }
 
   function startCreateNote() {
@@ -1671,6 +1826,14 @@ export function App() {
             apiConnected={apiConnected}
             apiError={apiState.error}
             databaseInfo={databaseInfo}
+            globalNotes={globalNotes}
+            selectedGlobalNote={selectedGlobalNote}
+            globalNotesLoading={globalNotesLoading}
+            globalNotesError={globalNotesError}
+            globalNoteDraft={globalNoteDraft}
+            savingGlobalNote={savingGlobalNote}
+            deletingGlobalNoteId={deletingGlobalNoteId}
+            globalNoteSettingsOpen={globalNoteSettingsOpen}
             globalSkills={globalSkills}
             globalSkillsLoading={globalSkillsLoading}
             globalSkillsError={globalSkillsError}
@@ -1693,6 +1856,13 @@ export function App() {
             onChatSubmit={(event) => void handleSendChatMessage(event)}
             onApplyChatSuggestion={(message, suggestion) => void applyChatSuggestion(message, suggestion)}
             onDeleteChat={handleDeleteChatSession}
+            onCreateGlobalNote={startCreateGlobalNote}
+            onSelectGlobalNote={(note) => setSelectedGlobalNoteId(note.id)}
+            onGlobalNoteDraftChange={updateGlobalNoteDraft}
+            onSaveGlobalNote={handleGlobalNoteSave}
+            onDeleteGlobalNote={handleGlobalNoteDelete}
+            onOpenGlobalNoteSettings={() => setGlobalNoteSettingsOpen(true)}
+            onCloseGlobalNoteSettings={() => setGlobalNoteSettingsOpen(false)}
             onCreateGlobalSkill={handleCreateGlobalSkill}
             onRenameGlobalSkill={handleRenameGlobalSkill}
             onDeleteGlobalSkill={handleDeleteGlobalSkill}
@@ -1933,6 +2103,14 @@ function HomeWorkspace({
   apiConnected,
   apiError,
   databaseInfo,
+  globalNotes,
+  selectedGlobalNote,
+  globalNotesLoading,
+  globalNotesError,
+  globalNoteDraft,
+  savingGlobalNote,
+  deletingGlobalNoteId,
+  globalNoteSettingsOpen,
   globalSkills,
   globalSkillsLoading,
   globalSkillsError,
@@ -1955,6 +2133,13 @@ function HomeWorkspace({
   onChatSubmit,
   onApplyChatSuggestion,
   onDeleteChat,
+  onCreateGlobalNote,
+  onSelectGlobalNote,
+  onGlobalNoteDraftChange,
+  onSaveGlobalNote,
+  onDeleteGlobalNote,
+  onOpenGlobalNoteSettings,
+  onCloseGlobalNoteSettings,
   onCreateGlobalSkill,
   onRenameGlobalSkill,
   onDeleteGlobalSkill,
@@ -1970,6 +2155,14 @@ function HomeWorkspace({
   apiConnected: boolean;
   apiError: string | null;
   databaseInfo: MetaResponse["database"] | null;
+  globalNotes: NoteSummary[];
+  selectedGlobalNote: NoteSummary | null;
+  globalNotesLoading: boolean;
+  globalNotesError: string | null;
+  globalNoteDraft: NoteDraft;
+  savingGlobalNote: boolean;
+  deletingGlobalNoteId: string | null;
+  globalNoteSettingsOpen: boolean;
   globalSkills: SkillSummary[];
   globalSkillsLoading: boolean;
   globalSkillsError: string | null;
@@ -1992,6 +2185,13 @@ function HomeWorkspace({
   onChatSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onApplyChatSuggestion: (message: ChatMessageSummary, suggestion: ChatArtifactSuggestion) => void;
   onDeleteChat: (chat: ChatSessionSummary) => void;
+  onCreateGlobalNote: () => void;
+  onSelectGlobalNote: (note: NoteSummary) => void;
+  onGlobalNoteDraftChange: (field: keyof NoteDraft, value: string) => void;
+  onSaveGlobalNote: (event: FormEvent<HTMLFormElement>) => void;
+  onDeleteGlobalNote: (note: NoteSummary) => void;
+  onOpenGlobalNoteSettings: () => void;
+  onCloseGlobalNoteSettings: () => void;
   onCreateGlobalSkill: () => void;
   onRenameGlobalSkill: (skill: SkillSummary) => void;
   onDeleteGlobalSkill: (skill: SkillSummary) => void;
@@ -2030,6 +2230,14 @@ function HomeWorkspace({
           apiError={apiError}
           databaseInfo={databaseInfo}
           selectedProject={selectedProject}
+          globalNotes={globalNotes}
+          selectedGlobalNote={selectedGlobalNote}
+          globalNotesLoading={globalNotesLoading}
+          globalNotesError={globalNotesError}
+          globalNoteDraft={globalNoteDraft}
+          savingGlobalNote={savingGlobalNote}
+          deletingGlobalNoteId={deletingGlobalNoteId}
+          globalNoteSettingsOpen={globalNoteSettingsOpen}
           globalSkills={globalSkills}
           loading={globalSkillsLoading}
           error={globalSkillsError}
@@ -2037,6 +2245,13 @@ function HomeWorkspace({
           operationName={skillOperationName}
           chatSessions={chatSessions}
           onEnterProject={onEnterProject}
+          onCreateNote={onCreateGlobalNote}
+          onSelectNote={onSelectGlobalNote}
+          onNoteDraftChange={onGlobalNoteDraftChange}
+          onSaveNote={onSaveGlobalNote}
+          onDeleteNote={onDeleteGlobalNote}
+          onOpenNoteSettings={onOpenGlobalNoteSettings}
+          onCloseNoteSettings={onCloseGlobalNoteSettings}
           onCreateSkill={onCreateGlobalSkill}
           onRenameSkill={onRenameGlobalSkill}
           onDeleteSkill={onDeleteGlobalSkill}
@@ -2227,6 +2442,14 @@ function HomeOverviewWorkspace({
   apiError,
   databaseInfo,
   selectedProject,
+  globalNotes,
+  selectedGlobalNote,
+  globalNotesLoading,
+  globalNotesError,
+  globalNoteDraft,
+  savingGlobalNote,
+  deletingGlobalNoteId,
+  globalNoteSettingsOpen,
   globalSkills,
   loading,
   error,
@@ -2234,6 +2457,13 @@ function HomeOverviewWorkspace({
   operationName,
   chatSessions,
   onEnterProject,
+  onCreateNote,
+  onSelectNote,
+  onNoteDraftChange,
+  onSaveNote,
+  onDeleteNote,
+  onOpenNoteSettings,
+  onCloseNoteSettings,
   onCreateSkill,
   onRenameSkill,
   onDeleteSkill,
@@ -2244,6 +2474,14 @@ function HomeOverviewWorkspace({
   apiError: string | null;
   databaseInfo: MetaResponse["database"] | null;
   selectedProject: ProjectSummary | null;
+  globalNotes: NoteSummary[];
+  selectedGlobalNote: NoteSummary | null;
+  globalNotesLoading: boolean;
+  globalNotesError: string | null;
+  globalNoteDraft: NoteDraft;
+  savingGlobalNote: boolean;
+  deletingGlobalNoteId: string | null;
+  globalNoteSettingsOpen: boolean;
   globalSkills: SkillSummary[];
   loading: boolean;
   error: string | null;
@@ -2251,6 +2489,13 @@ function HomeOverviewWorkspace({
   operationName: string | null;
   chatSessions: ChatSessionSummary[];
   onEnterProject: () => void;
+  onCreateNote: () => void;
+  onSelectNote: (note: NoteSummary) => void;
+  onNoteDraftChange: (field: keyof NoteDraft, value: string) => void;
+  onSaveNote: (event: FormEvent<HTMLFormElement>) => void;
+  onDeleteNote: (note: NoteSummary) => void;
+  onOpenNoteSettings: () => void;
+  onCloseNoteSettings: () => void;
   onCreateSkill: () => void;
   onRenameSkill: (skill: SkillSummary) => void;
   onDeleteSkill: (skill: SkillSummary) => void;
@@ -2258,6 +2503,30 @@ function HomeOverviewWorkspace({
 }) {
   return (
     <div className="space-y-5">
+      <NotePanel
+        project={null}
+        title="全局笔记"
+        description="沉淀跨项目上下文、复盘和可复用想法。"
+        emptyText="还没有全局笔记，先记录一条跨项目上下文。"
+        notes={globalNotes}
+        selectedNote={selectedGlobalNote}
+        loading={globalNotesLoading}
+        error={globalNotesError}
+        draft={globalNoteDraft}
+        saving={savingGlobalNote}
+        creatingTodo={false}
+        deletingNoteId={deletingGlobalNoteId}
+        settingsOpen={globalNoteSettingsOpen}
+        showCreateTodo={false}
+        onCreate={onCreateNote}
+        onSelect={onSelectNote}
+        onDraftChange={onNoteDraftChange}
+        onSave={onSaveNote}
+        onDelete={onDeleteNote}
+        onCreateTodo={() => undefined}
+        onOpenSettings={onOpenNoteSettings}
+        onCloseSettings={onCloseNoteSettings}
+      />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.65fr)]">
         <GlobalSkillPanel
           selectedProject={selectedProject}
@@ -3806,6 +4075,9 @@ function todoDraftToRequest(draft: TodoDraft) {
 
 function NotePanel({
   project,
+  title = "项目笔记",
+  description = "点击后直接进入 markdown 编辑器，正文首行默认作为标题。",
+  emptyText = "当前项目还没有笔记，先创建一条上下文记录。",
   notes,
   selectedNote,
   loading,
@@ -3815,6 +4087,7 @@ function NotePanel({
   creatingTodo,
   deletingNoteId,
   settingsOpen,
+  showCreateTodo = true,
   onCreate,
   onSelect,
   onDraftChange,
@@ -3825,6 +4098,9 @@ function NotePanel({
   onCloseSettings
 }: {
   project: ProjectSummary | null;
+  title?: string;
+  description?: string;
+  emptyText?: string;
   notes: NoteSummary[];
   selectedNote: NoteSummary | null;
   loading: boolean;
@@ -3834,6 +4110,7 @@ function NotePanel({
   creatingTodo: boolean;
   deletingNoteId: string | null;
   settingsOpen: boolean;
+  showCreateTodo?: boolean;
   onCreate: () => void;
   onSelect: (note: NoteSummary) => void;
   onDraftChange: (field: keyof NoteDraft, value: string) => void;
@@ -3843,7 +4120,7 @@ function NotePanel({
   onOpenSettings: () => void;
   onCloseSettings: () => void;
 }) {
-  if (!project) {
+  if (!project && showCreateTodo) {
     return <EmptyProjectNotice onCreateProject={() => undefined} />;
   }
 
@@ -3855,16 +4132,16 @@ function NotePanel({
         <section className="rounded-xl border border-white/10 bg-[#151821]">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div>
-              <div className="text-sm font-medium">项目笔记</div>
-              <div className="mt-1 text-xs text-slate-500">点击后直接进入 markdown 编辑器，正文首行默认作为标题。</div>
+              <div className="text-sm font-medium">{title}</div>
+              <div className="mt-1 text-xs text-slate-500">{description}</div>
             </div>
             <button onClick={onCreate} className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950">
               新建笔记
             </button>
           </div>
           <div className="min-h-[320px] divide-y divide-white/10">
-            {loading ? <div className="px-4 py-6 text-sm text-slate-400">项目笔记加载中...</div> : null}
-            {!loading && notes.length === 0 ? <div className="px-4 py-8 text-sm text-slate-500">当前项目还没有笔记，先创建一条上下文记录。</div> : null}
+            {loading ? <div className="px-4 py-6 text-sm text-slate-400">{title}加载中...</div> : null}
+            {!loading && notes.length === 0 ? <div className="px-4 py-8 text-sm text-slate-500">{emptyText}</div> : null}
             {!loading
               ? notes.map((note) => (
                   <div key={note.id} className={`flex items-start gap-3 px-4 py-3 ${selectedNote?.id === note.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}>
@@ -3912,7 +4189,7 @@ function NotePanel({
                   编辑属性
                 </button>
               ) : null}
-              {selectedNote ? (
+              {showCreateTodo && selectedNote ? (
                 <button
                   type="button"
                   disabled={creatingTodo}
