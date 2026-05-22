@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   CreateWorktreeRequest,
   HealthResponse,
@@ -107,7 +107,7 @@ const homeModes = topModes;
 
 const projectTabs: Array<{ id: ProjectTab; label: string }> = [
   { id: "overview", label: "总览" },
-  { id: "todos", label: "待办" },
+  { id: "todos", label: "任务" },
   { id: "notes", label: "笔记" },
   { id: "skills", label: "Skill" },
   { id: "sessions", label: "会话" },
@@ -128,14 +128,14 @@ const initialChatSessions: MockChatSession[] = [
     updatedAt: new Date().toISOString(),
     messages: [
       { id: "m1", role: "user", content: "首页应该更像 ChatGPT，左侧是聊天会话列表。" },
-      { id: "m2", role: "assistant", content: "已记录：聊天会话和 Claude Code 会话分开，生成笔记、待办、提示词作为默认 Skill。" }
+      { id: "m2", role: "assistant", content: "已记录：聊天会话和 Claude Code 会话分开，生成笔记、任务、提示词作为默认 Skill。" }
     ]
   },
   {
     id: "chat-skill",
     title: "默认 Skill 设计",
     updatedAt: new Date().toISOString(),
-    messages: [{ id: "m3", role: "assistant", content: "默认 Skill 可以负责生成笔记、待办、提示词和文件摘要。" }]
+    messages: [{ id: "m3", role: "assistant", content: "默认 Skill 可以负责生成笔记、任务、提示词和文件摘要。" }]
   }
 ];
 
@@ -185,6 +185,11 @@ export function App() {
   const [notesError, setNotesError] = useState<string | null>(null);
   const [savingNote, setSavingNote] = useState(false);
   const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
+  const [noteSettingsOpen, setNoteSettingsOpen] = useState(false);
+  const [noteTitleLocked, setNoteTitleLocked] = useState(false);
+  const noteAutosaveTimerRef = useRef<number | null>(null);
+  const noteAutosaveSkipRef = useRef(false);
+
   const [todos, setTodos] = useState<TodoSummary[]>([]);
   const [todosLoading, setTodosLoading] = useState(false);
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
@@ -322,7 +327,7 @@ export function App() {
       } else {
         setTodos([]);
         setSelectedTodoId(null);
-        setTodosError(formatError(todosResult.reason, "项目待办加载失败"));
+        setTodosError(formatError(todosResult.reason, "项目任务加载失败"));
       }
 
       if (promptDraftsResult.status === "fulfilled") {
@@ -365,12 +370,37 @@ export function App() {
 
   useEffect(() => {
     if (selectedNote) {
+      noteAutosaveSkipRef.current = true;
+      setNoteTitleLocked(true);
       setNoteDraft(noteToDraft(selectedNote));
       return;
     }
 
+    noteAutosaveSkipRef.current = true;
+    setNoteTitleLocked(false);
     setNoteDraft(emptyNoteDraft());
   }, [selectedNoteId, selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      return;
+    }
+
+    if (noteAutosaveSkipRef.current) {
+      noteAutosaveSkipRef.current = false;
+      return;
+    }
+
+    if (!selectedNote && !noteDraft.title.trim() && !noteDraft.content.trim() && !noteDraft.tags.trim()) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void persistNoteDraft();
+    }, 650);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [noteDraft.content, noteDraft.tags, noteDraft.title, selectedNoteId, selectedProjectId]);
 
   useEffect(() => {
     if (selectedTodo) {
@@ -494,7 +524,7 @@ export function App() {
       setSelectedTodoId(nextTodo?.id ?? null);
       setTodosError(null);
     } catch (error) {
-      setTodosError(formatError(error, "项目待办加载失败"));
+      setTodosError(formatError(error, "项目任务加载失败"));
     } finally {
       setTodosLoading(false);
     }
@@ -598,10 +628,29 @@ export function App() {
   }
 
   function updateNoteDraft(field: keyof NoteDraft, value: string) {
-    setNoteDraft((current) => ({
-      ...current,
-      [field]: value
-    }));
+    setNoteDraft((current) => {
+      if (field === "title") {
+        setNoteTitleLocked(value.trim().length > 0);
+        return {
+          ...current,
+          title: value
+        };
+      }
+
+      if (field === "content") {
+        const nextDraft = {
+          ...current,
+          content: value
+        };
+
+        return noteTitleLocked ? nextDraft : syncNoteTitleFromContent(nextDraft);
+      }
+
+      return {
+        ...current,
+        [field]: value
+      };
+    });
   }
 
   function updateTodoDraft(field: keyof TodoDraft, value: string) {
@@ -732,10 +781,13 @@ export function App() {
     }
   }
 
-  async function handleNoteSave(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  async function persistNoteDraft() {
     if (!selectedProject) {
+      return;
+    }
+
+    const request = noteDraftToRequest(noteDraft);
+    if (!request.title && !request.content && !request.tags.length) {
       return;
     }
 
@@ -743,8 +795,6 @@ export function App() {
     setNotesError(null);
 
     try {
-      const request = noteDraftToRequest(noteDraft);
-
       if (selectedNote) {
         const data = await updateNote(selectedProject.id, selectedNote.id, request);
         await reloadNotes(selectedProject.id, data.note.id);
@@ -759,12 +809,17 @@ export function App() {
     }
   }
 
+  async function handleNoteSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await persistNoteDraft();
+  }
+
   async function handleNoteDelete(note: NoteSummary) {
     if (!selectedProject) {
       return;
     }
 
-    const confirmed = window.confirm(`确认删除笔记「${note.title}」？如果有待办引用它，来源关联会被清空。`);
+    const confirmed = window.confirm(`确认删除笔记「${note.title}」？如果有任务引用它，来源关联会被清空。`);
 
     if (!confirmed) {
       return;
@@ -776,7 +831,7 @@ export function App() {
     try {
       await deleteNote(selectedProject.id, note.id);
       await Promise.all([reloadNotes(selectedProject.id, null), reloadTodos(selectedProject.id, null)]);
-      setNoteDraft(emptyNoteDraft());
+      setNoteSettingsOpen(false);
     } catch (error) {
       setNotesError(formatError(error, "项目笔记删除失败"));
     } finally {
@@ -803,7 +858,7 @@ export function App() {
       await reloadTodos(selectedProject.id, data.todo.id);
       setActiveProjectTab("todos");
     } catch (error) {
-      setTodosError(formatError(error, "从笔记创建待办失败"));
+      setTodosError(formatError(error, "从笔记创建任务失败"));
     } finally {
       setSavingTodo(false);
     }
@@ -830,7 +885,7 @@ export function App() {
         await reloadTodos(selectedProject.id, data.todo.id);
       }
     } catch (error) {
-      setTodosError(formatError(error, "项目待办保存失败"));
+      setTodosError(formatError(error, "项目任务保存失败"));
     } finally {
       setSavingTodo(false);
     }
@@ -841,7 +896,7 @@ export function App() {
       return;
     }
 
-    const confirmed = window.confirm(`确认删除待办「${todo.title}」？`);
+    const confirmed = window.confirm(`确认删除任务「${todo.title}」？`);
 
     if (!confirmed) {
       return;
@@ -855,7 +910,7 @@ export function App() {
       await reloadTodos(selectedProject.id, null);
       setTodoDraft(emptyTodoDraft());
     } catch (error) {
-      setTodosError(formatError(error, "项目待办删除失败"));
+      setTodosError(formatError(error, "项目任务删除失败"));
     } finally {
       setDeletingTodoId(null);
     }
@@ -869,6 +924,9 @@ export function App() {
 
   function startCreateNote() {
     setSelectedNoteId(null);
+    setNoteSettingsOpen(false);
+    setNoteTitleLocked(false);
+    noteAutosaveSkipRef.current = true;
     setNoteDraft(emptyNoteDraft());
     setNotesError(null);
   }
@@ -884,7 +942,7 @@ export function App() {
       id: `chat-${Date.now()}`,
       title: `新聊天 ${chatSessions.length + 1}`,
       updatedAt: new Date().toISOString(),
-      messages: [{ id: `message-${Date.now()}`, role: "assistant", content: "新的聊天会话已创建。生成笔记、待办、提示词等能力会作为默认 Skill 通过自然语言触发。" }]
+      messages: [{ id: `message-${Date.now()}`, role: "assistant", content: "新的聊天会话已创建。生成笔记、任务、提示词等能力会作为默认 Skill 通过自然语言触发。" }]
     };
 
     setChatSessions((current) => [nextChat, ...current]);
@@ -920,7 +978,7 @@ export function App() {
     const assistantMessage: MockChatMessage = {
       id: `message-${Date.now() + 1}`,
       role: "assistant",
-      content: "这是聊天前端占位回复。后续接入 Claude SDK 后，默认 Skill 会负责生成笔记、待办、提示词或文件摘要。"
+      content: "这是聊天前端占位回复。后续接入 Claude SDK 后，默认 Skill 会负责生成笔记、任务、提示词或文件摘要。"
     };
 
     setChatSessions((current) =>
@@ -1179,7 +1237,7 @@ export function App() {
 
         <input
           className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none placeholder:text-slate-500 focus:border-slate-400 max-md:hidden"
-          placeholder="搜索项目、笔记、待办、Skill"
+          placeholder="搜索项目、笔记、任务、Skill"
         />
         <button
           onClick={openSessionViewer}
@@ -1235,6 +1293,7 @@ export function App() {
             noteDraft={noteDraft}
             savingNote={savingNote}
             deletingNoteId={deletingNoteId}
+            noteSettingsOpen={noteSettingsOpen}
             todos={todos}
             selectedTodo={selectedTodo}
             todosLoading={todosLoading}
@@ -1258,6 +1317,8 @@ export function App() {
             onNoteDraftChange={updateNoteDraft}
             onSaveNote={handleNoteSave}
             onDeleteNote={handleNoteDelete}
+            onOpenNoteSettings={() => setNoteSettingsOpen(true)}
+            onCloseNoteSettings={() => setNoteSettingsOpen(false)}
             onCreateTodoFromNote={handleCreateTodoFromNote}
             onCreateTodo={startCreateTodo}
             onSelectTodo={(todo) => setSelectedTodoId(todo.id)}
@@ -1543,7 +1604,7 @@ function HomeChatWorkspace({
 
       <div className="flex min-h-0 flex-col">
         <div className="mx-auto w-full max-w-[768px] px-4 py-3 text-xs text-slate-500">
-          上下文：{selectedProject?.name ?? "未选择项目"} / {selectedWorktree?.name ?? "未选择 worktree"} · 默认 Skill：生成笔记、待办、提示词、文件摘要
+          上下文：{selectedProject?.name ?? "未选择项目"} / {selectedWorktree?.name ?? "未选择 worktree"} · 默认 Skill：生成笔记、任务、提示词、文件摘要
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto w-full max-w-[768px] space-y-4 p-4 sm:p-6">
@@ -1584,7 +1645,7 @@ function HomeChatWorkspace({
                 value={draft}
                 onChange={(event) => onDraftChange(event.target.value)}
                 className="max-h-36 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600"
-                placeholder="输入消息。需要生成笔记、待办、提示词时，直接用自然语言说明。"
+                placeholder="输入消息。需要生成笔记、任务、提示词时，直接用自然语言说明。"
               />
               <button className="shrink-0 rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950">发送</button>
             </div>
@@ -1666,6 +1727,7 @@ function ProjectWorkspacePage({
   noteDraft,
   savingNote,
   deletingNoteId,
+  noteSettingsOpen,
   todos,
   selectedTodo,
   todosLoading,
@@ -1689,6 +1751,8 @@ function ProjectWorkspacePage({
   onNoteDraftChange,
   onSaveNote,
   onDeleteNote,
+  onOpenNoteSettings,
+  onCloseNoteSettings,
   onCreateTodoFromNote,
   onCreateTodo,
   onSelectTodo,
@@ -1717,6 +1781,7 @@ function ProjectWorkspacePage({
   noteDraft: NoteDraft;
   savingNote: boolean;
   deletingNoteId: string | null;
+  noteSettingsOpen: boolean;
   todos: TodoSummary[];
   selectedTodo: TodoSummary | null;
   todosLoading: boolean;
@@ -1740,6 +1805,8 @@ function ProjectWorkspacePage({
   onNoteDraftChange: (field: keyof NoteDraft, value: string) => void;
   onSaveNote: (event: FormEvent<HTMLFormElement>) => void;
   onDeleteNote: (note: NoteSummary) => void;
+  onOpenNoteSettings: () => void;
+  onCloseNoteSettings: () => void;
   onCreateTodoFromNote: () => void;
   onCreateTodo: () => void;
   onSelectTodo: (todo: TodoSummary) => void;
@@ -1756,7 +1823,7 @@ function ProjectWorkspacePage({
             <div className="text-xs text-slate-500">项目工作台</div>
             <h1 className="mt-2 text-2xl font-semibold">{selectedProject?.name ?? "选择或创建项目"}</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-400">
-              项目内承载待办、笔记、Skill、会话和 Worktree。会话终端通过模态框打开，关闭后继续后台运行。
+              项目内承载任务、笔记、Skill、会话和 Worktree。会话终端通过模态框打开，关闭后继续后台运行。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1795,6 +1862,7 @@ function ProjectWorkspacePage({
         noteDraft={noteDraft}
         savingNote={savingNote}
         deletingNoteId={deletingNoteId}
+        noteSettingsOpen={noteSettingsOpen}
         todos={todos}
         selectedTodo={selectedTodo}
         todosLoading={todosLoading}
@@ -1818,6 +1886,8 @@ function ProjectWorkspacePage({
         onNoteDraftChange={onNoteDraftChange}
         onSaveNote={onSaveNote}
         onDeleteNote={onDeleteNote}
+        onOpenNoteSettings={onOpenNoteSettings}
+        onCloseNoteSettings={onCloseNoteSettings}
         onCreateTodoFromNote={onCreateTodoFromNote}
         onCreateTodo={onCreateTodo}
         onSelectTodo={onSelectTodo}
@@ -1868,6 +1938,7 @@ function ProjectTabWorkspace({
   noteDraft,
   savingNote,
   deletingNoteId,
+  noteSettingsOpen,
   todos,
   selectedTodo,
   todosLoading,
@@ -1891,6 +1962,8 @@ function ProjectTabWorkspace({
   onNoteDraftChange,
   onSaveNote,
   onDeleteNote,
+  onOpenNoteSettings,
+  onCloseNoteSettings,
   onCreateTodoFromNote,
   onCreateTodo,
   onSelectTodo,
@@ -1918,6 +1991,7 @@ function ProjectTabWorkspace({
   noteDraft: NoteDraft;
   savingNote: boolean;
   deletingNoteId: string | null;
+  noteSettingsOpen: boolean;
   todos: TodoSummary[];
   selectedTodo: TodoSummary | null;
   todosLoading: boolean;
@@ -1941,6 +2015,8 @@ function ProjectTabWorkspace({
   onNoteDraftChange: (field: keyof NoteDraft, value: string) => void;
   onSaveNote: (event: FormEvent<HTMLFormElement>) => void;
   onDeleteNote: (note: NoteSummary) => void;
+  onOpenNoteSettings: () => void;
+  onCloseNoteSettings: () => void;
   onCreateTodoFromNote: () => void;
   onCreateTodo: () => void;
   onSelectTodo: (todo: TodoSummary) => void;
@@ -2017,12 +2093,15 @@ function ProjectTabWorkspace({
         saving={savingNote}
         creatingTodo={savingTodo}
         deletingNoteId={deletingNoteId}
+        settingsOpen={noteSettingsOpen}
         onCreate={onCreateNote}
         onSelect={onSelectNote}
         onDraftChange={onNoteDraftChange}
         onSave={onSaveNote}
         onDelete={onDeleteNote}
         onCreateTodo={onCreateTodoFromNote}
+        onOpenSettings={onOpenNoteSettings}
+        onCloseSettings={onCloseNoteSettings}
       />
     );
   }
@@ -2498,7 +2577,7 @@ function PlaceholderWorkspace({
       <section className="rounded-xl border border-white/10 bg-[#151821]">
         <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">MVP 闭环</div>
         <div className="divide-y divide-white/10">
-          {["首页聊天生成草稿", "进入项目选择 worktree", "从待办创建会话", "会话模态框后台运行"].map((item, index) => (
+          {["首页聊天生成草稿", "进入项目选择 worktree", "从任务创建会话", "会话模态框后台运行"].map((item, index) => (
             <div key={item} className="flex items-center justify-between px-4 py-3 text-sm">
               <div>
                 <div className="text-slate-200">{item}</div>
@@ -2542,7 +2621,7 @@ function EmptyProjectNotice({ onCreateProject }: { onCreateProject: () => void }
   return (
     <section className="rounded-xl border border-dashed border-white/10 bg-[#151821] p-6 text-sm text-slate-400">
       <div className="text-base font-medium text-slate-100">还没有选择项目</div>
-      <p className="mt-2">进入项目后才能查看待办、项目笔记、项目 Skill、会话和 Worktree。</p>
+      <p className="mt-2">进入项目后才能查看任务、项目笔记、项目 Skill、会话和 Worktree。</p>
       <button onClick={onCreateProject} className="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
         新建项目
       </button>
@@ -2681,7 +2760,7 @@ function buildSessionDraft({
   selectedWorktree: WorktreeSummary | null;
 }): SessionEditorDraft {
   return {
-    sessionName: source === "todo" && todo ? todo.title : source === "todo" ? "待办会话" : "直接会话",
+    sessionName: source === "todo" && todo ? todo.title : source === "todo" ? "任务会话" : "直接会话",
     promptTitle: source === "todo" && todo ? `Prompt 草稿：${todo.title}` : "",
     prompt: "",
     todoId: todo?.id ?? "",
@@ -2693,7 +2772,7 @@ function buildSessionDraft({
 
 function promptDraftToSessionDraft(promptDraft: PromptDraftSummary): SessionEditorDraft {
   return {
-    sessionName: promptDraft.source === "todo" ? "待办会话" : "直接会话",
+    sessionName: promptDraft.source === "todo" ? "任务会话" : "直接会话",
     promptTitle: promptDraft.title,
     prompt: promptDraft.prompt,
     todoId: promptDraft.todoId ?? "",
@@ -2808,6 +2887,21 @@ function parseTagsInput(input: string): string[] {
     .filter(Boolean);
 }
 
+function extractNoteTitle(content: string) {
+  const firstLine = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+
+  return firstLine ?? "";
+}
+
+function syncNoteTitleFromContent(draft: NoteDraft) {
+  const derivedTitle = extractNoteTitle(draft.content);
+
+  return derivedTitle && draft.title.trim() === "" ? { ...draft, title: derivedTitle } : draft;
+}
+
 function noteDraftToRequest(draft: NoteDraft) {
   return {
     title: draft.title.trim(),
@@ -2836,12 +2930,15 @@ function NotePanel({
   saving,
   creatingTodo,
   deletingNoteId,
+  settingsOpen,
   onCreate,
   onSelect,
   onDraftChange,
   onSave,
   onDelete,
-  onCreateTodo
+  onCreateTodo,
+  onOpenSettings,
+  onCloseSettings
 }: {
   project: ProjectSummary | null;
   notes: NoteSummary[];
@@ -2852,99 +2949,147 @@ function NotePanel({
   saving: boolean;
   creatingTodo: boolean;
   deletingNoteId: string | null;
+  settingsOpen: boolean;
   onCreate: () => void;
   onSelect: (note: NoteSummary) => void;
   onDraftChange: (field: keyof NoteDraft, value: string) => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
   onDelete: (note: NoteSummary) => void;
   onCreateTodo: () => void;
+  onOpenSettings: () => void;
+  onCloseSettings: () => void;
 }) {
   if (!project) {
     return <EmptyProjectNotice onCreateProject={() => undefined} />;
   }
 
-  return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.8fr)]">
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-          <div>
-            <div className="text-sm font-medium">项目笔记</div>
-            <div className="mt-1 text-xs text-slate-500">沉淀项目上下文，并可直接生成来源待办。</div>
-          </div>
-          <button onClick={onCreate} className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950">
-            新建笔记
-          </button>
-        </div>
-        <div className="min-h-[320px] divide-y divide-white/10">
-          {loading ? <div className="px-4 py-6 text-sm text-slate-400">项目笔记加载中...</div> : null}
-          {!loading && notes.length === 0 ? <div className="px-4 py-8 text-sm text-slate-500">当前项目还没有笔记，先创建一条上下文记录。</div> : null}
-          {!loading
-            ? notes.map((note) => (
-                <button
-                  key={note.id}
-                  onClick={() => onSelect(note)}
-                  className={`block w-full px-4 py-3 text-left text-sm ${selectedNote?.id === note.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate font-medium text-slate-100">{note.title}</div>
-                      <div className="mt-1 line-clamp-2 text-xs text-slate-500">{note.content || "暂无正文"}</div>
-                    </div>
-                    <span className="shrink-0 text-xs text-slate-500">{formatDateTime(note.updatedAt)}</span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {note.tags.length > 0 ? note.tags.map((tag) => <span key={tag} className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-slate-300">{tag}</span>) : <span className="text-xs text-slate-600">无标签</span>}
-                  </div>
-                </button>
-              ))
-            : null}
-        </div>
-      </section>
+  const headerTitle = selectedNote ? "笔记编辑器" : "新建笔记";
 
-      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
-        <div className="flex items-center justify-between gap-3">
-          <div className="font-medium text-slate-100">{selectedNote ? "笔记详情" : "新建笔记"}</div>
-          {selectedNote ? (
-            <button
-              type="button"
-              disabled={creatingTodo}
-              onClick={onCreateTodo}
-              className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 disabled:opacity-50"
-            >
-              {creatingTodo ? "创建中..." : "创建待办"}
+  return (
+    <>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
+        <section className="rounded-xl border border-white/10 bg-[#151821]">
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+            <div>
+              <div className="text-sm font-medium">项目笔记</div>
+              <div className="mt-1 text-xs text-slate-500">点击后直接进入 markdown 编辑器，正文首行默认作为标题。</div>
+            </div>
+            <button onClick={onCreate} className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950">
+              新建笔记
             </button>
-          ) : null}
-        </div>
-        <form onSubmit={onSave} className="mt-4 space-y-4">
-          <Field label="标题">
-            <input
-              value={draft.title}
-              onChange={(event) => onDraftChange("title", event.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-              placeholder="例如：会话入口梳理"
-            />
-          </Field>
-          <Field label="标签">
-            <input
-              value={draft.tags}
-              onChange={(event) => onDraftChange("tags", event.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-              placeholder="逗号分隔，例如：ui, session"
-            />
-          </Field>
-          <Field label="正文">
-            <textarea
-              value={draft.content}
-              onChange={(event) => onDraftChange("content", event.target.value)}
-              className="min-h-52 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-              placeholder="记录项目上下文、约束或想法。"
-            />
-          </Field>
-          <div className="flex flex-wrap gap-2">
-            <button disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
-              {saving ? "保存中..." : selectedNote ? "保存修改" : "创建笔记"}
-            </button>
-            {selectedNote ? (
+          </div>
+          <div className="min-h-[320px] divide-y divide-white/10">
+            {loading ? <div className="px-4 py-6 text-sm text-slate-400">项目笔记加载中...</div> : null}
+            {!loading && notes.length === 0 ? <div className="px-4 py-8 text-sm text-slate-500">当前项目还没有笔记，先创建一条上下文记录。</div> : null}
+            {!loading
+              ? notes.map((note) => (
+                  <div key={note.id} className={`flex items-start gap-3 px-4 py-3 ${selectedNote?.id === note.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}>
+                    <button onClick={() => onSelect(note)} className="min-w-0 flex-1 text-left text-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-slate-100">{note.title}</div>
+                          <div className="mt-1 line-clamp-2 text-xs text-slate-500">{note.content || "暂无正文"}</div>
+                        </div>
+                        <span className="shrink-0 text-xs text-slate-500">{formatDateTime(note.updatedAt)}</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {note.tags.length > 0 ? note.tags.map((tag) => <span key={tag} className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-slate-300">{tag}</span>) : <span className="text-xs text-slate-600">无标签</span>}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelect(note);
+                        onOpenSettings();
+                      }}
+                      className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/5"
+                    >
+                      属性
+                    </button>
+                  </div>
+                ))
+              : null}
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-medium text-slate-100">{headerTitle}</div>
+              <div className="mt-1 text-xs text-slate-500">自动保存开启，标题支持单独修改。</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {selectedNote ? (
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/5"
+                >
+                  编辑属性
+                </button>
+              ) : null}
+              {selectedNote ? (
+                <button
+                  type="button"
+                  disabled={creatingTodo}
+                  onClick={onCreateTodo}
+                  className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 disabled:opacity-50"
+                >
+                  {creatingTodo ? "创建中..." : "创建任务"}
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <form onSubmit={onSave} className="mt-4 space-y-4">
+            <Field label="标题">
+              <input
+                value={draft.title}
+                onChange={(event) => onDraftChange("title", event.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                placeholder="默认取正文第一行，也可以手动修改"
+              />
+            </Field>
+            <Field label="Markdown 正文">
+              <textarea
+                value={draft.content}
+                onChange={(event) => onDraftChange("content", event.target.value)}
+                className="min-h-[420px] w-full rounded-lg border border-white/10 bg-black/20 px-3 py-3 font-mono text-sm leading-6 text-slate-100 outline-none focus:border-slate-400"
+                placeholder="# 会话入口梳理\n\n直接开始写，系统会自动保存。"
+              />
+            </Field>
+            <div className="flex items-center justify-between gap-3 text-xs text-slate-500">
+              <span>{saving ? "自动保存中..." : "已开启自动保存"}</span>
+              <button type="submit" className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/5">
+                立即保存
+              </button>
+            </div>
+            {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+          </form>
+        </section>
+      </div>
+
+      {settingsOpen && selectedNote ? (
+        <Modal title="编辑笔记属性" description="标签等次要属性放在模态框里修改。" onClose={onCloseSettings}>
+          <form onSubmit={onSave} className="space-y-4">
+            <Field label="标题">
+              <input
+                value={draft.title}
+                onChange={(event) => onDraftChange("title", event.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                placeholder="笔记标题"
+              />
+            </Field>
+            <Field label="标签">
+              <input
+                value={draft.tags}
+                onChange={(event) => onDraftChange("tags", event.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                placeholder="逗号分隔，例如：ui, session"
+              />
+            </Field>
+            {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+            <div className="flex flex-wrap justify-between gap-2">
               <button
                 type="button"
                 disabled={deletingNoteId === selectedNote.id}
@@ -2953,12 +3098,19 @@ function NotePanel({
               >
                 {deletingNoteId === selectedNote.id ? "删除中..." : "删除笔记"}
               </button>
-            ) : null}
-          </div>
-          {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-        </form>
-      </section>
-    </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={onCloseSettings} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+                  关闭
+                </button>
+                <button disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
+                  {saving ? "保存中..." : "保存属性"}
+                </button>
+              </div>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+    </>
   );
 }
 
@@ -3007,16 +3159,16 @@ function TodoPanel({
       <section className="rounded-xl border border-white/10 bg-[#151821]">
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div>
-            <div className="text-sm font-medium">项目待办</div>
-            <div className="mt-1 text-xs text-slate-500">待办属于具体项目，可保留状态、标签和来源笔记关联。</div>
+            <div className="text-sm font-medium">项目任务</div>
+            <div className="mt-1 text-xs text-slate-500">任务属于具体项目，可保留状态、标签和来源笔记关联。</div>
           </div>
           <button onClick={onCreate} className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950">
-            新建待办
+            新建任务
           </button>
         </div>
         <div className="min-h-[320px] divide-y divide-white/10">
-          {loading ? <div className="px-4 py-6 text-sm text-slate-400">项目待办加载中...</div> : null}
-          {!loading && todos.length === 0 ? <div className="px-4 py-8 text-sm text-slate-500">当前项目还没有待办，可以手动创建或从笔记生成。</div> : null}
+          {loading ? <div className="px-4 py-6 text-sm text-slate-400">项目任务加载中...</div> : null}
+          {!loading && todos.length === 0 ? <div className="px-4 py-8 text-sm text-slate-500">当前项目还没有任务，可以手动创建或从笔记生成。</div> : null}
           {!loading
             ? todos.map((todo) => (
                 <button
@@ -3043,14 +3195,14 @@ function TodoPanel({
 
       <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
         <div className="flex items-center justify-between gap-3">
-          <div className="font-medium text-slate-100">{selectedTodo ? "待办详情" : "新建待办"}</div>
+          <div className="font-medium text-slate-100">{selectedTodo ? "任务详情" : "新建任务"}</div>
           {selectedTodo ? (
             <button
               type="button"
               onClick={() => onOpenSession("todo", selectedTodo.id)}
               className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200"
             >
-              从待办创建会话
+              从任务创建会话
             </button>
           ) : null}
         </div>
@@ -3105,13 +3257,13 @@ function TodoPanel({
               value={draft.description}
               onChange={(event) => onDraftChange("description", event.target.value)}
               className="min-h-40 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-              placeholder="补充待办目标、验收点或限制。"
+              placeholder="补充任务目标、验收点或限制。"
             />
           </Field>
           {linkedNote ? <p className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">当前关联笔记：{linkedNote.title}</p> : null}
           <div className="flex flex-wrap gap-2">
             <button disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
-              {saving ? "保存中..." : selectedTodo ? "保存修改" : "创建待办"}
+              {saving ? "保存中..." : selectedTodo ? "保存修改" : "创建任务"}
             </button>
             {selectedTodo ? (
               <button
@@ -3120,7 +3272,7 @@ function TodoPanel({
                 onClick={() => onDelete(selectedTodo)}
                 className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
               >
-                {deletingTodoId === selectedTodo.id ? "删除中..." : "删除待办"}
+                {deletingTodoId === selectedTodo.id ? "删除中..." : "删除任务"}
               </button>
             ) : null}
           </div>

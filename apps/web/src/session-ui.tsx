@@ -58,7 +58,7 @@ export function SessionsWorkspace({
               onClick={() => onOpenSession("todo", firstTodo?.id)}
               className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              从待办创建
+              从任务创建
             </button>
           </div>
         </div>
@@ -81,7 +81,7 @@ export function SessionsWorkspace({
                   <span className="font-medium text-slate-100">{session.name}</span>
                   <SessionStatusPill status={session.status} />
                 </div>
-                <div className="mt-2 text-xs text-slate-500">来源：{session.source === "todo" ? "待办" : "直接创建"}</div>
+                <div className="mt-2 text-xs text-slate-500">来源：{session.source === "todo" ? "任务" : "直接创建"}</div>
                 <div className="mt-1 text-xs text-slate-500">更新：{formatDateTime(session.updatedAt)}</div>
               </button>
             ))}
@@ -156,7 +156,7 @@ export function CreateSessionModal({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="font-medium text-slate-100">会话创建表单</div>
-                <p className="mt-1 text-xs text-slate-500">入口：{source === "todo" ? "从待办创建" : "直接创建"}</p>
+                <p className="mt-1 text-xs text-slate-500">入口：{source === "todo" ? "从任务创建" : "直接创建"}</p>
               </div>
               <div className="text-right text-xs text-slate-500">
                 <div>项目：{selectedProject?.name ?? "未选择"}</div>
@@ -169,7 +169,7 @@ export function CreateSessionModal({
                   value={draft.sessionName}
                   onChange={(event) => onDraftChange("sessionName", event.target.value)}
                   className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-                  placeholder="例如：待办会话 / 直接会话"
+                  placeholder="例如：任务会话 / 直接会话"
                 />
               </Field>
               <Field label="Prompt 标题">
@@ -182,7 +182,7 @@ export function CreateSessionModal({
               </Field>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
-              <Field label="关联待办">
+              <Field label="关联任务">
                 <select
                   value={draft.todoId}
                   onChange={(event) => onDraftChange("todoId", event.target.value)}
@@ -331,7 +331,7 @@ export function SessionModal({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-medium text-slate-100">会话列表</div>
-                <div className="mt-1 text-xs text-slate-500">最近入口：{sessionSource === "todo" ? "从待办创建" : "直接创建"}</div>
+                <div className="mt-1 text-xs text-slate-500">最近入口：{sessionSource === "todo" ? "从任务创建" : "直接创建"}</div>
               </div>
               <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-400">{sessions.length} 个</span>
             </div>
@@ -357,7 +357,7 @@ export function SessionModal({
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-slate-300">
                           <MetaTag label="项目" value={selectedProject?.name ?? "未选择"} />
-                          <MetaTag label="待办" value={todo?.title ?? "未关联"} />
+                          <MetaTag label="任务" value={todo?.title ?? "未关联"} />
                           <MetaTag label="Worktree" value={worktree?.name ?? session.requestedWorktreeName ?? "未选择"} />
                           <MetaTag label="运行态" value={session.runtimeStatus ?? "stopped"} />
                         </div>
@@ -432,9 +432,9 @@ export function SessionModal({
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <DetailCard label="会话" value={selectedSession?.name || draft.sessionName || "未选择"} />
-                    <DetailCard label="来源" value={sessionSource === "todo" ? "待办" : "直接创建"} />
+                    <DetailCard label="来源" value={sessionSource === "todo" ? "任务" : "直接创建"} />
                     <DetailCard label="项目" value={selectedProject?.name ?? "未选择"} />
-                    <DetailCard label="待办" value={selectedSessionTodo?.title ?? "未关联"} />
+                    <DetailCard label="任务" value={selectedSessionTodo?.title ?? "未关联"} />
                     <DetailCard label="Worktree" value={sessionWorktree?.name || selectedWorktree?.name || draft.requestedWorktreeName || "未选择"} />
                     <DetailCard label="状态" value={sessionStatus} />
                     <DetailCard label="运行态" value={runtimeStatus ?? "stopped"} />
@@ -458,7 +458,7 @@ function EmptyProjectNotice({ onCreateProject }: { onCreateProject: () => void }
   return (
     <section className="rounded-xl border border-dashed border-white/10 bg-[#151821] p-6 text-sm text-slate-400">
       <div className="text-base font-medium text-slate-100">还没有选择项目</div>
-      <p className="mt-2">进入项目后才能查看待办、项目笔记、项目 Skill、会话和 Worktree。</p>
+      <p className="mt-2">进入项目后才能查看任务、项目笔记、项目 Skill、会话和 Worktree。</p>
       <button onClick={onCreateProject} className="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
         新建项目
       </button>
