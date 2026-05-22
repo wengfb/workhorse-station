@@ -1,5 +1,9 @@
 import type {
   ApiResponse,
+  ChatSessionResponse,
+  ChatSessionsResponse,
+  CreateChatMessageRequest,
+  CreateChatSessionRequest,
   CreateNoteRequest,
   CreateProjectRequest,
   CreatePromptDraftPreviewRequest,
@@ -7,6 +11,7 @@ import type {
   CreateSessionRequest,
   CreateTodoRequest,
   CreateWorktreeRequest,
+  DeleteChatSessionResponse,
   DeleteNoteResponse,
   DeleteProjectResponse,
   DeleteSessionResponse,
@@ -49,6 +54,30 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+export function getChatSessions() {
+  return fetchJson<ChatSessionsResponse>("/api/chat-sessions");
+}
+
+export function createChatSession(input: CreateChatSessionRequest) {
+  return fetchJson<ChatSessionResponse>("/api/chat-sessions", {
+    method: "POST",
+    body: input
+  });
+}
+
+export function sendChatMessage(chatSessionId: string, input: CreateChatMessageRequest) {
+  return fetchJson<ChatSessionResponse>(`/api/chat-sessions/${chatSessionId}/messages`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function deleteChatSession(chatSessionId: string) {
+  return fetchJson<DeleteChatSessionResponse>(`/api/chat-sessions/${chatSessionId}`, {
+    method: "DELETE"
+  });
 }
 
 export function getHealth() {

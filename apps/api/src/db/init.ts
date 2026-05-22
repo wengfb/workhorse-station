@@ -158,6 +158,28 @@ function createTables(db: Database) {
       FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE SET NULL,
       FOREIGN KEY (prompt_draft_id) REFERENCES prompt_drafts(id) ON DELETE SET NULL
     );
+
+    CREATE TABLE IF NOT EXISTS chat_sessions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT,
+      worktree_id TEXT,
+      title TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+      FOREIGN KEY (worktree_id) REFERENCES worktrees(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id TEXT PRIMARY KEY,
+      chat_session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      attachments_json TEXT NOT NULL DEFAULT '[]',
+      artifact_suggestions_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (chat_session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+    );
   `);
 
   ensureColumn(db, "sessions", "prompt_draft_id", "TEXT");

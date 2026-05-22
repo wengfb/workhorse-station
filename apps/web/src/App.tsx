@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
+  ChatArtifactSuggestion,
+  ChatAttachment,
+  ChatMessageSummary,
+  ChatSessionSummary,
   CreateWorktreeRequest,
   HealthResponse,
   MetaResponse,
@@ -21,11 +25,14 @@ import {
   createSession,
   createTodo,
   createWorktree,
+  createChatSession,
+  deleteChatSession,
   deleteNote,
   deleteProject,
   deleteSession,
   deleteTodo,
   deleteWorktree,
+  getChatSessions,
   getHealth,
   getMeta,
   getNotes,
@@ -35,6 +42,7 @@ import {
   getTodos,
   getWorktrees,
   previewPromptDraft,
+  sendChatMessage,
   stopSession,
   updateNote,
   updateProject,
@@ -78,25 +86,18 @@ type TodoDraft = {
   sourceNoteId: string;
 };
 
+type ChatFileDraft = {
+  name: string;
+  mimeType: string;
+  size: number;
+  textContent: string;
+};
+
 type ProjectMode = "create" | "edit";
 type WorkspaceScope = "home" | "project";
 type HomeMode = "chat" | "overview";
 type ProjectTab = "overview" | "todos" | "notes" | "skills" | "sessions" | "worktrees";
 type SessionView = "terminal" | "history";
-type ChatRole = "user" | "assistant";
-
-type MockChatMessage = {
-  id: string;
-  role: ChatRole;
-  content: string;
-};
-
-type MockChatSession = {
-  id: string;
-  title: string;
-  updatedAt: string;
-  messages: MockChatMessage[];
-};
 
 const topModes: Array<{ id: HomeMode; label: string; description: string }> = [
   { id: "chat", label: "聊天", description: "左侧聊天会话列表，右侧简洁聊天区" },
@@ -121,31 +122,21 @@ const todoStatusOptions: Array<{ value: TodoStatus; label: string }> = [
   { value: "completed", label: "已完成" }
 ];
 
-const initialChatSessions: MockChatSession[] = [
-  {
-    id: "chat-product",
-    title: "产品信息架构讨论",
-    updatedAt: new Date().toISOString(),
-    messages: [
-      { id: "m1", role: "user", content: "首页应该更像 ChatGPT，左侧是聊天会话列表。" },
-      { id: "m2", role: "assistant", content: "已记录：聊天会话和 Claude Code 会话分开，生成笔记、任务、提示词作为默认 Skill。" }
-    ]
-  },
-  {
-    id: "chat-skill",
-    title: "默认 Skill 设计",
-    updatedAt: new Date().toISOString(),
-    messages: [{ id: "m3", role: "assistant", content: "默认 Skill 可以负责生成笔记、任务、提示词和文件摘要。" }]
-  }
-];
+const textFileExtensions = new Set(["txt", "md", "markdown", "json", "ts", "tsx", "js", "jsx", "mjs", "cjs", "css", "html", "xml", "yml", "yaml", "sql", "java", "go", "py", "rb", "sh"]);
+const maxChatFileSize = 200_000;
 
 export function App() {
   const [workspaceScope, setWorkspaceScope] = useState<WorkspaceScope>("home");
   const [activeHomeMode, setActiveHomeMode] = useState<HomeMode>("chat");
-  const [chatSessions, setChatSessions] = useState<MockChatSession[]>(initialChatSessions);
-  const [selectedChatId, setSelectedChatId] = useState(initialChatSessions[0]?.id ?? null);
+  const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [chatDraft, setChatDraft] = useState("");
-  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [chatFile, setChatFile] = useState<ChatFileDraft | null>(null);
+  const [chatLoading, setChatLoading] = useState(true);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [creatingChat, setCreatingChat] = useState(false);
+  const [sendingChat, setSendingChat] = useState(false);
+  const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [activeProjectTab, setActiveProjectTab] = useState<ProjectTab>("overview");
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
@@ -213,16 +204,21 @@ export function App() {
 
     async function loadAppState() {
       try {
-        const [health, meta, projectsData] = await Promise.all([getHealth(), getMeta(), getProjects()]);
+        const [health, meta, projectsData, chatData] = await Promise.all([getHealth(), getMeta(), getProjects(), getChatSessions()]);
 
         if (cancelled) {
           return;
         }
 
         const firstProject = projectsData.projects[0] ?? null;
+        const firstChat = chatData.chatSessions[0] ?? null;
         setApiState({ health, meta, loading: false, error: null });
         setProjects(projectsData.projects);
         setProjectsLoading(false);
+        setChatSessions(chatData.chatSessions);
+        setSelectedChatId(firstChat?.id ?? null);
+        setChatLoading(false);
+        setChatError(null);
 
         if (firstProject) {
           setSelectedProjectId(firstProject.id);
@@ -237,6 +233,8 @@ export function App() {
             error: formatError(error, "API 连接失败")
           }));
           setProjectsLoading(false);
+          setChatLoading(false);
+          setChatError(formatError(error, "聊天会话加载失败"));
         }
       }
     }
@@ -442,6 +440,27 @@ export function App() {
     { title: "运行中会话", value: String(runningSessionCount), detail: "真实 Claude Code 会话与终端已接入" },
     { title: "SQLite", value: databaseInfo?.connected ? "已连接" : "等待中", detail: databaseInfo ? `FTS5: ${databaseInfo.fts5 ? "可用" : "不可用"}` : "等待后端" }
   ];
+
+  async function reloadChatSessions(preferredChatId?: string | null) {
+    setChatLoading(true);
+
+    try {
+      const data = await getChatSessions();
+      const nextChat =
+        (preferredChatId ? data.chatSessions.find((session) => session.id === preferredChatId) : null) ??
+        data.chatSessions.find((session) => session.id === selectedChatId) ??
+        data.chatSessions[0] ??
+        null;
+
+      setChatSessions(data.chatSessions);
+      setSelectedChatId(nextChat?.id ?? null);
+      setChatError(null);
+    } catch (error) {
+      setChatError(formatError(error, "聊天会话加载失败"));
+    } finally {
+      setChatLoading(false);
+    }
+  }
 
   async function reloadProjects(preferredProjectId?: string | null) {
     setProjectsLoading(true);
@@ -944,64 +963,156 @@ export function App() {
     setTodosError(null);
   }
 
-  function createChatSession() {
-    const nextChat: MockChatSession = {
-      id: `chat-${Date.now()}`,
-      title: `新聊天 ${chatSessions.length + 1}`,
-      updatedAt: new Date().toISOString(),
-      messages: [{ id: `message-${Date.now()}`, role: "assistant", content: "新的聊天会话已创建。生成笔记、任务、提示词等能力会作为默认 Skill 通过自然语言触发。" }]
-    };
+  async function createChatSessionRecord() {
+    setCreatingChat(true);
+    setChatError(null);
 
-    setChatSessions((current) => [nextChat, ...current]);
-    setSelectedChatId(nextChat.id);
-    setChatDraft("");
-    setSelectedFileName(null);
+    try {
+      const data = await createChatSession({
+        projectId: selectedProject?.id ?? null,
+        worktreeId: selectedWorktree?.id ?? null
+      });
+      await reloadChatSessions(data.chatSession.id);
+      setChatDraft("");
+      setChatFile(null);
+    } catch (error) {
+      setChatError(formatError(error, "聊天会话创建失败"));
+    } finally {
+      setCreatingChat(false);
+    }
   }
 
-  function handleChatFileChange(fileName: string | null) {
-    setSelectedFileName(fileName);
+  async function handleChatFileChange(file: File | null) {
+    if (!file) {
+      setChatFile(null);
+      return;
+    }
+
+    try {
+      const attachment = await readChatFile(file);
+      setChatFile(attachment);
+      setChatError(null);
+    } catch (error) {
+      setChatError(formatError(error, "文件读取失败"));
+      setChatFile(null);
+    }
   }
 
-  function sendChatMessage(event: FormEvent<HTMLFormElement>) {
+  async function handleSendChatMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const content = chatDraft.trim();
-    if (!content && !selectedFileName) {
+    const attachments = chatFile ? [toChatAttachment(chatFile)] : [];
+
+    if (!content && !attachments.length) {
       return;
     }
 
-    const targetChat = selectedChat ?? chatSessions[0] ?? null;
-    if (!targetChat) {
-      createChatSession();
+    let targetChatId = selectedChat?.id ?? null;
+
+    if (!targetChatId) {
+      setCreatingChat(true);
+      setChatError(null);
+
+      try {
+        const created = await createChatSession({
+          projectId: selectedProject?.id ?? null,
+          worktreeId: selectedWorktree?.id ?? null
+        });
+        targetChatId = created.chatSession.id;
+        setSelectedChatId(created.chatSession.id);
+      } catch (error) {
+        setChatError(formatError(error, "聊天会话创建失败"));
+        setCreatingChat(false);
+        return;
+      } finally {
+        setCreatingChat(false);
+      }
+    }
+
+    setSendingChat(true);
+    setChatError(null);
+
+    try {
+      const data = await sendChatMessage(targetChatId, {
+        content,
+        attachments,
+        projectId: selectedProject?.id ?? null,
+        worktreeId: selectedWorktree?.id ?? null
+      });
+      setChatDraft("");
+      setChatFile(null);
+      await reloadChatSessions(data.chatSession.id);
+    } catch (error) {
+      setChatError(formatError(error, "消息发送失败"));
+    } finally {
+      setSendingChat(false);
+    }
+  }
+
+  async function applyChatSuggestion(suggestion: ChatArtifactSuggestion) {
+    if (!selectedProject) {
+      setChatError("需先选择项目，才能保存草稿建议。");
       return;
     }
 
-    const now = new Date().toISOString();
-    const userMessage: MockChatMessage = {
-      id: `message-${Date.now()}`,
-      role: "user",
-      content: selectedFileName ? `${content || "请处理这个文件。"}\n\n附件：${selectedFileName}` : content
-    };
-    const assistantMessage: MockChatMessage = {
-      id: `message-${Date.now() + 1}`,
-      role: "assistant",
-      content: "这是聊天前端占位回复。后续接入 Claude SDK 后，默认 Skill 会负责生成笔记、任务、提示词或文件摘要。"
-    };
+    setChatError(null);
 
-    setChatSessions((current) =>
-      current.map((session) =>
-        session.id === targetChat.id
-          ? {
-              ...session,
-              updatedAt: now,
-              title: session.title.startsWith("新聊天") && content ? content.slice(0, 18) : session.title,
-              messages: [...session.messages, userMessage, assistantMessage]
-            }
-          : session
-      )
-    );
-    setChatDraft("");
-    setSelectedFileName(null);
+    try {
+      if (suggestion.type === "note") {
+        const data = await createNote(selectedProject.id, {
+          title: suggestion.title,
+          content: suggestion.content,
+          tags: suggestion.tags ?? []
+        });
+        await reloadNotes(selectedProject.id, data.note.id);
+        return;
+      }
+
+      if (suggestion.type === "todo") {
+        const data = await createTodo(selectedProject.id, {
+          title: suggestion.title,
+          description: suggestion.description ?? suggestion.content,
+          status: suggestion.status ?? "draft",
+          tags: suggestion.tags ?? []
+        });
+        await reloadTodos(selectedProject.id, data.todo.id);
+        return;
+      }
+
+      const data = await createPromptDraft(selectedProject.id, {
+        title: suggestion.title,
+        prompt: suggestion.content,
+        status: "draft",
+        source: "direct",
+        worktreeId: selectedWorktree?.id ?? null
+      });
+      await reloadPromptDrafts(selectedProject.id, data.promptDraft.id);
+    } catch (error) {
+      setChatError(formatError(error, "草稿建议保存失败"));
+    }
+  }
+
+  async function handleDeleteChatSession(chatSession: ChatSessionSummary) {
+    const confirmed = window.confirm(`确认删除聊天「${chatSession.title}」？`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingChatId(chatSession.id);
+    setChatError(null);
+
+    try {
+      await deleteChatSession(chatSession.id);
+      const remaining = chatSessions.filter((session) => session.id !== chatSession.id);
+      const nextChatId = selectedChatId === chatSession.id ? remaining[0]?.id ?? null : selectedChatId;
+      await reloadChatSessions(nextChatId);
+    } catch (error) {
+      setChatError(formatError(error, "聊天删除失败"));
+    } finally {
+      setDeletingChatId(null);
+    }
   }
 
   function openSessionModal(source: SessionSource, todoId?: string, sessionId?: string) {
@@ -1301,12 +1412,19 @@ export function App() {
             chatSessions={chatSessions}
             selectedChat={selectedChat}
             chatDraft={chatDraft}
-            selectedFileName={selectedFileName}
+            chatFile={chatFile}
+            chatLoading={chatLoading}
+            chatError={chatError}
+            creatingChat={creatingChat}
+            sendingChat={sendingChat}
+            deletingChatId={deletingChatId}
             onChatSelect={(session) => setSelectedChatId(session.id)}
-            onCreateChat={createChatSession}
+            onCreateChat={() => void createChatSessionRecord()}
             onChatDraftChange={setChatDraft}
-            onChatFileChange={handleChatFileChange}
-            onChatSubmit={sendChatMessage}
+            onChatFileChange={(file) => void handleChatFileChange(file)}
+            onChatSubmit={(event) => void handleSendChatMessage(event)}
+            onApplyChatSuggestion={(suggestion) => void applyChatSuggestion(suggestion)}
+            onDeleteChat={handleDeleteChatSession}
             onEnterProject={() => setWorkspaceScope("project")}
             onCreateSession={() => openSessionModal("direct")}
           />
@@ -1535,12 +1653,19 @@ function HomeWorkspace({
   chatSessions,
   selectedChat,
   chatDraft,
-  selectedFileName,
+  chatFile,
+  chatLoading,
+  chatError,
+  creatingChat,
+  sendingChat,
+  deletingChatId,
   onChatSelect,
   onCreateChat,
   onChatDraftChange,
   onChatFileChange,
   onChatSubmit,
+  onApplyChatSuggestion,
+  onDeleteChat,
   onEnterProject,
   onCreateSession
 }: {
@@ -1552,15 +1677,22 @@ function HomeWorkspace({
   apiConnected: boolean;
   apiError: string | null;
   databaseInfo: MetaResponse["database"] | null;
-  chatSessions: MockChatSession[];
-  selectedChat: MockChatSession | null;
+  chatSessions: ChatSessionSummary[];
+  selectedChat: ChatSessionSummary | null;
   chatDraft: string;
-  selectedFileName: string | null;
-  onChatSelect: (session: MockChatSession) => void;
+  chatFile: ChatFileDraft | null;
+  chatLoading: boolean;
+  chatError: string | null;
+  creatingChat: boolean;
+  sendingChat: boolean;
+  deletingChatId: string | null;
+  onChatSelect: (session: ChatSessionSummary) => void;
   onCreateChat: () => void;
   onChatDraftChange: (value: string) => void;
-  onChatFileChange: (fileName: string | null) => void;
+  onChatFileChange: (file: File | null) => void;
   onChatSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onApplyChatSuggestion: (suggestion: ChatArtifactSuggestion) => void;
+  onDeleteChat: (chat: ChatSessionSummary) => void;
   onEnterProject: () => void;
   onCreateSession: () => void;
 }) {
@@ -1573,12 +1705,19 @@ function HomeWorkspace({
           chatSessions={chatSessions}
           selectedChat={selectedChat}
           draft={chatDraft}
-          selectedFileName={selectedFileName}
+          chatFile={chatFile}
+          loading={chatLoading}
+          error={chatError}
+          creating={creatingChat}
+          sending={sendingChat}
+          deletingChatId={deletingChatId}
           onSelect={onChatSelect}
           onCreate={onCreateChat}
           onDraftChange={onChatDraftChange}
           onFileChange={onChatFileChange}
           onSubmit={onChatSubmit}
+          onApplySuggestion={onApplyChatSuggestion}
+          onDelete={onDeleteChat}
         />
       ) : (
         <HomeOverviewWorkspace
@@ -1600,24 +1739,38 @@ function HomeChatWorkspace({
   chatSessions,
   selectedChat,
   draft,
-  selectedFileName,
+  chatFile,
+  loading,
+  error,
+  creating,
+  sending,
+  deletingChatId,
   onSelect,
   onCreate,
   onDraftChange,
   onFileChange,
-  onSubmit
+  onSubmit,
+  onApplySuggestion,
+  onDelete
 }: {
   selectedProject: ProjectSummary | null;
   selectedWorktree: WorktreeSummary | null;
-  chatSessions: MockChatSession[];
-  selectedChat: MockChatSession | null;
+  chatSessions: ChatSessionSummary[];
+  selectedChat: ChatSessionSummary | null;
   draft: string;
-  selectedFileName: string | null;
-  onSelect: (session: MockChatSession) => void;
+  chatFile: ChatFileDraft | null;
+  loading: boolean;
+  error: string | null;
+  creating: boolean;
+  sending: boolean;
+  deletingChatId: string | null;
+  onSelect: (session: ChatSessionSummary) => void;
   onCreate: () => void;
   onDraftChange: (value: string) => void;
-  onFileChange: (fileName: string | null) => void;
+  onFileChange: (file: File | null) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onApplySuggestion: (suggestion: ChatArtifactSuggestion) => void;
+  onDelete: (chat: ChatSessionSummary) => void;
 }) {
   return (
     <section className="grid min-h-[calc(100vh-80px)] flex-1 grid-cols-1 bg-[#0f1117] lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -1632,17 +1785,25 @@ function HomeChatWorkspace({
           </button>
         </div>
         <div className="mt-3 flex gap-2 overflow-x-auto lg:block lg:space-y-1">
+          {chatSessions.length === 0 ? <div className="rounded-xl border border-dashed border-white/10 p-3 text-sm text-slate-500">还没有聊天会话</div> : null}
           {chatSessions.map((session) => (
-            <button
-              key={session.id}
-              onClick={() => onSelect(session)}
-              className={`min-w-56 rounded-xl p-3 text-left text-sm lg:block lg:w-full lg:min-w-0 ${
-                selectedChat?.id === session.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"
-              }`}
-            >
-              <div className="truncate font-medium text-slate-100">{session.title}</div>
-              <div className="mt-1 truncate text-xs text-slate-500">{formatDateTime(session.updatedAt)}</div>
-            </button>
+            <div key={session.id} className={`rounded-xl p-3 text-sm ${selectedChat?.id === session.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}>
+              <button
+                onClick={() => onSelect(session)}
+                className="w-full text-left"
+              >
+                <div className="truncate font-medium text-slate-100">{session.title}</div>
+                <div className="mt-1 truncate text-xs text-slate-500">{formatDateTime(session.updatedAt)}</div>
+              </button>
+              <button
+                type="button"
+                disabled={deletingChatId === session.id}
+                onClick={() => onDelete(session)}
+                className="mt-2 rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-400 hover:bg-white/5 disabled:opacity-50"
+              >
+                {deletingChatId === session.id ? "删除中..." : "删除"}
+              </button>
+            </div>
           ))}
         </div>
       </aside>
@@ -1653,25 +1814,59 @@ function HomeChatWorkspace({
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto w-full max-w-[768px] space-y-4 p-4 sm:p-6">
+            {loading ? <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6 text-center text-sm text-slate-500">聊天会话加载中...</div> : null}
+            {!loading && error ? <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div> : null}
+            {!loading && !selectedChat ? <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-500">新建或选择一个聊天会话。</div> : null}
             {selectedChat?.messages.map((message) => (
               <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[82%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm ${
-                    message.role === "user" ? "bg-slate-100 text-slate-950" : "border border-white/10 bg-white/[0.04] text-slate-200"
-                  }`}
-                >
-                  {message.content}
+                <div className={`max-w-[82%] space-y-3 rounded-2xl px-4 py-3 text-sm ${message.role === "user" ? "bg-slate-100 text-slate-950" : "border border-white/10 bg-white/[0.04] text-slate-200"}`}>
+                  <div className="whitespace-pre-wrap">{message.content}</div>
+                  {message.attachments.length ? (
+                    <div className="space-y-2 border-t border-white/10 pt-3 text-xs text-slate-400">
+                      {message.attachments.map((attachment) => (
+                        <div key={`${message.id}-${attachment.name}`} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                          <div className="truncate font-medium text-slate-200">{attachment.name}</div>
+                          <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                            <span>{attachment.mimeType}</span>
+                            <span>{formatFileSize(attachment.size)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {message.role === "assistant" && message.artifactSuggestions.length ? (
+                    <div className="space-y-2 border-t border-white/10 pt-3">
+                      {message.artifactSuggestions.map((suggestion) => (
+                        <div key={suggestion.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-slate-300">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="font-medium text-slate-100">{suggestion.title}</div>
+                              <div className="mt-1 text-slate-500">{suggestion.type === "note" ? "笔记草稿" : suggestion.type === "todo" ? "任务草稿" : "Prompt 草稿"}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => onApplySuggestion(suggestion)}
+                              disabled={suggestion.type !== "note" && !selectedProject}
+                              className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-200 disabled:opacity-50"
+                            >
+                              保存
+                            </button>
+                          </div>
+                          <div className="mt-2 whitespace-pre-wrap text-slate-400">{suggestion.description ?? suggestion.content}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ))}
-            {!selectedChat ? <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-500">新建或选择一个聊天会话。</div> : null}
           </div>
         </div>
         <form onSubmit={onSubmit} className="p-3 sm:p-4">
           <div className="mx-auto w-full max-w-[768px]">
-            {selectedFileName ? (
+            {chatFile ? (
               <div className="mb-2 flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-300">
-                <span className="truncate">已选择文件：{selectedFileName}</span>
+                <span className="truncate">已选择文件：{chatFile.name}</span>
                 <button type="button" onClick={() => onFileChange(null)} className="text-slate-500 hover:text-slate-200">
                   移除
                 </button>
@@ -1683,7 +1878,7 @@ function HomeChatWorkspace({
                 <input
                   type="file"
                   className="hidden"
-                  onChange={(event) => onFileChange(event.target.files?.[0]?.name ?? null)}
+                  onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
                 />
               </label>
               <textarea
@@ -1692,7 +1887,9 @@ function HomeChatWorkspace({
                 className="max-h-36 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600"
                 placeholder="输入消息。需要生成笔记、任务、提示词时，直接用自然语言说明。"
               />
-              <button className="shrink-0 rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950">发送</button>
+              <button disabled={creating || sending} className="shrink-0 rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
+                {sending ? "发送中..." : creating ? "创建中..." : "发送"}
+              </button>
             </div>
           </div>
         </form>
@@ -1713,7 +1910,7 @@ function HomeOverviewWorkspace({
   apiConnected: boolean;
   apiError: string | null;
   databaseInfo: MetaResponse["database"] | null;
-  chatSessions: MockChatSession[];
+  chatSessions: ChatSessionSummary[];
   onEnterProject: () => void;
 }) {
   return (
@@ -3374,6 +3571,54 @@ function formatTodoStatus(status: TodoStatus) {
   };
 
   return labels[status];
+}
+
+function readChatFile(file: File) {
+  if (!isTextChatFile(file)) {
+    throw new Error("仅支持文本文件");
+  }
+
+  if (file.size > maxChatFileSize) {
+    throw new Error("文件不能超过 200KB");
+  }
+
+  return file.text().then((textContent) => ({
+    name: file.name,
+    mimeType: file.type || guessMimeType(file.name),
+    size: file.size,
+    textContent
+  }));
+}
+
+function toChatAttachment(file: ChatFileDraft): ChatAttachment {
+  return file;
+}
+
+function isTextChatFile(file: File) {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return textFileExtensions.has(extension) || file.type.startsWith("text/") || file.type === "application/json";
+}
+
+function guessMimeType(name: string) {
+  const extension = name.split(".").pop()?.toLowerCase() ?? "";
+  if (extension === "json") return "application/json";
+  if (extension === "md" || extension === "markdown") return "text/markdown";
+  if (extension === "ts" || extension === "tsx") return "text/typescript";
+  if (extension === "js" || extension === "jsx" || extension === "mjs" || extension === "cjs") return "text/javascript";
+  if (extension === "yml" || extension === "yaml") return "text/yaml";
+  return "text/plain";
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) {
+    return `${size} B`;
+  }
+
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function formatError(error: unknown, fallback: string) {

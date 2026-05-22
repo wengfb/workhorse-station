@@ -316,3 +316,69 @@ export type UpdateSessionRequest = {
   applyResultToTodo?: boolean;
   applyResultToProject?: boolean;
 };
+
+export type ChatRole = "user" | "assistant";
+export type ChatArtifactSuggestionType = "note" | "todo" | "prompt_draft";
+
+export type ChatAttachment = {
+  name: string;
+  mimeType: string;
+  size: number;
+  textContent: string;
+};
+
+export type ChatArtifactSuggestion = {
+  id: string;
+  type: ChatArtifactSuggestionType;
+  title: string;
+  content: string;
+  description?: string;
+  tags?: string[];
+  status?: TodoStatus;
+};
+
+export type ChatMessageSummary = {
+  id: string;
+  chatSessionId: string;
+  role: ChatRole;
+  content: string;
+  attachments: ChatAttachment[];
+  artifactSuggestions: ChatArtifactSuggestion[];
+  createdAt: string;
+};
+
+export type ChatSessionSummary = {
+  id: string;
+  projectId: string | null;
+  worktreeId: string | null;
+  title: string;
+  messages: ChatMessageSummary[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ChatSessionsResponse = {
+  chatSessions: ChatSessionSummary[];
+};
+
+export type ChatSessionResponse = {
+  chatSession: ChatSessionSummary;
+};
+
+export type DeleteChatSessionResponse = {
+  deleted: true;
+};
+
+export type CreateChatSessionRequest = {
+  projectId?: string | null;
+  worktreeId?: string | null;
+  title?: string;
+};
+
+export type CreateChatMessageRequest = {
+  content?: string;
+  attachments?: ChatAttachment[];
+  projectId?: string | null;
+  worktreeId?: string | null;
+};
+

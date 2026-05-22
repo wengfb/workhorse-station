@@ -1,5 +1,23 @@
 # 开发进度
 
+## 2026-05-22：首页 AI 聊天首切片
+
+### 已完成
+- 首页聊天从 mock 切换为真实持久化，会话与消息分别落到 `chat_sessions` / `chat_messages`。
+- 后端通过官方 Anthropic SDK 调用 Claude，返回自然语言回复和结构化草稿建议。
+- 前端首页聊天接入真实 API，支持会话列表、新建 / 删除会话、文本附件、assistant 建议卡片，以及项目 / worktree 上下文注入。
+- Claude 代理环境已兼容 `ANTHROPIC_AUTH_TOKEN` 和 `ANTHROPIC_BASE_URL`，可直接复用 `~/.claude/settings.json` 的代理配置。
+
+### 验收记录
+- `corepack pnpm -r typecheck`：通过。
+- `corepack pnpm -r build`：通过。
+- 浏览器验证：通过到 assistant 回复与建议渲染。
+  - 首页可加载真实聊天会话。
+  - 可新建聊天会话并发送文本消息。
+  - 文本附件可选择、可展示，并随消息提交。
+  - assistant 回复会渲染到页面，结构化草稿建议也会返回并展示。
+  - 建议确认按钮的最后一步点击验证仍留待下一轮。
+
 ## 2026-05-22：会话结果留存与任务 / 项目回写
 
 ### 已完成
