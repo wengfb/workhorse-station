@@ -3,8 +3,10 @@ import Fastify from "fastify";
 import type { ApiResponse, HealthResponse, MetaResponse } from "@workhorse-station/shared";
 import { initDatabase } from "./db/init.js";
 import { registerNoteRoutes } from "./notes/note-routes.js";
+import { registerPromptDraftRoutes } from "./prompt-drafts/prompt-draft-routes.js";
 import { isHttpError } from "./projects/http-error.js";
 import { registerProjectRoutes } from "./projects/project-routes.js";
+import { registerSessionRoutes } from "./sessions/session-routes.js";
 import { registerTodoRoutes } from "./todos/todo-routes.js";
 import { registerWorktreeRoutes } from "./worktrees/worktree-routes.js";
 
@@ -72,6 +74,8 @@ await registerProjectRoutes(server, database);
 await registerWorktreeRoutes(server, database);
 await registerNoteRoutes(server, database);
 await registerTodoRoutes(server, database);
+await registerPromptDraftRoutes(server, database);
+await registerSessionRoutes(server, database);
 
 const close = async () => {
   await server.close();

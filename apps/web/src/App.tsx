@@ -5,6 +5,9 @@ import type {
   MetaResponse,
   NoteSummary,
   ProjectSummary,
+  PromptDraftSummary,
+  SessionSource,
+  SessionSummary,
   TodoStatus,
   TodoSummary,
   WorktreeStatus,
@@ -13,22 +16,31 @@ import type {
 import {
   createNote,
   createProject,
+  createPromptDraft,
+  createSession,
   createTodo,
   createWorktree,
   deleteNote,
   deleteProject,
+  deleteSession,
   deleteTodo,
   deleteWorktree,
   getHealth,
   getMeta,
   getNotes,
   getProjects,
+  getPromptDrafts,
+  getSessions,
   getTodos,
   getWorktrees,
+  previewPromptDraft,
   updateNote,
   updateProject,
+  updatePromptDraft,
+  updateSession,
   updateTodo
 } from "./api";
+import { SessionModal as SessionModalPanel, CreateSessionModal, SessionsWorkspace as SessionsWorkspacePanel, type SessionEditorDraft } from "./session-ui";
 
 type ApiState = {
   health: HealthResponse | null;
@@ -69,8 +81,6 @@ type WorkspaceScope = "home" | "project";
 type HomeMode = "chat" | "overview";
 type ProjectTab = "overview" | "todos" | "notes" | "skills" | "sessions" | "worktrees";
 type SessionView = "terminal" | "history";
-type SessionLaunchSource = "direct" | "todo";
-type MockSessionStatus = "running" | "completed" | "draft";
 type ChatRole = "user" | "assistant";
 
 type MockChatMessage = {
@@ -84,24 +94,6 @@ type MockChatSession = {
   title: string;
   updatedAt: string;
   messages: MockChatMessage[];
-};
-
-type MockTodo = {
-  id: string;
-  title: string;
-  status: string;
-  priority: string;
-  source: string;
-};
-
-type MockSession = {
-  id: string;
-  name: string;
-  status: MockSessionStatus;
-  source: SessionLaunchSource;
-  prompt: string;
-  todoTitle?: string;
-  createdAt: string;
 };
 
 const topModes: Array<{ id: HomeMode; label: string; description: string }> = [
@@ -127,11 +119,6 @@ const todoStatusOptions: Array<{ value: TodoStatus; label: string }> = [
   { value: "completed", label: "已完成" }
 ];
 
-const mockTodos: MockTodo[] = [
-  { id: "todo-ui", title: "整理项目内会话入口", status: "待处理", priority: "P1", source: "聊天草稿" },
-  { id: "todo-skill", title: "定义会话内 Skill 注入方式", status: "草稿", priority: "P2", source: "项目笔记" }
-];
-
 const initialChatSessions: MockChatSession[] = [
   {
     id: "chat-product",
@@ -150,17 +137,6 @@ const initialChatSessions: MockChatSession[] = [
   }
 ];
 
-const initialSessions: MockSession[] = [
-  {
-    id: "session-placeholder-1",
-    name: "UI 重构占位会话",
-    status: "running",
-    source: "direct",
-    prompt: "前端占位会话：后续接入 Claude Code PTY 后展示真实终端输出。",
-    createdAt: new Date().toISOString()
-  }
-];
-
 export function App() {
   const [workspaceScope, setWorkspaceScope] = useState<WorkspaceScope>("home");
   const [activeHomeMode, setActiveHomeMode] = useState<HomeMode>("chat");
@@ -172,11 +148,13 @@ export function App() {
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [worktreeDialogOpen, setWorktreeDialogOpen] = useState(false);
+  const [sessionCreateModalOpen, setSessionCreateModalOpen] = useState(false);
   const [sessionModalOpen, setSessionModalOpen] = useState(false);
-  const [selectedSessionId, setSelectedSessionId] = useState(initialSessions[0]?.id ?? null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedPromptDraftId, setSelectedPromptDraftId] = useState<string | null>(null);
   const [sessionView, setSessionView] = useState<SessionView>("terminal");
-  const [sessionLaunchSource, setSessionLaunchSource] = useState<SessionLaunchSource>("direct");
-  const [localSessions, setLocalSessions] = useState<MockSession[]>(initialSessions);
+  const [sessionLaunchSource, setSessionLaunchSource] = useState<SessionSource>("direct");
+  const [sessionDraft, setSessionDraft] = useState<SessionEditorDraft>(emptySessionEditorDraft());
   const [apiState, setApiState] = useState<ApiState>({
     health: null,
     meta: null,
@@ -212,6 +190,15 @@ export function App() {
   const [todosError, setTodosError] = useState<string | null>(null);
   const [savingTodo, setSavingTodo] = useState(false);
   const [deletingTodoId, setDeletingTodoId] = useState<string | null>(null);
+  const [promptDrafts, setPromptDrafts] = useState<PromptDraftSummary[]>([]);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [previewingPromptDraft, setPreviewingPromptDraft] = useState(false);
+  const [savingPromptDraft, setSavingPromptDraft] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
+  const [updatingSessionId, setUpdatingSessionId] = useState<string | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -269,6 +256,15 @@ export function App() {
       setSelectedTodoId(null);
       setTodosLoading(false);
       setTodosError(null);
+      setPromptDrafts([]);
+      setSessions([]);
+      setSelectedSessionId(null);
+      setSelectedPromptDraftId(null);
+      setSessionsLoading(false);
+      setSessionsError(null);
+      setSessionCreateModalOpen(false);
+      setSessionModalOpen(false);
+      setSessionDraft(emptySessionEditorDraft());
       return;
     }
 
@@ -279,11 +275,15 @@ export function App() {
       setNotesError(null);
       setTodosLoading(true);
       setTodosError(null);
+      setSessionsLoading(true);
+      setSessionsError(null);
 
-      const [worktreesResult, notesResult, todosResult] = await Promise.allSettled([
+      const [worktreesResult, notesResult, todosResult, promptDraftsResult, sessionsResult] = await Promise.allSettled([
         getWorktrees(projectId),
         getNotes(projectId),
-        getTodos(projectId)
+        getTodos(projectId),
+        getPromptDrafts(projectId),
+        getSessions(projectId)
       ]);
 
       if (cancelled) {
@@ -323,9 +323,27 @@ export function App() {
         setTodosError(formatError(todosResult.reason, "项目待办加载失败"));
       }
 
+      if (promptDraftsResult.status === "fulfilled") {
+        setPromptDrafts(promptDraftsResult.value.promptDrafts);
+      } else {
+        setPromptDrafts([]);
+        setSessionsError(formatError(promptDraftsResult.reason, "Prompt 草稿加载失败"));
+      }
+
+      if (sessionsResult.status === "fulfilled") {
+        const nextSession = sessionsResult.value.sessions.find((session) => session.id === selectedSessionId) ?? sessionsResult.value.sessions[0] ?? null;
+        setSessions(sessionsResult.value.sessions);
+        setSelectedSessionId(nextSession?.id ?? null);
+      } else {
+        setSessions([]);
+        setSelectedSessionId(null);
+        setSessionsError(formatError(sessionsResult.reason, "会话列表加载失败"));
+      }
+
       setWorktreesLoading(false);
       setNotesLoading(false);
       setTodosLoading(false);
+      setSessionsLoading(false);
     }
 
     void loadProjectResources(selectedProjectId);
@@ -339,7 +357,8 @@ export function App() {
   const selectedWorktree = worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? null;
   const selectedNote = notes.find((note) => note.id === selectedNoteId) ?? null;
   const selectedTodo = todos.find((todo) => todo.id === selectedTodoId) ?? null;
-  const selectedSession = localSessions.find((session) => session.id === selectedSessionId) ?? localSessions[0] ?? null;
+  const selectedSession = selectedSessionId ? sessions.find((session) => session.id === selectedSessionId) ?? null : null;
+  const selectedPromptDraft = selectedPromptDraftId ? promptDrafts.find((promptDraft) => promptDraft.id === selectedPromptDraftId) ?? null : null;
   const apiConnected = apiState.health?.status === "ok";
 
   useEffect(() => {
@@ -360,8 +379,22 @@ export function App() {
     setTodoDraft(emptyTodoDraft());
   }, [selectedTodoId, selectedProjectId]);
 
+  useEffect(() => {
+    if (selectedSession) {
+      setSessionDraft(sessionToDraft(selectedSession, promptDrafts));
+      setSelectedPromptDraftId(selectedSession.promptDraftId ?? null);
+      setSessionLaunchSource(selectedSession.source);
+      return;
+    }
+
+    if (selectedPromptDraft) {
+      setSessionDraft(promptDraftToSessionDraft(selectedPromptDraft));
+      setSessionLaunchSource(selectedPromptDraft.source);
+    }
+  }, [selectedSessionId, selectedPromptDraftId, selectedProjectId, sessions, promptDrafts]);
+
   const databaseInfo = apiState.meta?.database ?? null;
-  const runningSessionCount = localSessions.filter((session) => session.status === "running").length;
+  const runningSessionCount = sessions.filter((session) => session.status === "running" || session.status === "queued").length;
   const homeMode = homeModes.find((mode) => mode.id === activeHomeMode) ?? homeModes[0];
   const selectedChat = chatSessions.find((session) => session.id === selectedChatId) ?? chatSessions[0] ?? null;
   const featureCards = [
@@ -465,6 +498,45 @@ export function App() {
     }
   }
 
+  async function reloadPromptDrafts(projectId: string, preferredPromptDraftId?: string | null) {
+    setSessionsLoading(true);
+
+    try {
+      const data = await getPromptDrafts(projectId);
+      const nextPromptDraft =
+        (preferredPromptDraftId ? data.promptDrafts.find((promptDraft) => promptDraft.id === preferredPromptDraftId) : null) ??
+        data.promptDrafts.find((promptDraft) => promptDraft.id === selectedPromptDraftId) ??
+        data.promptDrafts[0] ??
+        null;
+
+      setPromptDrafts(data.promptDrafts);
+      setSelectedPromptDraftId(nextPromptDraft?.id ?? null);
+      setSessionsError(null);
+    } catch (error) {
+      setSessionsError(formatError(error, "Prompt 草稿加载失败"));
+    } finally {
+      setSessionsLoading(false);
+    }
+  }
+
+  async function reloadSessions(projectId: string, preferredSessionId?: string | null) {
+    setSessionsLoading(true);
+
+    try {
+      const data = await getSessions(projectId);
+      const nextSession =
+        (preferredSessionId ? data.sessions.find((session) => session.id === preferredSessionId) : null) ?? data.sessions.find((session) => session.id === selectedSessionId) ?? data.sessions[0] ?? null;
+
+      setSessions(data.sessions);
+      setSelectedSessionId(nextSession?.id ?? null);
+      setSessionsError(null);
+    } catch (error) {
+      setSessionsError(formatError(error, "会话列表加载失败"));
+    } finally {
+      setSessionsLoading(false);
+    }
+  }
+
   function startCreateProject() {
     setWorkspaceScope("project");
     setActiveProjectTab("overview");
@@ -525,6 +597,13 @@ export function App() {
 
   function updateTodoDraft(field: keyof TodoDraft, value: string) {
     setTodoDraft((current) => ({
+      ...current,
+      [field]: value
+    }));
+  }
+
+  function updateSessionDraft(field: keyof SessionEditorDraft, value: string) {
+    setSessionDraft((current) => ({
       ...current,
       [field]: value
     }));
@@ -833,33 +912,198 @@ export function App() {
     setSelectedFileName(null);
   }
 
-  function openSessionModal(source: SessionLaunchSource, todo?: MockTodo, sessionId?: string) {
+  function openSessionModal(source: SessionSource, todoId?: string, sessionId?: string) {
     setSessionLaunchSource(source);
     setSessionView("terminal");
+    setSessionsError(null);
 
     if (sessionId) {
+      const session = sessions.find((item) => item.id === sessionId) ?? null;
       setSelectedSessionId(sessionId);
+      setSelectedPromptDraftId(session?.promptDraftId ?? null);
+      if (session) {
+        setSessionDraft(sessionToDraft(session, promptDrafts));
+      }
+      setSessionCreateModalOpen(false);
       setSessionModalOpen(true);
       return;
     }
 
-    const now = new Date().toISOString();
-    const nextSession: MockSession = {
-      id: `session-${Date.now()}`,
-      name: source === "todo" ? `待办会话：${todo?.title ?? "未选择待办"}` : `直接会话 ${localSessions.length + 1}`,
-      status: "running",
+    const nextDraft = buildSessionDraft({
       source,
-      todoTitle: todo?.title,
-      prompt:
-        source === "todo"
-          ? `根据待办「${todo?.title ?? "未选择待办"}」生成 Claude Code prompt。`
-          : "直接创建 Claude Code 会话，后续接入真实 prompt 编辑与 PTY。",
-      createdAt: now
-    };
+      todo: todoId ? todos.find((todo) => todo.id === todoId) ?? null : null,
+      selectedWorktree
+    });
 
-    setLocalSessions((current) => [nextSession, ...current]);
-    setSelectedSessionId(nextSession.id);
+    setSelectedSessionId(null);
+    setSelectedPromptDraftId(null);
+    setSessionDraft(nextDraft);
+    setSessionModalOpen(false);
+    setSessionCreateModalOpen(true);
+  }
+
+  function openSessionViewer() {
+    setSessionCreateModalOpen(false);
+    setSessionView("terminal");
+    setSessionsError(null);
+
+    if (!selectedSessionId && sessions[0]) {
+      setSelectedSessionId(sessions[0].id);
+      setSelectedPromptDraftId(sessions[0].promptDraftId ?? null);
+      setSessionLaunchSource(sessions[0].source);
+      setSessionDraft(sessionToDraft(sessions[0], promptDrafts));
+    }
+
     setSessionModalOpen(true);
+  }
+
+  async function handlePreviewPromptDraft() {
+    if (!selectedProject) {
+      return;
+    }
+
+    setPreviewingPromptDraft(true);
+    setSessionsError(null);
+
+    try {
+      const data = await previewPromptDraft(selectedProject.id, {
+        todoId: sessionDraft.todoId || null,
+        worktreeId: sessionDraft.worktreeId || null,
+        requestedWorktreeName: sessionDraft.requestedWorktreeName || null,
+        source: sessionLaunchSource,
+        title: sessionDraft.promptTitle || null
+      });
+
+      setSessionDraft((current) => ({
+        ...current,
+        promptTitle: data.title,
+        prompt: data.prompt,
+        todoId: data.todoId ?? current.todoId,
+        worktreeId: data.worktreeId ?? current.worktreeId,
+        requestedWorktreeName: data.requestedWorktreeName ?? current.requestedWorktreeName
+      }));
+    } catch (error) {
+      setSessionsError(formatError(error, "Prompt 草稿生成失败"));
+    } finally {
+      setPreviewingPromptDraft(false);
+    }
+  }
+
+  async function handleSavePromptDraft() {
+    if (!selectedProject) {
+      return;
+    }
+
+    setSavingPromptDraft(true);
+    setSessionsError(null);
+
+    try {
+      const request = sessionDraftToPromptDraftRequest(sessionDraft, sessionLaunchSource);
+      const data = sessionDraft.promptDraftId
+        ? await updatePromptDraft(selectedProject.id, sessionDraft.promptDraftId, request)
+        : await createPromptDraft(selectedProject.id, request);
+
+      setSelectedPromptDraftId(data.promptDraft.id);
+      setSessionDraft((current) => ({
+        ...current,
+        promptDraftId: data.promptDraft.id,
+        promptTitle: data.promptDraft.title,
+        prompt: data.promptDraft.prompt,
+        todoId: data.promptDraft.todoId ?? "",
+        worktreeId: data.promptDraft.worktreeId ?? "",
+        requestedWorktreeName: data.promptDraft.requestedWorktreeName ?? ""
+      }));
+      await reloadPromptDrafts(selectedProject.id, data.promptDraft.id);
+    } catch (error) {
+      setSessionsError(formatError(error, "Prompt 草稿保存失败"));
+    } finally {
+      setSavingPromptDraft(false);
+    }
+  }
+
+  async function handleCreateSessionRecord() {
+    if (!selectedProject) {
+      return;
+    }
+
+    setCreatingSession(true);
+    setSessionsError(null);
+
+    try {
+      const data = await createSession(selectedProject.id, sessionDraftToCreateSessionRequest(sessionDraft, sessionLaunchSource));
+      setSelectedSessionId(data.session.id);
+      setSelectedPromptDraftId(data.session.promptDraftId ?? null);
+      setSessionDraft(sessionToDraft(data.session, promptDrafts));
+      await reloadSessions(selectedProject.id, data.session.id);
+      if (sessionDraft.promptDraftId) {
+        await reloadPromptDrafts(selectedProject.id, sessionDraft.promptDraftId);
+      }
+      setSessionCreateModalOpen(false);
+      setSessionView("terminal");
+      setSessionModalOpen(true);
+    } catch (error) {
+      setSessionsError(formatError(error, "会话记录创建失败"));
+    } finally {
+      setCreatingSession(false);
+    }
+  }
+
+  async function handleStopSession(session: SessionSummary) {
+    if (!selectedProject) {
+      return;
+    }
+
+    setUpdatingSessionId(session.id);
+    setSessionsError(null);
+
+    try {
+      await updateSession(selectedProject.id, session.id, {
+        name: session.name,
+        status: "completed",
+        summary: session.summary
+      });
+      await reloadSessions(selectedProject.id, session.id);
+    } catch (error) {
+      setSessionsError(formatError(error, "会话停止失败"));
+    } finally {
+      setUpdatingSessionId(null);
+    }
+  }
+
+  async function handleDeleteSession(session: SessionSummary) {
+    if (!selectedProject) {
+      return;
+    }
+
+    const confirmed = window.confirm(`确认删除会话「${session.name}」？`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingSessionId(session.id);
+    setSessionsError(null);
+
+    try {
+      await deleteSession(selectedProject.id, session.id);
+
+      const remainingSessions = sessions.filter((item) => item.id !== session.id);
+      const nextSessionId = selectedSessionId === session.id ? remainingSessions[0]?.id ?? null : selectedSessionId;
+      await reloadSessions(selectedProject.id, nextSessionId);
+
+      if (selectedSessionId === session.id) {
+        setSelectedPromptDraftId(null);
+
+        if (!nextSessionId) {
+          setSessionDraft(emptySessionEditorDraft());
+          setSessionModalOpen(false);
+        }
+      }
+    } catch (error) {
+      setSessionsError(formatError(error, "会话删除失败"));
+    } finally {
+      setDeletingSessionId(null);
+    }
   }
 
   return (
@@ -901,6 +1145,12 @@ export function App() {
           className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none placeholder:text-slate-500 focus:border-slate-400 max-md:hidden"
           placeholder="搜索项目、笔记、待办、Skill"
         />
+        <button
+          onClick={openSessionViewer}
+          className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10"
+        >
+          会话
+        </button>
         <StatusPill connected={apiConnected} loading={apiState.loading} />
       </header>
 
@@ -956,8 +1206,10 @@ export function App() {
             todoDraft={todoDraft}
             savingTodo={savingTodo}
             deletingTodoId={deletingTodoId}
-            localSessions={localSessions}
-            mockTodos={mockTodos}
+            sessions={sessions}
+            promptDrafts={promptDrafts}
+            sessionsLoading={sessionsLoading}
+            sessionsError={sessionsError}
             onCreateProject={startCreateProject}
             onEditProject={startEditProject}
             onSelectProject={selectProject}
@@ -1005,19 +1257,48 @@ export function App() {
         />
       ) : null}
 
-      {sessionModalOpen ? (
-        <SessionModal
-          sessions={localSessions}
-          selectedSession={selectedSession}
+      {sessionCreateModalOpen ? (
+        <CreateSessionModal
+          todos={todos}
+          worktrees={worktrees}
           selectedProject={selectedProject}
           selectedWorktree={selectedWorktree}
+          source={sessionLaunchSource}
+          draft={sessionDraft}
+          error={sessionsError}
+          loading={sessionsLoading}
+          previewingPrompt={previewingPromptDraft}
+          savingPromptDraft={savingPromptDraft}
+          creatingSession={creatingSession}
+          onDraftChange={updateSessionDraft}
+          onPreviewPrompt={handlePreviewPromptDraft}
+          onSavePromptDraft={handleSavePromptDraft}
+          onCreateSession={handleCreateSessionRecord}
+          onClose={() => setSessionCreateModalOpen(false)}
+        />
+      ) : null}
+
+      {sessionModalOpen ? (
+        <SessionModalPanel
+          sessions={sessions}
+          selectedSession={selectedSession}
+          selectedPromptDraft={selectedPromptDraft}
+          selectedProject={selectedProject}
+          selectedWorktree={selectedWorktree}
+          todos={todos}
+          worktrees={worktrees}
           apiConnected={apiConnected}
           source={sessionLaunchSource}
           view={sessionView}
-          mockTodos={mockTodos}
+          draft={sessionDraft}
+          error={sessionsError}
+          loading={sessionsLoading}
+          updatingSessionId={updatingSessionId}
+          deletingSessionId={deletingSessionId}
           onViewChange={setSessionView}
           onSelectSession={(session) => setSelectedSessionId(session.id)}
-          onCreateSession={openSessionModal}
+          onStopSession={handleStopSession}
+          onDeleteSession={handleDeleteSession}
           onClose={() => setSessionModalOpen(false)}
         />
       ) : null}
@@ -1356,8 +1637,10 @@ function ProjectWorkspacePage({
   todoDraft,
   savingTodo,
   deletingTodoId,
-  localSessions,
-  mockTodos,
+  sessions,
+  promptDrafts,
+  sessionsLoading,
+  sessionsError,
   onCreateProject,
   onEditProject,
   onSelectProject,
@@ -1405,8 +1688,10 @@ function ProjectWorkspacePage({
   todoDraft: TodoDraft;
   savingTodo: boolean;
   deletingTodoId: string | null;
-  localSessions: MockSession[];
-  mockTodos: MockTodo[];
+  sessions: SessionSummary[];
+  promptDrafts: PromptDraftSummary[];
+  sessionsLoading: boolean;
+  sessionsError: string | null;
   onCreateProject: () => void;
   onEditProject: () => void;
   onSelectProject: (project: ProjectSummary) => void;
@@ -1425,7 +1710,7 @@ function ProjectWorkspacePage({
   onTodoDraftChange: (field: keyof TodoDraft, value: string) => void;
   onSaveTodo: (event: FormEvent<HTMLFormElement>) => void;
   onDeleteTodo: (todo: TodoSummary) => void;
-  onOpenSession: (source: SessionLaunchSource, todo?: MockTodo, sessionId?: string) => void;
+  onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
 }) {
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
@@ -1481,8 +1766,10 @@ function ProjectWorkspacePage({
         todoDraft={todoDraft}
         savingTodo={savingTodo}
         deletingTodoId={deletingTodoId}
-        localSessions={localSessions}
-        mockTodos={mockTodos}
+        sessions={sessions}
+        promptDrafts={promptDrafts}
+        sessionsLoading={sessionsLoading}
+        sessionsError={sessionsError}
         onCreateProject={onCreateProject}
         onEditProject={onEditProject}
         onSelectProject={onSelectProject}
@@ -1552,8 +1839,10 @@ function ProjectTabWorkspace({
   todoDraft,
   savingTodo,
   deletingTodoId,
-  localSessions,
-  mockTodos,
+  sessions,
+  promptDrafts,
+  sessionsLoading,
+  sessionsError,
   onCreateProject,
   onEditProject,
   onSelectProject,
@@ -1600,8 +1889,10 @@ function ProjectTabWorkspace({
   todoDraft: TodoDraft;
   savingTodo: boolean;
   deletingTodoId: string | null;
-  localSessions: MockSession[];
-  mockTodos: MockTodo[];
+  sessions: SessionSummary[];
+  promptDrafts: PromptDraftSummary[];
+  sessionsLoading: boolean;
+  sessionsError: string | null;
   onCreateProject: () => void;
   onEditProject: () => void;
   onSelectProject: (project: ProjectSummary) => void;
@@ -1620,7 +1911,7 @@ function ProjectTabWorkspace({
   onTodoDraftChange: (field: keyof TodoDraft, value: string) => void;
   onSaveTodo: (event: FormEvent<HTMLFormElement>) => void;
   onDeleteTodo: (todo: TodoSummary) => void;
-  onOpenSession: (source: SessionLaunchSource, todo?: MockTodo, sessionId?: string) => void;
+  onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
 }) {
   if (activeTab === "worktrees") {
     return selectedProject ? (
@@ -1642,11 +1933,14 @@ function ProjectTabWorkspace({
 
   if (activeTab === "sessions") {
     return (
-      <SessionsWorkspace
+      <SessionsWorkspacePanel
         selectedProject={selectedProject}
         selectedWorktree={selectedWorktree}
-        sessions={localSessions}
-        mockTodos={mockTodos}
+        sessions={sessions}
+        promptDrafts={promptDrafts}
+        todos={todos}
+        loading={sessionsLoading}
+        error={sessionsError}
         onCreateProject={onCreateProject}
         onOpenSession={onOpenSession}
       />
@@ -1914,276 +2208,6 @@ function WorktreePanel({
         </div>
       ) : null}
     </section>
-  );
-}
-
-function SessionsWorkspace({
-  selectedProject,
-  selectedWorktree,
-  sessions,
-  mockTodos,
-  onCreateProject,
-  onOpenSession
-}: {
-  selectedProject: ProjectSummary | null;
-  selectedWorktree: WorktreeSummary | null;
-  sessions: MockSession[];
-  mockTodos: MockTodo[];
-  onCreateProject: () => void;
-  onOpenSession: (source: SessionLaunchSource, todo?: MockTodo, sessionId?: string) => void;
-}) {
-  if (!selectedProject) {
-    return <EmptyProjectNotice onCreateProject={onCreateProject} />;
-  }
-
-  return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(360px,0.7fr)]">
-      <section className="rounded-xl border border-white/10 bg-[#151821] p-4">
-        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-          <div>
-            <div className="text-sm font-medium text-slate-100">Claude Code 会话</div>
-            <p className="mt-1 text-xs text-slate-500">当前是前端占位，尚未连接真实 Claude Code PTY / 会话后端。</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => onOpenSession("direct")} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
-              直接创建
-            </button>
-            <button onClick={() => onOpenSession("todo", mockTodos[0])} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
-              从待办创建
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-2">
-          {sessions.map((session) => (
-            <button key={session.id} onClick={() => onOpenSession(session.source, undefined, session.id)} className="block w-full rounded-lg border border-white/10 bg-white/[0.03] p-3 text-left text-sm hover:bg-white/[0.06]">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium text-slate-100">{session.name}</span>
-                <SessionStatusPill status={session.status} />
-              </div>
-              <div className="mt-2 text-xs text-slate-500">来源：{session.source === "todo" ? `待办 · ${session.todoTitle ?? "未命名"}` : "直接创建"}</div>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
-        <div className="font-medium text-slate-100">会话上下文</div>
-        <div className="mt-4 space-y-2">
-          <DetailRow label="项目" value={selectedProject.name} />
-          <DetailRow label="Worktree" value={selectedWorktree?.name ?? "未选择"} />
-          <DetailRow label="会话入口" value="直接创建 / 从待办创建" />
-          <DetailRow label="关闭窗口" value="后台运行，不停止会话" />
-        </div>
-        <p className="mt-4 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100">
-          后续接入真实后端后，这里会展示会话持久化、PTY 状态和历史摘要。
-        </p>
-      </section>
-    </div>
-  );
-}
-
-function SessionModal({
-  sessions,
-  selectedSession,
-  selectedProject,
-  selectedWorktree,
-  apiConnected,
-  source,
-  view,
-  mockTodos,
-  onViewChange,
-  onSelectSession,
-  onCreateSession,
-  onClose
-}: {
-  sessions: MockSession[];
-  selectedSession: MockSession | null;
-  selectedProject: ProjectSummary | null;
-  selectedWorktree: WorktreeSummary | null;
-  apiConnected: boolean;
-  source: SessionLaunchSource;
-  view: SessionView;
-  mockTodos: MockTodo[];
-  onViewChange: (view: SessionView) => void;
-  onSelectSession: (session: MockSession) => void;
-  onCreateSession: (source: SessionLaunchSource, todo?: MockTodo) => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 p-0 md:p-6">
-      <div className="flex h-full w-full flex-col overflow-hidden bg-[#101114] shadow-2xl md:max-w-[min(96vw,1800px)] md:rounded-2xl md:border md:border-white/10">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-slate-100">会话执行：{selectedSession?.name ?? "未选择会话"}</div>
-            <div className="mt-1 text-xs text-slate-500">关闭窗口表示后台运行；当前为前端占位，尚未连接真实 PTY。</div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button disabled className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 opacity-50">
-              停止会话（未接入）
-            </button>
-            <button onClick={onClose} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10">
-              后台运行 / 关闭
-            </button>
-          </div>
-        </div>
-
-        <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[3fr_7fr]">
-          <SessionListPane
-            sessions={sessions}
-            selectedSession={selectedSession}
-            source={source}
-            mockTodos={mockTodos}
-            onSelectSession={onSelectSession}
-            onCreateSession={onCreateSession}
-          />
-          <section className="flex min-h-0 flex-col bg-black/20">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 p-3">
-              <div className="flex gap-1">
-                {[
-                  { id: "terminal", label: "操作终端" },
-                  { id: "history", label: "查看历史" }
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => onViewChange(tab.id as SessionView)}
-                    className={`rounded-md px-3 py-1.5 text-sm ${view === tab.id ? "bg-white text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-slate-100"}`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-              <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-xs text-amber-100">前端占位</span>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto p-4">
-              {view === "terminal" ? (
-                <SessionTerminalPane
-                  apiConnected={apiConnected}
-                  selectedProject={selectedProject}
-                  selectedWorktree={selectedWorktree}
-                  selectedSession={selectedSession}
-                />
-              ) : (
-                <SessionHistoryPane selectedSession={selectedSession} selectedProject={selectedProject} selectedWorktree={selectedWorktree} />
-              )}
-            </div>
-          </section>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SessionListPane({
-  sessions,
-  selectedSession,
-  source,
-  mockTodos,
-  onSelectSession,
-  onCreateSession
-}: {
-  sessions: MockSession[];
-  selectedSession: MockSession | null;
-  source: SessionLaunchSource;
-  mockTodos: MockTodo[];
-  onSelectSession: (session: MockSession) => void;
-  onCreateSession: (source: SessionLaunchSource, todo?: MockTodo) => void;
-}) {
-  return (
-    <aside className="min-h-0 overflow-auto border-b border-white/10 bg-[#151821] p-4 xl:border-b-0 xl:border-r">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-sm font-medium text-slate-100">会话列表</div>
-          <div className="mt-1 text-xs text-slate-500">最近入口：{source === "todo" ? "从待办创建" : "直接创建"}</div>
-        </div>
-        <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-400">{sessions.length} 个</span>
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button onClick={() => onCreateSession("direct")} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
-          直接创建
-        </button>
-        <button onClick={() => onCreateSession("todo", mockTodos[0])} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
-          从待办创建
-        </button>
-      </div>
-      <div className="mt-4 space-y-2">
-        {sessions.map((session) => (
-          <button
-            key={session.id}
-            onClick={() => onSelectSession(session)}
-            className={`block w-full rounded-lg border p-3 text-left text-sm ${
-              selectedSession?.id === session.id ? "border-slate-300/50 bg-white/[0.08]" : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
-            }`}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="truncate font-medium text-slate-100">{session.name}</span>
-              <SessionStatusPill status={session.status} />
-            </div>
-            <div className="mt-2 text-xs text-slate-500">{formatDateTime(session.createdAt)}</div>
-          </button>
-        ))}
-      </div>
-    </aside>
-  );
-}
-
-function SessionTerminalPane({
-  apiConnected,
-  selectedProject,
-  selectedWorktree,
-  selectedSession
-}: {
-  apiConnected: boolean;
-  selectedProject: ProjectSummary | null;
-  selectedWorktree: WorktreeSummary | null;
-  selectedSession: MockSession | null;
-}) {
-  const cwd = selectedWorktree?.path ?? selectedProject?.path ?? "-";
-
-  return (
-    <div className="min-h-[420px] rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-emerald-200 xl:min-h-full">
-      <div>$ workhorse-station session</div>
-      <div className="mt-2 text-slate-500">会话模态框终端占位，后续接入 xterm.js、PTY 和 Claude Code。</div>
-      <div className="mt-4">api: {apiConnected ? "connected" : "waiting"}</div>
-      <div className="mt-1">session: {selectedSession?.name ?? "none"}</div>
-      <div className="mt-1">project: {selectedProject?.name ?? "none"}</div>
-      <div className="mt-1">worktree: {selectedWorktree?.name ?? "none"}</div>
-      <div className="mt-1">branch: {selectedWorktree?.branch ?? selectedProject?.defaultBranch ?? "-"}</div>
-      <div className="mt-1">status: {selectedWorktree?.status ?? "-"}</div>
-      <div className="mt-1 break-all">cwd: {cwd}</div>
-      <div className="mt-4 text-slate-500">prompt:</div>
-      <div className="mt-1 whitespace-pre-wrap text-emerald-100">{selectedSession?.prompt ?? "尚未选择会话"}</div>
-      <div className="mt-2 animate-pulse">_</div>
-    </div>
-  );
-}
-
-function SessionHistoryPane({
-  selectedSession,
-  selectedProject,
-  selectedWorktree
-}: {
-  selectedSession: MockSession | null;
-  selectedProject: ProjectSummary | null;
-  selectedWorktree: WorktreeSummary | null;
-}) {
-  return (
-    <div className="space-y-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-300">
-      <div>
-        <div className="font-medium text-slate-100">会话历史</div>
-        <p className="mt-2 text-slate-400">当前是前端占位，后续保存 Claude Code 输出、摘要和继续会话信息。</p>
-      </div>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <DetailCard label="会话" value={selectedSession?.name ?? "未选择"} />
-        <DetailCard label="来源" value={selectedSession?.source === "todo" ? `待办：${selectedSession.todoTitle ?? "未命名"}` : "直接创建"} />
-        <DetailCard label="项目" value={selectedProject?.name ?? "未选择"} />
-        <DetailCard label="Worktree" value={selectedWorktree?.name ?? "未选择"} />
-      </div>
-      <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-        <div className="text-xs text-slate-500">历史摘要</div>
-        <p className="mt-2 text-slate-300">等待接入会话输出流和摘要生成。关闭模态框后，会话应继续在后台运行。</p>
-      </div>
-    </div>
   );
 }
 
@@ -2526,17 +2550,19 @@ function WorktreeStatusPill({ status }: { status: WorktreeStatus }) {
   return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${styles[status]}`}>{labels[status]}</span>;
 }
 
-function SessionStatusPill({ status }: { status: MockSessionStatus }) {
-  const styles: Record<MockSessionStatus, string> = {
+function SessionStatusPill({ status }: { status: SessionSummary["status"] }) {
+  const styles: Record<SessionSummary["status"], string> = {
+    draft: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+    queued: "border-sky-400/30 bg-sky-400/10 text-sky-200",
     running: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
-    completed: "border-slate-400/30 bg-slate-400/10 text-slate-300",
-    draft: "border-amber-400/30 bg-amber-400/10 text-amber-200"
+    completed: "border-slate-400/30 bg-slate-400/10 text-slate-300"
   };
 
-  const labels: Record<MockSessionStatus, string> = {
+  const labels: Record<SessionSummary["status"], string> = {
+    draft: "draft",
+    queued: "queued",
     running: "running",
-    completed: "completed",
-    draft: "draft"
+    completed: "completed"
   };
 
   return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${styles[status]}`}>{labels[status]}</span>;
@@ -2577,6 +2603,18 @@ function emptyWorktreeDraft(): WorktreeDraft {
   };
 }
 
+function emptySessionEditorDraft(): SessionEditorDraft {
+  return {
+    sessionName: "",
+    promptTitle: "",
+    prompt: "",
+    todoId: "",
+    worktreeId: "",
+    requestedWorktreeName: "",
+    promptDraftId: ""
+  };
+}
+
 function projectToDraft(project: ProjectSummary): ProjectDraft {
   return {
     name: project.name,
@@ -2593,6 +2631,92 @@ function projectDraftToRequest(draft: ProjectDraft) {
     defaultBranch: draft.defaultBranch || "main",
     description: draft.description || null
   };
+}
+
+function buildSessionDraft({
+  source,
+  todo,
+  selectedWorktree
+}: {
+  source: SessionSource;
+  todo: TodoSummary | null;
+  selectedWorktree: WorktreeSummary | null;
+}): SessionEditorDraft {
+  return {
+    sessionName: source === "todo" && todo ? todo.title : source === "todo" ? "待办会话" : "直接会话",
+    promptTitle: source === "todo" && todo ? `Prompt 草稿：${todo.title}` : "",
+    prompt: "",
+    todoId: todo?.id ?? "",
+    worktreeId: selectedWorktree?.id ?? "",
+    requestedWorktreeName: "",
+    promptDraftId: ""
+  };
+}
+
+function promptDraftToSessionDraft(promptDraft: PromptDraftSummary): SessionEditorDraft {
+  return {
+    sessionName: promptDraft.source === "todo" ? "待办会话" : "直接会话",
+    promptTitle: promptDraft.title,
+    prompt: promptDraft.prompt,
+    todoId: promptDraft.todoId ?? "",
+    worktreeId: promptDraft.worktreeId ?? "",
+    requestedWorktreeName: promptDraft.requestedWorktreeName ?? "",
+    promptDraftId: promptDraft.id
+  };
+}
+
+function sessionToDraft(session: SessionSummary, promptDrafts: PromptDraftSummary[]): SessionEditorDraft {
+  const promptDraft = session.promptDraftId ? promptDrafts.find((item) => item.id === session.promptDraftId) ?? null : null;
+
+  return {
+    sessionName: session.name,
+    promptTitle: promptDraft?.title ?? "",
+    prompt: session.prompt,
+    todoId: session.todoId ?? "",
+    worktreeId: session.worktreeId ?? "",
+    requestedWorktreeName: session.requestedWorktreeName ?? promptDraft?.requestedWorktreeName ?? "",
+    promptDraftId: session.promptDraftId ?? ""
+  };
+}
+
+function sessionDraftToPromptDraftRequest(draft: SessionEditorDraft, source: SessionSource) {
+  return {
+    todoId: optionalId(draft.todoId),
+    worktreeId: optionalId(draft.worktreeId),
+    requestedWorktreeName: optionalText(draft.requestedWorktreeName),
+    source,
+    title: draft.promptTitle.trim(),
+    prompt: draft.prompt,
+    status: "draft" as const
+  };
+}
+
+function sessionDraftToCreateSessionRequest(draft: SessionEditorDraft, source: SessionSource) {
+  return {
+    todoId: optionalId(draft.todoId),
+    worktreeId: optionalId(draft.worktreeId),
+    promptDraftId: optionalId(draft.promptDraftId),
+    requestedWorktreeName: optionalText(draft.requestedWorktreeName),
+    source,
+    name: optionalString(draft.sessionName),
+    prompt: draft.prompt,
+    status: "draft" as const
+  };
+}
+
+function optionalId(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function optionalText(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function optionalString(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 function worktreeDraftToRequest(draft: WorktreeDraft): CreateWorktreeRequest {
@@ -2831,7 +2955,7 @@ function TodoPanel({
   onDraftChange: (field: keyof TodoDraft, value: string) => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
   onDelete: (todo: TodoSummary) => void;
-  onOpenSession: (source: SessionLaunchSource, todo?: MockTodo, sessionId?: string) => void;
+  onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
 }) {
   if (!project) {
     return <EmptyProjectNotice onCreateProject={() => undefined} />;
@@ -2885,7 +3009,7 @@ function TodoPanel({
           {selectedTodo ? (
             <button
               type="button"
-              onClick={() => onOpenSession("todo", { id: selectedTodo.id, title: selectedTodo.title, status: "", priority: "", source: "" })}
+              onClick={() => onOpenSession("todo", selectedTodo.id)}
               className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200"
             >
               从待办创建会话

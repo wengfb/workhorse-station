@@ -1,5 +1,42 @@
 # 开发进度
 
+## 2026-05-22：Prompt 草稿与项目会话最小闭环
+
+### 已完成
+- 新增项目级 `prompt_drafts` 持久化：支持预览、创建、编辑和列表读取。
+- 新增项目级 `sessions` 持久化：支持创建、列表、停止（更新状态）和删除。
+- 会话创建支持两条入口：直接创建、从待办创建。
+- 会话创建流程拆分为两个模态框：先在创建模态框中生成 / 保存 prompt 草稿，再进入会话查看模态框。
+- 顶部导航右上角新增“会话”按钮，可随时重新打开当前项目的会话模态框。
+- 会话模态框 PC 维持 3:7 结构，左侧使用紧凑标签展示项目 / 待办 / worktree / 状态，右侧保留会话占位视图。
+- 每条会话卡片右侧提供独立“停止”“删除”操作；关闭模态框仅表示收起，不等于停止。
+
+### 当前阶段边界
+- 当前已完成的是会话数据面和交互闭环，不是真实 Claude Code PTY 执行闭环。
+- 会话记录会保存 prompt 快照、来源、关联 todo / worktree / prompt draft，但右侧执行区仍是 PTY 未接入占位。
+- “停止会话”当前表现为将单条会话状态更新为 `completed`，不涉及真实终端进程管理。
+
+### API 范围
+- `POST /api/projects/:projectId/prompt-drafts/preview`：生成未落库的 prompt 草稿预览。
+- `GET /api/projects/:projectId/prompt-drafts`：读取项目下 prompt 草稿列表。
+- `POST /api/projects/:projectId/prompt-drafts`：保存 prompt 草稿。
+- `PATCH /api/projects/:projectId/prompt-drafts/:draftId`：更新 prompt 草稿。
+- `GET /api/projects/:projectId/sessions`：读取项目下会话列表。
+- `POST /api/projects/:projectId/sessions`：创建会话记录并保存 prompt 快照。
+- `PATCH /api/projects/:projectId/sessions/:sessionId`：更新会话名称、状态、摘要。
+- `DELETE /api/projects/:projectId/sessions/:sessionId`：删除单条会话记录。
+
+### 验收记录
+- `corepack pnpm -r typecheck`：通过。
+- `corepack pnpm -r build`：通过。
+- 浏览器验证：通过。
+  - 通过待办入口和直接创建入口都能打开创建会话模态框。
+  - 可先生成 prompt 草稿、保存草稿，再创建会话记录。
+  - 顶部“会话”按钮可重新打开会话模态框。
+  - 每条会话卡片都带独立“停止”“删除”按钮。
+  - 停止单条会话后，状态会更新为 `completed`。
+  - 删除当前选中会话后，会自动切换到剩余会话；若无剩余会话则关闭模态框。
+
 ## 2026-05-22：Phase 1 收尾标记与 Phase 2 首切片启动
 
 ### 状态结论

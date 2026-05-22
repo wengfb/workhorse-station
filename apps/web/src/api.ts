@@ -2,10 +2,14 @@ import type {
   ApiResponse,
   CreateNoteRequest,
   CreateProjectRequest,
+  CreatePromptDraftPreviewRequest,
+  CreatePromptDraftRequest,
+  CreateSessionRequest,
   CreateTodoRequest,
   CreateWorktreeRequest,
   DeleteNoteResponse,
   DeleteProjectResponse,
+  DeleteSessionResponse,
   DeleteTodoResponse,
   DeleteWorktreeRequest,
   DeleteWorktreeResponse,
@@ -15,10 +19,17 @@ import type {
   NotesResponse,
   ProjectResponse,
   ProjectsResponse,
+  PromptDraftPreviewResponse,
+  PromptDraftResponse,
+  PromptDraftsResponse,
+  SessionResponse,
+  SessionsResponse,
   TodoResponse,
   TodosResponse,
   UpdateNoteRequest,
   UpdateProjectRequest,
+  UpdatePromptDraftRequest,
+  UpdateSessionRequest,
   UpdateTodoRequest,
   WorktreeResponse,
   WorktreesResponse
@@ -129,6 +140,55 @@ export function updateTodo(projectId: string, todoId: string, input: UpdateTodoR
 
 export function deleteTodo(projectId: string, todoId: string) {
   return fetchJson<DeleteTodoResponse>(`/api/projects/${projectId}/todos/${todoId}`, {
+    method: "DELETE"
+  });
+}
+
+export function previewPromptDraft(projectId: string, input: CreatePromptDraftPreviewRequest) {
+  return fetchJson<PromptDraftPreviewResponse>(`/api/projects/${projectId}/prompt-drafts/preview`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function getPromptDrafts(projectId: string) {
+  return fetchJson<PromptDraftsResponse>(`/api/projects/${projectId}/prompt-drafts`);
+}
+
+export function createPromptDraft(projectId: string, input: CreatePromptDraftRequest) {
+  return fetchJson<PromptDraftResponse>(`/api/projects/${projectId}/prompt-drafts`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function updatePromptDraft(projectId: string, promptDraftId: string, input: UpdatePromptDraftRequest) {
+  return fetchJson<PromptDraftResponse>(`/api/projects/${projectId}/prompt-drafts/${promptDraftId}`, {
+    method: "PATCH",
+    body: input
+  });
+}
+
+export function getSessions(projectId: string) {
+  return fetchJson<SessionsResponse>(`/api/projects/${projectId}/sessions`);
+}
+
+export function createSession(projectId: string, input: CreateSessionRequest) {
+  return fetchJson<SessionResponse>(`/api/projects/${projectId}/sessions`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function updateSession(projectId: string, sessionId: string, input: UpdateSessionRequest) {
+  return fetchJson<SessionResponse>(`/api/projects/${projectId}/sessions/${sessionId}`, {
+    method: "PATCH",
+    body: input
+  });
+}
+
+export function deleteSession(projectId: string, sessionId: string) {
+  return fetchJson<DeleteSessionResponse>(`/api/projects/${projectId}/sessions/${sessionId}`, {
     method: "DELETE"
   });
 }

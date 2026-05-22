@@ -114,11 +114,32 @@ function createTables(db: Database) {
       UNIQUE (project_id, name)
     );
 
+    CREATE TABLE IF NOT EXISTS prompt_drafts (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      todo_id TEXT,
+      worktree_id TEXT,
+      requested_worktree_name TEXT,
+      source TEXT NOT NULL DEFAULT 'direct',
+      title TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE SET NULL,
+      FOREIGN KEY (worktree_id) REFERENCES worktrees(id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
       worktree_id TEXT,
       todo_id TEXT,
+      prompt_draft_id TEXT,
+      requested_worktree_name TEXT,
+      source TEXT NOT NULL DEFAULT 'direct',
+      name TEXT NOT NULL DEFAULT '未命名会话',
       prompt TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'draft',
       summary TEXT,
@@ -126,9 +147,37 @@ function createTables(db: Database) {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
       FOREIGN KEY (worktree_id) REFERENCES worktrees(id) ON DELETE SET NULL,
-      FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE SET NULL
+      FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE SET NULL,
+      FOREIGN KEY (prompt_draft_id) REFERENCES prompt_drafts(id) ON DELETE SET NULL
     );
   `);
+
+  ensureColumn(db, "sessions", "prompt_draft_id", "TEXT");
+  ensureColumn(db, "sessions", "requested_worktree_name", "TEXT");
+  ensureColumn(db, "sessions", "source", "TEXT NOT NULL DEFAULT 'direct'");
+  ensureColumn(db, "sessions", "name", "TEXT NOT NULL DEFAULT '未命名会话'");
+}
+
+function ensureColumn(db: Database, tableName: string, columnName: string, definition: string) {
+  const statement = db.prepare(`PRAGMA table_info(${tableName});`);
+  let exists = false;
+
+  try {
+    while (statement.step()) {
+      const row = statement.getAsObject() as { name?: unknown };
+
+      if (row.name === columnName) {
+        exists = true;
+        break;
+      }
+    }
+  } finally {
+    statement.free();
+  }
+
+  if (!exists) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition};`);
+  }
 }
 
 function detectFts5(db: Database) {

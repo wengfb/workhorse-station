@@ -161,3 +161,104 @@ export type UpdateTodoRequest = Partial<CreateTodoRequest>;
 export type DeleteTodoResponse = {
   deleted: true;
 };
+
+export type SessionSource = "direct" | "todo";
+export type PromptDraftStatus = "draft" | "confirmed" | "archived";
+export type SessionStatus = "draft" | "queued" | "running" | "completed";
+
+export type PromptDraftSummary = {
+  id: string;
+  projectId: string;
+  todoId: string | null;
+  worktreeId: string | null;
+  requestedWorktreeName: string | null;
+  source: SessionSource;
+  title: string;
+  prompt: string;
+  status: PromptDraftStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PromptDraftsResponse = {
+  promptDrafts: PromptDraftSummary[];
+};
+
+export type PromptDraftResponse = {
+  promptDraft: PromptDraftSummary;
+};
+
+export type PromptDraftPreviewResponse = {
+  title: string;
+  prompt: string;
+  source: SessionSource;
+  todoId: string | null;
+  worktreeId: string | null;
+  requestedWorktreeName: string | null;
+};
+
+export type CreatePromptDraftPreviewRequest = {
+  todoId?: string | null;
+  worktreeId?: string | null;
+  requestedWorktreeName?: string | null;
+  source?: SessionSource;
+  title?: string | null;
+};
+
+export type CreatePromptDraftRequest = {
+  todoId?: string | null;
+  worktreeId?: string | null;
+  requestedWorktreeName?: string | null;
+  source?: SessionSource;
+  title: string;
+  prompt: string;
+  status?: PromptDraftStatus;
+};
+
+export type UpdatePromptDraftRequest = Partial<CreatePromptDraftRequest>;
+
+export type SessionSummary = {
+  id: string;
+  projectId: string;
+  worktreeId: string | null;
+  todoId: string | null;
+  promptDraftId: string | null;
+  requestedWorktreeName: string | null;
+  source: SessionSource;
+  name: string;
+  prompt: string;
+  status: SessionStatus;
+  summary: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SessionsResponse = {
+  sessions: SessionSummary[];
+};
+
+export type SessionResponse = {
+  session: SessionSummary;
+};
+
+export type DeleteSessionResponse = {
+  deleted: true;
+};
+
+export type CreateSessionRequest = {
+  worktreeId?: string | null;
+  todoId?: string | null;
+  promptDraftId?: string | null;
+  requestedWorktreeName?: string | null;
+  source?: SessionSource;
+  name?: string;
+  prompt: string;
+  status?: SessionStatus;
+  summary?: string | null;
+};
+
+export type UpdateSessionRequest = {
+  name?: string;
+  status?: SessionStatus;
+  summary?: string | null;
+};
