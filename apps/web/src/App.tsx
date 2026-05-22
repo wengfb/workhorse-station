@@ -6,6 +6,7 @@ import type {
   ChatSessionSummary,
   CreateWorktreeRequest,
   HealthResponse,
+  ProjectSkillSummary,
   MetaResponse,
   NoteSummary,
   ProjectSummary,
@@ -13,12 +14,17 @@ import type {
   SessionSource,
   SessionStreamEvent,
   SessionSummary,
+  SkillSummary,
   TodoStatus,
   TodoSummary,
   WorktreeStatus,
   WorktreeSummary
 } from "@workhorse-station/shared";
 import {
+  copyGlobalSkillToProject,
+  copyProjectSkillToGlobal,
+  createGlobalSkill,
+  createProjectSkill,
   createNote,
   createProject,
   createPromptDraft,
@@ -28,6 +34,8 @@ import {
   createChatSession,
   applyChatSuggestion as applyChatSuggestionRequest,
   deleteChatSession,
+  deleteGlobalSkill,
+  deleteProjectSkill,
   deleteNote,
   deleteProject,
   deleteSession,
@@ -36,13 +44,17 @@ import {
   getChatSessions,
   getHealth,
   getMeta,
+  getGlobalSkills,
   getNotes,
+  getProjectSkills,
   getProjects,
   getPromptDrafts,
   getSessions,
   getTodos,
   getWorktrees,
   previewPromptDraft,
+  renameGlobalSkill,
+  renameProjectSkill,
   sendChatMessage,
   stopSession,
   updateNote,
@@ -200,13 +212,21 @@ export function App() {
   const [creatingSession, setCreatingSession] = useState(false);
   const [updatingSessionId, setUpdatingSessionId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [globalSkills, setGlobalSkills] = useState<SkillSummary[]>([]);
+  const [globalSkillsLoading, setGlobalSkillsLoading] = useState(true);
+  const [globalSkillsError, setGlobalSkillsError] = useState<string | null>(null);
+  const [projectSkills, setProjectSkills] = useState<ProjectSkillSummary[]>([]);
+  const [projectSkillsLoading, setProjectSkillsLoading] = useState(false);
+  const [projectSkillsError, setProjectSkillsError] = useState<string | null>(null);
+  const [selectedProjectSkillName, setSelectedProjectSkillName] = useState<string | null>(null);
+  const [skillOperationName, setSkillOperationName] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadAppState() {
       try {
-        const [health, meta, projectsData, chatData] = await Promise.all([getHealth(), getMeta(), getProjects(), getChatSessions()]);
+        const [health, meta, projectsData, chatData, globalSkillsData] = await Promise.all([getHealth(), getMeta(), getProjects(), getChatSessions(), getGlobalSkills()]);
 
         if (cancelled) {
           return;
@@ -218,6 +238,9 @@ export function App() {
         setProjects(projectsData.projects);
         setProjectsLoading(false);
         setChatSessions(chatData.chatSessions);
+        setGlobalSkills(globalSkillsData.skills);
+        setGlobalSkillsLoading(false);
+        setGlobalSkillsError(null);
         setSelectedChatId(firstChat?.id ?? null);
         setChatLoading(false);
         setChatError(null);
@@ -237,6 +260,8 @@ export function App() {
           setProjectsLoading(false);
           setChatLoading(false);
           setChatError(formatError(error, "聊天会话加载失败"));
+          setGlobalSkillsLoading(false);
+          setGlobalSkillsError(formatError(error, "全局 Skill 加载失败"));
         }
       }
     }
@@ -270,6 +295,10 @@ export function App() {
       setSelectedPromptDraftId(null);
       setSessionsLoading(false);
       setSessionsError(null);
+      setProjectSkills([]);
+      setSelectedProjectSkillName(null);
+      setProjectSkillsLoading(false);
+      setProjectSkillsError(null);
       setSessionCreateModalOpen(false);
       setSessionModalOpen(false);
       setSessionDraft(emptySessionEditorDraft());
@@ -286,13 +315,16 @@ export function App() {
       setTodosError(null);
       setSessionsLoading(true);
       setSessionsError(null);
+      setProjectSkillsLoading(true);
+      setProjectSkillsError(null);
 
-      const [worktreesResult, notesResult, todosResult, promptDraftsResult, sessionsResult] = await Promise.allSettled([
+      const [worktreesResult, notesResult, todosResult, promptDraftsResult, sessionsResult, projectSkillsResult] = await Promise.allSettled([
         getWorktrees(projectId),
         getNotes(projectId),
         getTodos(projectId),
         getPromptDrafts(projectId),
-        getSessions(projectId)
+        getSessions(projectId),
+        getProjectSkills(projectId)
       ]);
 
       if (cancelled) {
@@ -349,10 +381,23 @@ export function App() {
         setSessionsError(formatError(sessionsResult.reason, "会话列表加载失败"));
       }
 
+      if (projectSkillsResult.status === "fulfilled") {
+        const nextSkill =
+          projectSkillsResult.value.skills.find((skill) => skill.name === selectedProjectSkillName) ?? projectSkillsResult.value.skills[0] ?? null;
+        setProjectSkills(projectSkillsResult.value.skills);
+        setSelectedProjectSkillName(nextSkill?.name ?? null);
+        setProjectSkillsError(null);
+      } else {
+        setProjectSkills([]);
+        setSelectedProjectSkillName(null);
+        setProjectSkillsError(formatError(projectSkillsResult.reason, "项目 Skill 加载失败"));
+      }
+
       setWorktreesLoading(false);
       setNotesLoading(false);
       setTodosLoading(false);
       setSessionsLoading(false);
+      setProjectSkillsLoading(false);
     }
 
     void loadProjectResources(selectedProjectId);
@@ -522,6 +567,41 @@ export function App() {
     }
   }
 
+  async function reloadGlobalSkills() {
+    setGlobalSkillsLoading(true);
+
+    try {
+      const data = await getGlobalSkills();
+      setGlobalSkills(data.skills);
+      setGlobalSkillsError(null);
+    } catch (error) {
+      setGlobalSkillsError(formatError(error, "全局 Skill 加载失败"));
+    } finally {
+      setGlobalSkillsLoading(false);
+    }
+  }
+
+  async function reloadProjectSkills(projectId: string, preferredName?: string | null) {
+    setProjectSkillsLoading(true);
+
+    try {
+      const data = await getProjectSkills(projectId);
+      const nextSkill =
+        (preferredName ? data.skills.find((skill) => skill.name === preferredName) : null) ??
+        data.skills.find((skill) => skill.name === selectedProjectSkillName) ??
+        data.skills[0] ??
+        null;
+
+      setProjectSkills(data.skills);
+      setSelectedProjectSkillName(nextSkill?.name ?? null);
+      setProjectSkillsError(null);
+    } catch (error) {
+      setProjectSkillsError(formatError(error, "项目 Skill 加载失败"));
+    } finally {
+      setProjectSkillsLoading(false);
+    }
+  }
+
   async function reloadNotes(projectId: string, preferredNoteId?: string | null) {
     setNotesLoading(true);
 
@@ -637,7 +717,8 @@ export function App() {
       reloadNotes(project.id, null),
       reloadTodos(project.id, null),
       reloadPromptDrafts(project.id, null),
-      reloadSessions(project.id, null)
+      reloadSessions(project.id, null),
+      reloadProjectSkills(project.id, null)
     ]);
   }
 
@@ -734,6 +815,193 @@ export function App() {
       setProjectError(formatError(error, "项目保存失败"));
     } finally {
       setSavingProject(false);
+    }
+  }
+
+  async function handleCreateGlobalSkill() {
+    const name = window.prompt("请输入全局 Skill 文件夹名");
+
+    if (!name) {
+      return;
+    }
+
+    const trimmedName = name.trim();
+    setSkillOperationName(trimmedName);
+    setGlobalSkillsError(null);
+
+    try {
+      await createGlobalSkill({ name: trimmedName });
+      await reloadGlobalSkills();
+    } catch (error) {
+      setGlobalSkillsError(formatError(error, "全局 Skill 创建失败"));
+    } finally {
+      setSkillOperationName(null);
+    }
+  }
+
+  async function handleRenameGlobalSkill(skill: SkillSummary) {
+    const newName = window.prompt("请输入新的全局 Skill 文件夹名", skill.name);
+
+    if (!newName || newName.trim() === skill.name) {
+      return;
+    }
+
+    const trimmedName = newName.trim();
+    setSkillOperationName(skill.name);
+    setGlobalSkillsError(null);
+
+    try {
+      await renameGlobalSkill(skill.name, { newName: trimmedName });
+      await Promise.all([reloadGlobalSkills(), selectedProject ? reloadProjectSkills(selectedProject.id, trimmedName) : Promise.resolve()]);
+    } catch (error) {
+      setGlobalSkillsError(formatError(error, "全局 Skill 重命名失败"));
+    } finally {
+      setSkillOperationName(null);
+    }
+  }
+
+  async function handleDeleteGlobalSkill(skill: SkillSummary) {
+    const confirmed = window.confirm(`确认删除全局 Skill 文件夹「${skill.name}」？\n\n将删除目录：${skill.path}`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSkillOperationName(skill.name);
+    setGlobalSkillsError(null);
+
+    try {
+      await deleteGlobalSkill(skill.name, { confirmName: skill.name });
+      await Promise.all([reloadGlobalSkills(), selectedProject ? reloadProjectSkills(selectedProject.id, null) : Promise.resolve()]);
+    } catch (error) {
+      setGlobalSkillsError(formatError(error, "全局 Skill 删除失败"));
+    } finally {
+      setSkillOperationName(null);
+    }
+  }
+
+  async function handleCopyGlobalSkillToProject(skill: SkillSummary) {
+    if (!selectedProject) {
+      return;
+    }
+
+    const existingProjectSkill = projectSkills.find((item) => item.name === skill.name && item.hasProject);
+    const overwrite = existingProjectSkill ? window.confirm(`项目中已存在同名 Skill「${skill.name}」，是否覆盖项目文件夹？`) : false;
+
+    if (existingProjectSkill && !overwrite) {
+      return;
+    }
+
+    setSkillOperationName(skill.name);
+    setGlobalSkillsError(null);
+    setProjectSkillsError(null);
+
+    try {
+      await copyGlobalSkillToProject(skill.name, { targetProjectId: selectedProject.id, overwrite });
+      await reloadProjectSkills(selectedProject.id, skill.name);
+    } catch (error) {
+      setGlobalSkillsError(formatError(error, "复制全局 Skill 到项目失败"));
+    } finally {
+      setSkillOperationName(null);
+    }
+  }
+
+  async function handleCreateProjectSkill() {
+    if (!selectedProject) {
+      return;
+    }
+
+    const name = window.prompt("请输入项目 Skill 文件夹名");
+
+    if (!name) {
+      return;
+    }
+
+    const trimmedName = name.trim();
+    setSkillOperationName(trimmedName);
+    setProjectSkillsError(null);
+
+    try {
+      await createProjectSkill(selectedProject.id, { name: trimmedName });
+      await reloadProjectSkills(selectedProject.id, trimmedName);
+    } catch (error) {
+      setProjectSkillsError(formatError(error, "项目 Skill 创建失败"));
+    } finally {
+      setSkillOperationName(null);
+    }
+  }
+
+  async function handleRenameProjectSkill(skill: ProjectSkillSummary) {
+    if (!selectedProject || !skill.hasProject) {
+      return;
+    }
+
+    const newName = window.prompt("请输入新的项目 Skill 文件夹名", skill.name);
+
+    if (!newName || newName.trim() === skill.name) {
+      return;
+    }
+
+    const trimmedName = newName.trim();
+    setSkillOperationName(skill.name);
+    setProjectSkillsError(null);
+
+    try {
+      await renameProjectSkill(selectedProject.id, skill.name, { newName: trimmedName });
+      await reloadProjectSkills(selectedProject.id, trimmedName);
+    } catch (error) {
+      setProjectSkillsError(formatError(error, "项目 Skill 重命名失败"));
+    } finally {
+      setSkillOperationName(null);
+    }
+  }
+
+  async function handleDeleteProjectSkill(skill: ProjectSkillSummary) {
+    if (!selectedProject || !skill.hasProject) {
+      return;
+    }
+
+    const confirmed = window.confirm(`确认删除项目 Skill 文件夹「${skill.name}」？\n\n将删除目录：${skill.projectPath ?? skill.effectivePath}`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSkillOperationName(skill.name);
+    setProjectSkillsError(null);
+
+    try {
+      await deleteProjectSkill(selectedProject.id, skill.name, { confirmName: skill.name });
+      await reloadProjectSkills(selectedProject.id, null);
+    } catch (error) {
+      setProjectSkillsError(formatError(error, "项目 Skill 删除失败"));
+    } finally {
+      setSkillOperationName(null);
+    }
+  }
+
+  async function handleCopyProjectSkillToGlobal(skill: ProjectSkillSummary) {
+    if (!selectedProject || !skill.hasProject) {
+      return;
+    }
+
+    const overwrite = skill.hasGlobal ? window.confirm(`全局中已存在同名 Skill「${skill.name}」，是否覆盖全局文件夹？`) : false;
+
+    if (skill.hasGlobal && !overwrite) {
+      return;
+    }
+
+    setSkillOperationName(skill.name);
+    setGlobalSkillsError(null);
+    setProjectSkillsError(null);
+
+    try {
+      await copyProjectSkillToGlobal(selectedProject.id, skill.name, { overwrite });
+      await Promise.all([reloadGlobalSkills(), reloadProjectSkills(selectedProject.id, skill.name)]);
+    } catch (error) {
+      setProjectSkillsError(formatError(error, "复制项目 Skill 到全局失败"));
+    } finally {
+      setSkillOperationName(null);
     }
   }
 
@@ -1403,6 +1671,11 @@ export function App() {
             apiConnected={apiConnected}
             apiError={apiState.error}
             databaseInfo={databaseInfo}
+            globalSkills={globalSkills}
+            globalSkillsLoading={globalSkillsLoading}
+            globalSkillsError={globalSkillsError}
+            projectSkills={projectSkills}
+            skillOperationName={skillOperationName}
             chatSessions={chatSessions}
             selectedChat={selectedChat}
             chatDraft={chatDraft}
@@ -1420,6 +1693,10 @@ export function App() {
             onChatSubmit={(event) => void handleSendChatMessage(event)}
             onApplyChatSuggestion={(message, suggestion) => void applyChatSuggestion(message, suggestion)}
             onDeleteChat={handleDeleteChatSession}
+            onCreateGlobalSkill={handleCreateGlobalSkill}
+            onRenameGlobalSkill={handleRenameGlobalSkill}
+            onDeleteGlobalSkill={handleDeleteGlobalSkill}
+            onCopyGlobalSkillToProject={handleCopyGlobalSkillToProject}
             onEnterProject={() => setWorkspaceScope("project")}
             onCreateSession={() => openSessionModal("direct")}
           />
@@ -1457,6 +1734,11 @@ export function App() {
             promptDrafts={promptDrafts}
             sessionsLoading={sessionsLoading}
             sessionsError={sessionsError}
+            projectSkills={projectSkills}
+            selectedProjectSkillName={selectedProjectSkillName}
+            projectSkillsLoading={projectSkillsLoading}
+            projectSkillsError={projectSkillsError}
+            skillOperationName={skillOperationName}
             onCreateProject={startCreateProject}
             onEditProject={startEditProject}
             onSelectProject={selectProject}
@@ -1477,6 +1759,12 @@ export function App() {
             onTodoDraftChange={updateTodoDraft}
             onSaveTodo={handleTodoSave}
             onDeleteTodo={handleTodoDelete}
+            onSelectProjectSkill={(skill) => setSelectedProjectSkillName(skill.name)}
+            onCreateProjectSkill={handleCreateProjectSkill}
+            onRenameProjectSkill={handleRenameProjectSkill}
+            onDeleteProjectSkill={handleDeleteProjectSkill}
+            onCopyProjectSkillToGlobal={handleCopyProjectSkillToGlobal}
+            onCopyGlobalSkillToProject={handleCopyGlobalSkillToProject}
             onOpenSession={openSessionModal}
           />
         )}
@@ -1645,6 +1933,11 @@ function HomeWorkspace({
   apiConnected,
   apiError,
   databaseInfo,
+  globalSkills,
+  globalSkillsLoading,
+  globalSkillsError,
+  projectSkills,
+  skillOperationName,
   chatSessions,
   selectedChat,
   chatDraft,
@@ -1662,6 +1955,10 @@ function HomeWorkspace({
   onChatSubmit,
   onApplyChatSuggestion,
   onDeleteChat,
+  onCreateGlobalSkill,
+  onRenameGlobalSkill,
+  onDeleteGlobalSkill,
+  onCopyGlobalSkillToProject,
   onEnterProject,
   onCreateSession
 }: {
@@ -1673,6 +1970,11 @@ function HomeWorkspace({
   apiConnected: boolean;
   apiError: string | null;
   databaseInfo: MetaResponse["database"] | null;
+  globalSkills: SkillSummary[];
+  globalSkillsLoading: boolean;
+  globalSkillsError: string | null;
+  projectSkills: ProjectSkillSummary[];
+  skillOperationName: string | null;
   chatSessions: ChatSessionSummary[];
   selectedChat: ChatSessionSummary | null;
   chatDraft: string;
@@ -1690,6 +1992,10 @@ function HomeWorkspace({
   onChatSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onApplyChatSuggestion: (message: ChatMessageSummary, suggestion: ChatArtifactSuggestion) => void;
   onDeleteChat: (chat: ChatSessionSummary) => void;
+  onCreateGlobalSkill: () => void;
+  onRenameGlobalSkill: (skill: SkillSummary) => void;
+  onDeleteGlobalSkill: (skill: SkillSummary) => void;
+  onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
   onEnterProject: () => void;
   onCreateSession: () => void;
 }) {
@@ -1723,8 +2029,18 @@ function HomeWorkspace({
           apiConnected={apiConnected}
           apiError={apiError}
           databaseInfo={databaseInfo}
+          selectedProject={selectedProject}
+          globalSkills={globalSkills}
+          loading={globalSkillsLoading}
+          error={globalSkillsError}
+          projectSkills={projectSkills}
+          operationName={skillOperationName}
           chatSessions={chatSessions}
           onEnterProject={onEnterProject}
+          onCreateSkill={onCreateGlobalSkill}
+          onRenameSkill={onRenameGlobalSkill}
+          onDeleteSkill={onDeleteGlobalSkill}
+          onCopyToProject={onCopyGlobalSkillToProject}
         />
       )}
     </div>
@@ -1907,30 +2223,64 @@ function HomeChatWorkspace({
 }
 
 function HomeOverviewWorkspace({
-  featureCards,
   apiConnected,
   apiError,
   databaseInfo,
+  selectedProject,
+  globalSkills,
+  loading,
+  error,
+  projectSkills,
+  operationName,
   chatSessions,
-  onEnterProject
+  onEnterProject,
+  onCreateSkill,
+  onRenameSkill,
+  onDeleteSkill,
+  onCopyToProject
 }: {
   featureCards: Array<{ title: string; value: string; detail: string }>;
   apiConnected: boolean;
   apiError: string | null;
   databaseInfo: MetaResponse["database"] | null;
+  selectedProject: ProjectSummary | null;
+  globalSkills: SkillSummary[];
+  loading: boolean;
+  error: string | null;
+  projectSkills: ProjectSkillSummary[];
+  operationName: string | null;
   chatSessions: ChatSessionSummary[];
   onEnterProject: () => void;
+  onCreateSkill: () => void;
+  onRenameSkill: (skill: SkillSummary) => void;
+  onDeleteSkill: (skill: SkillSummary) => void;
+  onCopyToProject: (skill: SkillSummary) => void;
 }) {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.65fr)]">
-        <CollectionPlaceholder
-          title="全局管理入口"
-          description="概览集中承载笔记、Skill、最近项目和运行中会话。"
-          items={["全局笔记", "全局 Skill", "最近聊天", "运行中 Claude Code 会话"]}
-          detailTitle="概览详情"
-          notice="全局笔记和 Skill 后续接入真实 API；聊天会话与 Claude Code 会话保持独立。"
+        <GlobalSkillPanel
+          selectedProject={selectedProject}
+          skills={globalSkills}
+          projectSkills={projectSkills}
+          loading={loading}
+          error={error}
+          operationName={operationName}
+          onCreate={onCreateSkill}
+          onRename={onRenameSkill}
+          onDelete={onDeleteSkill}
+          onCopyToProject={onCopyToProject}
         />
+        <section className="rounded-xl border border-white/10 bg-[#151821]">
+          <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">系统状态</div>
+          <div className="space-y-4 p-4 text-sm text-slate-300">
+            <DetailRow label="当前阶段" value="Phase 2" />
+            <DetailRow label="API 状态" value={apiConnected ? "已连接" : "未连接"} />
+            <DetailRow label="SQLite" value={databaseInfo?.connected ? "已初始化" : "等待后端"} />
+            <DetailRow label="FTS5" value={databaseInfo ? (databaseInfo.fts5 ? "可用" : "不可用") : "未知"} />
+            {apiError ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{apiError}</p> : null}
+          </div>
+        </section>
       </div>
       <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
         <div className="flex items-center justify-between gap-3">
@@ -1943,6 +2293,7 @@ function HomeOverviewWorkspace({
           </button>
         </div>
         <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+          {chatSessions.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-slate-500">还没有聊天会话</div> : null}
           {chatSessions.map((session) => (
             <div key={session.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
               <div className="truncate text-slate-100">{session.title}</div>
@@ -1951,11 +2302,9 @@ function HomeOverviewWorkspace({
           ))}
         </div>
       </section>
-      <PlaceholderWorkspace apiConnected={apiConnected} apiError={apiError} databaseInfo={databaseInfo} />
     </div>
   );
 }
-
 function ProjectWorkspacePage({
   activeTab,
   onTabChange,
@@ -1989,6 +2338,11 @@ function ProjectWorkspacePage({
   promptDrafts,
   sessionsLoading,
   sessionsError,
+  projectSkills,
+  selectedProjectSkillName,
+  projectSkillsLoading,
+  projectSkillsError,
+  skillOperationName,
   onCreateProject,
   onEditProject,
   onSelectProject,
@@ -2009,6 +2363,12 @@ function ProjectWorkspacePage({
   onTodoDraftChange,
   onSaveTodo,
   onDeleteTodo,
+  onSelectProjectSkill,
+  onCreateProjectSkill,
+  onRenameProjectSkill,
+  onDeleteProjectSkill,
+  onCopyProjectSkillToGlobal,
+  onCopyGlobalSkillToProject,
   onOpenSession
 }: {
   activeTab: ProjectTab;
@@ -2043,6 +2403,11 @@ function ProjectWorkspacePage({
   promptDrafts: PromptDraftSummary[];
   sessionsLoading: boolean;
   sessionsError: string | null;
+  projectSkills: ProjectSkillSummary[];
+  selectedProjectSkillName: string | null;
+  projectSkillsLoading: boolean;
+  projectSkillsError: string | null;
+  skillOperationName: string | null;
   onCreateProject: () => void;
   onEditProject: () => void;
   onSelectProject: (project: ProjectSummary) => void;
@@ -2063,6 +2428,12 @@ function ProjectWorkspacePage({
   onTodoDraftChange: (field: keyof TodoDraft, value: string) => void;
   onSaveTodo: (event: FormEvent<HTMLFormElement>) => void;
   onDeleteTodo: (todo: TodoSummary) => void;
+  onSelectProjectSkill: (skill: ProjectSkillSummary) => void;
+  onCreateProjectSkill: () => void;
+  onRenameProjectSkill: (skill: ProjectSkillSummary) => void;
+  onDeleteProjectSkill: (skill: ProjectSkillSummary) => void;
+  onCopyProjectSkillToGlobal: (skill: ProjectSkillSummary) => void;
+  onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
   onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
 }) {
   return (
@@ -2124,6 +2495,11 @@ function ProjectWorkspacePage({
         promptDrafts={promptDrafts}
         sessionsLoading={sessionsLoading}
         sessionsError={sessionsError}
+        projectSkills={projectSkills}
+        selectedProjectSkillName={selectedProjectSkillName}
+        projectSkillsLoading={projectSkillsLoading}
+        projectSkillsError={projectSkillsError}
+        skillOperationName={skillOperationName}
         onCreateProject={onCreateProject}
         onEditProject={onEditProject}
         onSelectProject={onSelectProject}
@@ -2144,6 +2520,12 @@ function ProjectWorkspacePage({
         onTodoDraftChange={onTodoDraftChange}
         onSaveTodo={onSaveTodo}
         onDeleteTodo={onDeleteTodo}
+        onSelectProjectSkill={onSelectProjectSkill}
+        onCreateProjectSkill={onCreateProjectSkill}
+        onRenameProjectSkill={onRenameProjectSkill}
+        onDeleteProjectSkill={onDeleteProjectSkill}
+        onCopyProjectSkillToGlobal={onCopyProjectSkillToGlobal}
+        onCopyGlobalSkillToProject={onCopyGlobalSkillToProject}
         onOpenSession={onOpenSession}
       />
     </div>
@@ -2200,6 +2582,11 @@ function ProjectTabWorkspace({
   promptDrafts,
   sessionsLoading,
   sessionsError,
+  projectSkills,
+  selectedProjectSkillName,
+  projectSkillsLoading,
+  projectSkillsError,
+  skillOperationName,
   onCreateProject,
   onEditProject,
   onSelectProject,
@@ -2220,6 +2607,12 @@ function ProjectTabWorkspace({
   onTodoDraftChange,
   onSaveTodo,
   onDeleteTodo,
+  onSelectProjectSkill,
+  onCreateProjectSkill,
+  onRenameProjectSkill,
+  onDeleteProjectSkill,
+  onCopyProjectSkillToGlobal,
+  onCopyGlobalSkillToProject,
   onOpenSession
 }: {
   activeTab: ProjectTab;
@@ -2253,6 +2646,11 @@ function ProjectTabWorkspace({
   promptDrafts: PromptDraftSummary[];
   sessionsLoading: boolean;
   sessionsError: string | null;
+  projectSkills: ProjectSkillSummary[];
+  selectedProjectSkillName: string | null;
+  projectSkillsLoading: boolean;
+  projectSkillsError: string | null;
+  skillOperationName: string | null;
   onCreateProject: () => void;
   onEditProject: () => void;
   onSelectProject: (project: ProjectSummary) => void;
@@ -2273,6 +2671,12 @@ function ProjectTabWorkspace({
   onTodoDraftChange: (field: keyof TodoDraft, value: string) => void;
   onSaveTodo: (event: FormEvent<HTMLFormElement>) => void;
   onDeleteTodo: (todo: TodoSummary) => void;
+  onSelectProjectSkill: (skill: ProjectSkillSummary) => void;
+  onCreateProjectSkill: () => void;
+  onRenameProjectSkill: (skill: ProjectSkillSummary) => void;
+  onDeleteProjectSkill: (skill: ProjectSkillSummary) => void;
+  onCopyProjectSkillToGlobal: (skill: ProjectSkillSummary) => void;
+  onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
   onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
 }) {
   if (activeTab === "worktrees") {
@@ -2358,13 +2762,19 @@ function ProjectTabWorkspace({
 
   if (activeTab === "skills") {
     return (
-      <ProjectCollectionPlaceholder
-        title="项目 Skill"
-        description="项目级 Skill 可覆盖全局 Skill，并在 prompt 或会话创建时注入。"
-        items={["project/review", "project/session-bootstrap", "project/ui-check"]}
-        detailTitle="项目 Skill 详情"
-        selectedProject={selectedProject}
-        actionLabel="注入到会话"
+      <ProjectSkillPanel
+        project={selectedProject}
+        skills={projectSkills}
+        selectedSkillName={selectedProjectSkillName}
+        loading={projectSkillsLoading}
+        error={projectSkillsError}
+        operationName={skillOperationName}
+        onSelect={onSelectProjectSkill}
+        onCreate={onCreateProjectSkill}
+        onRename={onRenameProjectSkill}
+        onDelete={onDeleteProjectSkill}
+        onCopyToGlobal={onCopyProjectSkillToGlobal}
+        onCopyGlobalToProject={onCopyGlobalSkillToProject}
       />
     );
   }
@@ -2591,6 +3001,212 @@ function WorktreePanel({
         </div>
       ) : null}
     </section>
+  );
+}
+
+
+function GlobalSkillPanel({
+  selectedProject,
+  skills,
+  projectSkills,
+  loading,
+  error,
+  operationName,
+  onCreate,
+  onRename,
+  onDelete,
+  onCopyToProject
+}: {
+  selectedProject: ProjectSummary | null;
+  skills: SkillSummary[];
+  projectSkills: ProjectSkillSummary[];
+  loading: boolean;
+  error: string | null;
+  operationName: string | null;
+  onCreate: () => void;
+  onRename: (skill: SkillSummary) => void;
+  onDelete: (skill: SkillSummary) => void;
+  onCopyToProject: (skill: SkillSummary) => void;
+}) {
+  return (
+    <section className="rounded-xl border border-white/10 bg-[#151821]">
+      <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+        <div>
+          <div className="text-sm font-medium text-slate-100">全局 Skill 文件夹</div>
+          <div className="mt-1 text-xs text-slate-500">来源：~/.claude/skills/*，只管理整个文件夹。</div>
+        </div>
+        <button onClick={onCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+          新建
+        </button>
+      </div>
+      <div className="p-4">
+        {error ? <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+        {loading ? <div className="rounded-lg border border-white/10 p-3 text-xs text-slate-400">全局 Skill 加载中...</div> : null}
+        {!loading && skills.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-4 text-xs text-slate-500">还没有全局 Skill 文件夹。</div> : null}
+        {!loading && skills.length > 0 ? (
+          <div className="space-y-2">
+            {skills.map((skill) => {
+              const projectState = projectSkills.find((item) => item.name === skill.name);
+              const busy = operationName === skill.name;
+              return (
+                <div key={skill.name} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-slate-100">{skill.name}</span>
+                        {projectState?.hasOverride ? <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[11px] text-amber-100">被项目覆盖</span> : null}
+                      </div>
+                      <div className="mt-1 break-all text-xs text-slate-500">{skill.path}</div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                      <button disabled={busy} onClick={() => onRename(skill)} className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 disabled:opacity-50">
+                        重命名
+                      </button>
+                      <button disabled={busy || !selectedProject} onClick={() => onCopyToProject(skill)} className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100 disabled:opacity-50">
+                        复制到项目
+                      </button>
+                      <button disabled={busy} onClick={() => onDelete(skill)} className="rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-200 disabled:opacity-50">
+                        {busy ? "处理中" : "删除"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function ProjectSkillPanel({
+  project,
+  skills,
+  selectedSkillName,
+  loading,
+  error,
+  operationName,
+  onSelect,
+  onCreate,
+  onRename,
+  onDelete,
+  onCopyToGlobal,
+  onCopyGlobalToProject
+}: {
+  project: ProjectSummary | null;
+  skills: ProjectSkillSummary[];
+  selectedSkillName: string | null;
+  loading: boolean;
+  error: string | null;
+  operationName: string | null;
+  onSelect: (skill: ProjectSkillSummary) => void;
+  onCreate: () => void;
+  onRename: (skill: ProjectSkillSummary) => void;
+  onDelete: (skill: ProjectSkillSummary) => void;
+  onCopyToGlobal: (skill: ProjectSkillSummary) => void;
+  onCopyGlobalToProject: (skill: SkillSummary) => void;
+}) {
+  if (!project) {
+    return <EmptyProjectNotice onCreateProject={() => undefined} />;
+  }
+
+  const selectedSkill = skills.find((skill) => skill.name === selectedSkillName) ?? skills[0] ?? null;
+  const selectedAsGlobalSkill: SkillSummary | null = selectedSkill?.hasGlobal && selectedSkill.globalPath ? { name: selectedSkill.name, source: "global", path: selectedSkill.globalPath } : null;
+
+  return (
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.65fr)]">
+      <section className="rounded-xl border border-white/10 bg-[#151821]">
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <div>
+            <div className="text-sm font-medium text-slate-100">项目 Skill 文件夹</div>
+            <div className="mt-1 break-all text-xs text-slate-500">来源：{project.path}/.claude/skills/*</div>
+          </div>
+          <button onClick={onCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+            新建
+          </button>
+        </div>
+        <div className="p-4">
+          {error ? <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+          {loading ? <div className="rounded-lg border border-white/10 p-3 text-xs text-slate-400">项目 Skill 加载中...</div> : null}
+          {!loading && skills.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-4 text-xs text-slate-500">当前项目和全局都没有 Skill 文件夹。</div> : null}
+          {!loading && skills.length > 0 ? (
+            <div className="space-y-2">
+              {skills.map((skill) => (
+                <button
+                  key={skill.name}
+                  onClick={() => onSelect(skill)}
+                  className={`w-full rounded-lg border p-3 text-left text-sm ${selectedSkill?.name === skill.name ? "border-slate-300/50 bg-white/[0.08]" : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-slate-100">{skill.name}</span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[11px] ${skill.effectiveSource === "project" ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100" : "border-sky-300/30 bg-sky-300/10 text-sky-100"}`}>
+                          {skill.effectiveSource === "project" ? "项目生效" : "全局生效"}
+                        </span>
+                        {skill.hasOverride ? <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[11px] text-amber-100">覆盖全局</span> : null}
+                      </div>
+                      <div className="mt-1 truncate text-xs text-slate-500">{skill.effectivePath}</div>
+                    </div>
+                    <span className="shrink-0 text-xs text-slate-500">{skill.hasProject ? "项目" : "全局"}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="font-medium text-slate-100">Skill 详情</div>
+            <p className="mt-1 text-xs text-slate-500">只展示和操作文件夹，不读取目录内容。</p>
+          </div>
+          <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-400">{skills.length} 个</span>
+        </div>
+        {selectedSkill ? (
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <DetailRow label="名称" value={selectedSkill.name} />
+              <DetailRow label="生效来源" value={selectedSkill.effectiveSource === "project" ? "项目级" : "全局级"} />
+              <DetailRow label="覆盖全局" value={selectedSkill.hasOverride ? "是" : "否"} />
+            </div>
+            <div className="space-y-2 text-xs">
+              <PathBlock label="生效路径" value={selectedSkill.effectivePath} />
+              <PathBlock label="项目路径" value={selectedSkill.projectPath ?? "无项目级文件夹"} />
+              <PathBlock label="全局路径" value={selectedSkill.globalPath ?? "无全局级文件夹"} />
+            </div>
+            <div className="flex flex-wrap gap-2 border-t border-white/10 pt-4">
+              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onRename(selectedSkill)} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200 disabled:opacity-50">
+                重命名项目 Skill
+              </button>
+              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onCopyToGlobal(selectedSkill)} className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-xs text-sky-100 disabled:opacity-50">
+                复制到全局
+              </button>
+              <button disabled={!selectedAsGlobalSkill || operationName === selectedSkill.name} onClick={() => selectedAsGlobalSkill && onCopyGlobalToProject(selectedAsGlobalSkill)} className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100 disabled:opacity-50">
+                复制到项目
+              </button>
+              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onDelete(selectedSkill)} className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-200 disabled:opacity-50">
+                {operationName === selectedSkill.name ? "处理中" : "删除项目 Skill"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-lg border border-dashed border-white/10 p-4 text-xs text-slate-500">选择或创建一个 Skill 文件夹。</div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function PathBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+      <div className="text-slate-500">{label}</div>
+      <div className="mt-1 break-all text-slate-200">{value}</div>
+    </div>
   );
 }
 

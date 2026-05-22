@@ -106,6 +106,67 @@ export type DeleteWorktreeResponse = {
   deletedBranch: string;
 };
 
+export type SkillSource = "global" | "project";
+
+export type SkillSummary = {
+  name: string;
+  source: SkillSource;
+  path: string;
+};
+
+export type ProjectSkillSummary = {
+  name: string;
+  effectiveSource: SkillSource;
+  effectivePath: string;
+  globalPath: string | null;
+  projectPath: string | null;
+  hasGlobal: boolean;
+  hasProject: boolean;
+  hasOverride: boolean;
+};
+
+export type SkillsResponse = {
+  skills: SkillSummary[];
+};
+
+export type ProjectSkillsResponse = {
+  skills: ProjectSkillSummary[];
+};
+
+export type SkillResponse = {
+  skill: SkillSummary;
+};
+
+export type ProjectSkillResponse = {
+  skill: ProjectSkillSummary;
+};
+
+export type CreateSkillRequest = {
+  name: string;
+};
+
+export type RenameSkillRequest = {
+  newName: string;
+};
+
+export type DeleteSkillRequest = {
+  confirmName: string;
+};
+
+export type CopyGlobalSkillRequest = {
+  targetProjectId: string;
+  overwrite?: boolean;
+};
+
+export type CopyProjectSkillRequest = {
+  overwrite?: boolean;
+};
+
+export type CopySkillResponse = {
+  skill: SkillSummary | ProjectSkillSummary;
+  overwritten: boolean;
+};
+
 export type NoteSummary = {
   id: string;
   projectId: string | null;

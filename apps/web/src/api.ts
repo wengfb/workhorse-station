@@ -10,7 +10,11 @@ import type {
   CreateProjectRequest,
   CreatePromptDraftPreviewRequest,
   CreatePromptDraftRequest,
+  CopyGlobalSkillRequest,
+  CopyProjectSkillRequest,
+  CopySkillResponse,
   CreateSessionRequest,
+  CreateSkillRequest,
   CreateTodoRequest,
   CreateWorktreeRequest,
   DeleteChatSessionResponse,
@@ -25,6 +29,8 @@ import type {
   NoteResponse,
   NotesResponse,
   ProjectResponse,
+  ProjectSkillResponse,
+  ProjectSkillsResponse,
   ProjectsResponse,
   PromptDraftPreviewResponse,
   PromptDraftResponse,
@@ -35,16 +41,20 @@ import type {
   SessionsResponse,
   SessionStreamEvent,
   SessionTerminalSnapshotResponse,
+  SkillResponse,
+  SkillsResponse,
   StopSessionResponse,
   TodoResponse,
   TodosResponse,
   UpdateNoteRequest,
   UpdateProjectRequest,
+  RenameSkillRequest,
   UpdatePromptDraftRequest,
   UpdateSessionRequest,
   UpdateTodoRequest,
   WorktreeResponse,
-  WorktreesResponse
+  WorktreesResponse,
+  DeleteSkillRequest
 } from "@workhorse-station/shared";
 
 export class ApiError extends Error {
@@ -118,6 +128,70 @@ export function updateProject(id: string, input: UpdateProjectRequest) {
 export function deleteProject(id: string) {
   return fetchJson<DeleteProjectResponse>(`/api/projects/${id}`, {
     method: "DELETE"
+  });
+}
+
+export function getGlobalSkills() {
+  return fetchJson<SkillsResponse>("/api/skills");
+}
+
+export function createGlobalSkill(input: CreateSkillRequest) {
+  return fetchJson<SkillResponse>("/api/skills", {
+    method: "POST",
+    body: input
+  });
+}
+
+export function renameGlobalSkill(name: string, input: RenameSkillRequest) {
+  return fetchJson<SkillResponse>(`/api/skills/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    body: input
+  });
+}
+
+export function deleteGlobalSkill(name: string, input: DeleteSkillRequest) {
+  return fetchJson<{ deleted: true }>(`/api/skills/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+    body: input
+  });
+}
+
+export function copyGlobalSkillToProject(name: string, input: CopyGlobalSkillRequest) {
+  return fetchJson<CopySkillResponse>(`/api/skills/${encodeURIComponent(name)}/copy`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function getProjectSkills(projectId: string) {
+  return fetchJson<ProjectSkillsResponse>(`/api/projects/${projectId}/skills`);
+}
+
+export function createProjectSkill(projectId: string, input: CreateSkillRequest) {
+  return fetchJson<ProjectSkillResponse>(`/api/projects/${projectId}/skills`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function renameProjectSkill(projectId: string, name: string, input: RenameSkillRequest) {
+  return fetchJson<ProjectSkillResponse>(`/api/projects/${projectId}/skills/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    body: input
+  });
+}
+
+export function deleteProjectSkill(projectId: string, name: string, input: DeleteSkillRequest) {
+  return fetchJson<{ deleted: true }>(`/api/projects/${projectId}/skills/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+    body: input
+  });
+}
+
+export function copyProjectSkillToGlobal(projectId: string, name: string, input: CopyProjectSkillRequest) {
+  return fetchJson<CopySkillResponse>(`/api/projects/${projectId}/skills/${encodeURIComponent(name)}/copy`, {
+    method: "POST",
+    body: input
   });
 }
 

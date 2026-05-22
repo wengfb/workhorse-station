@@ -27,7 +27,7 @@
 - worktree 管理
 - 笔记管理（全局 / 项目）
 - 待办管理（项目内）
-- Skill 管理（全局 / 项目）
+- Skill 文件夹管理（全局 `~/.claude/skills/*` / 项目 `.claude/skills/*`）
 - 首页通用 AI 聊天入口
 - Claude Code 会话接入
 - prompt 生成与编辑
@@ -150,11 +150,13 @@
 - 首页 AI 聊天、全局笔记、完整 Skill 系统仍然属于 MVP 范围，但优先级低于项目内执行闭环。
 
 ### Phase 5：Skill 系统
-- [ ] 全局 Skill 管理
-- [ ] 项目级 Skill 覆盖
-- [ ] Skill 内容支持提示词 + 脚本 + 参数
+- [ ] 全局 Skill 文件夹管理：发现和管理 `~/.claude/skills/*`
+- [ ] 项目级 Skill 文件夹管理：发现和管理项目 `.claude/skills/*`
+- [ ] 项目级同名 Skill 覆盖全局 Skill
+- [ ] 支持创建、重命名、删除、复制整个 Skill 文件夹
+- [ ] 不解析 Skill 目录内部文件，不把 Skill 正文复制进数据库
 - [ ] 文件处理标准 Skill（Excel / Word / PDF / 图片的导入、抽取、搜索、OCR、摘要）
-- [ ] 在 prompt 生成和会话创建中注入 Skill
+- [ ] 在 prompt 生成和会话创建中注入 Skill 引用与快照
 - [ ] 在首页 AI 聊天中调用标准 Skill
 
 ### Phase 6：体验打磨

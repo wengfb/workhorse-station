@@ -72,7 +72,7 @@
 - 根据待办生成 Claude Code 任务提示词
 - 支持人工修改
 - 支持保存草稿和历史版本
-- 可插入项目上下文、worktree 状态、Skill 内容
+- 可插入项目上下文、worktree 状态、Skill 文件夹引用
 
 ### 3.6 通用 AI 聊天入口
 - [x] 首页默认提供类似 ChatGPT 的聊天入口
@@ -86,15 +86,13 @@
 
 ### 3.7 Skill 管理
 - 支持全局 Skill 和项目级 Skill
-- 首页可管理全局 Skill
-- 进入项目后可管理项目级 Skill
-- Skill 内容包含：
-  - 提示词
-  - 脚本
-  - 参数说明
+- 首页可管理全局 Skill 文件夹，来源为 `~/.claude/skills/*`
+- 进入项目后可管理项目级 Skill 文件夹，来源为项目 `.claude/skills/*`
+- Skill 名称等于文件夹名
 - 同名 Skill 在项目下可覆盖全局版本
+- Skill 管理只负责发现、创建、重命名、删除和复制整个文件夹，不解析目录内部文件
 - AI 聊天和 prompt 生成时支持注入 Skill
-- 会话创建时可选择注入 Skill
+- 会话创建时可选择注入 Skill 并记录使用快照
 - 文件处理可以作为标准 Skill，通过 AI 聊天调用，支持 Excel / Word / PDF / 图片的导入、抽取、搜索、OCR 和摘要
 
 ### 3.8 Claude Code 会话

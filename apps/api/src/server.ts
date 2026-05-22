@@ -8,6 +8,7 @@ import { registerPromptDraftRoutes } from "./prompt-drafts/prompt-draft-routes.j
 import { isHttpError } from "./projects/http-error.js";
 import { registerProjectRoutes } from "./projects/project-routes.js";
 import { registerSessionRoutes } from "./sessions/session-routes.js";
+import { registerSkillRoutes } from "./skills/skill-routes.js";
 import { reconcileSessionsOnStartup } from "./sessions/session-repository.js";
 import { SessionRuntimeManager } from "./sessions/session-runtime-manager.js";
 import { registerTodoRoutes } from "./todos/todo-routes.js";
@@ -83,6 +84,7 @@ await registerNoteRoutes(server, database);
 await registerTodoRoutes(server, database);
 await registerPromptDraftRoutes(server, database);
 await registerSessionRoutes(server, database, sessionRuntimeManager);
+await registerSkillRoutes(server, database);
 
 const close = async () => {
   await server.close();
