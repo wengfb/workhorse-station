@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { CreateTodoRequest, TodoStatus, TodoSummary } from "@workhorse-station/shared";
+import type { CreateTodoRequest, SessionResultSummary, TodoStatus, TodoSummary } from "@workhorse-station/shared";
 import type { Database } from "sql.js";
 
 type TodoRow = {
@@ -10,6 +10,7 @@ type TodoRow = {
   description: string;
   status: TodoStatus;
   tags: string;
+  latest_session_result: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -25,7 +26,7 @@ export type TodoWriteInput = Required<Pick<CreateTodoRequest, "title" | "status"
 export function listTodos(db: Database, projectId: string) {
   return selectRows(
     db,
-    `SELECT id, project_id, source_note_id, title, description, status, tags, created_at, updated_at
+    `SELECT id, project_id, source_note_id, title, description, status, tags, latest_session_result, created_at, updated_at
      FROM todos
      WHERE project_id = ?
      ORDER BY updated_at DESC, created_at DESC`,
@@ -36,7 +37,7 @@ export function listTodos(db: Database, projectId: string) {
 export function getProjectTodo(db: Database, projectId: string, todoId: string) {
   return selectOne(
     db,
-    `SELECT id, project_id, source_note_id, title, description, status, tags, created_at, updated_at
+    `SELECT id, project_id, source_note_id, title, description, status, tags, latest_session_result, created_at, updated_at
      FROM todos
      WHERE project_id = ? AND id = ?`,
     [projectId, todoId]
@@ -46,8 +47,8 @@ export function getProjectTodo(db: Database, projectId: string, todoId: string) 
 export function createTodo(db: Database, input: TodoWriteInput) {
   const id = input.id ?? randomUUID();
   db.run(
-    `INSERT INTO todos (id, project_id, source_note_id, title, description, status, tags)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO todos (id, project_id, source_note_id, title, description, status, tags, latest_session_result)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
     [id, input.projectId, input.sourceNoteId, input.title, input.description, input.status, JSON.stringify(input.tags)]
   );
 
@@ -58,6 +59,17 @@ export function createTodo(db: Database, input: TodoWriteInput) {
   }
 
   return todo;
+}
+
+export function updateTodoLatestSessionResult(db: Database, projectId: string, todoId: string, latestSessionResult: SessionResultSummary | null) {
+  db.run(
+    `UPDATE todos
+     SET latest_session_result = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE project_id = ? AND id = ?`,
+    [latestSessionResult ? JSON.stringify(latestSessionResult) : null, projectId, todoId]
+  );
+
+  return getProjectTodo(db, projectId, todoId);
 }
 
 export function updateTodo(db: Database, projectId: string, todoId: string, input: TodoWriteInput) {
@@ -114,6 +126,7 @@ function mapTodoRow(row: TodoRow): TodoSummary {
     description: row.description,
     status: row.status,
     tags: parseTags(row.tags),
+    latestSessionResult: parseLatestSessionResult(row.latest_session_result),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -125,5 +138,18 @@ function parseTags(raw: string) {
     return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
   } catch {
     return [];
+  }
+}
+
+function parseLatestSessionResult(raw: string | null): SessionResultSummary | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as SessionResultSummary;
+    return parsed && typeof parsed.sessionId === "string" && typeof parsed.sessionName === "string" && typeof parsed.summary === "string" ? parsed : null;
+  } catch {
+    return null;
   }
 }

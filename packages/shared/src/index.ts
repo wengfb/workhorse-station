@@ -29,12 +29,22 @@ export type MetaResponse = {
   };
 };
 
+export type SessionResultSummary = {
+  sessionId: string;
+  sessionName: string;
+  summary: string;
+  status: SessionStatus;
+  exitCode: number | null;
+  updatedAt: string;
+};
+
 export type ProjectSummary = {
   id: string;
   name: string;
   path: string;
   defaultBranch: string;
   description: string | null;
+  latestSessionResult: SessionResultSummary | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -136,6 +146,7 @@ export type TodoSummary = {
   description: string;
   status: TodoStatus;
   tags: string[];
+  latestSessionResult: SessionResultSummary | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -302,4 +313,6 @@ export type CreateSessionRequest = {
 export type UpdateSessionRequest = {
   name?: string;
   summary?: string | null;
+  applyResultToTodo?: boolean;
+  applyResultToProject?: boolean;
 };

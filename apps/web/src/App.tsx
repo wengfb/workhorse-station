@@ -157,6 +157,7 @@ export function App() {
   const [sessionView, setSessionView] = useState<SessionView>("terminal");
   const [sessionLaunchSource, setSessionLaunchSource] = useState<SessionSource>("direct");
   const [sessionDraft, setSessionDraft] = useState<SessionEditorDraft>(emptySessionEditorDraft());
+  const [sessionResultDraft, setSessionResultDraft] = useState("");
   const [apiState, setApiState] = useState<ApiState>({
     health: null,
     meta: null,
@@ -272,6 +273,7 @@ export function App() {
       setSessionCreateModalOpen(false);
       setSessionModalOpen(false);
       setSessionDraft(emptySessionEditorDraft());
+      setSessionResultDraft("");
       return;
     }
 
@@ -414,6 +416,7 @@ export function App() {
   useEffect(() => {
     if (selectedSession) {
       setSessionDraft(sessionToDraft(selectedSession, promptDrafts));
+      setSessionResultDraft(selectedSession.summary ?? "");
       setSelectedPromptDraftId(selectedSession.promptDraftId ?? null);
       setSessionLaunchSource(selectedSession.source);
       return;
@@ -421,8 +424,12 @@ export function App() {
 
     if (selectedPromptDraft) {
       setSessionDraft(promptDraftToSessionDraft(selectedPromptDraft));
+      setSessionResultDraft("");
       setSessionLaunchSource(selectedPromptDraft.source);
+      return;
     }
+
+    setSessionResultDraft("");
   }, [selectedSessionId, selectedPromptDraftId, selectedProjectId, sessions, promptDrafts]);
 
   const databaseInfo = apiState.meta?.database ?? null;
@@ -1008,6 +1015,7 @@ export function App() {
       setSelectedPromptDraftId(session?.promptDraftId ?? null);
       if (session) {
         setSessionDraft(sessionToDraft(session, promptDrafts));
+        setSessionResultDraft(session.summary ?? "");
       }
       setSessionCreateModalOpen(false);
       setSessionModalOpen(true);
@@ -1023,6 +1031,7 @@ export function App() {
     setSelectedSessionId(null);
     setSelectedPromptDraftId(null);
     setSessionDraft(nextDraft);
+    setSessionResultDraft("");
     setSessionModalOpen(false);
     setSessionCreateModalOpen(true);
   }
@@ -1037,6 +1046,7 @@ export function App() {
       setSelectedPromptDraftId(sessions[0].promptDraftId ?? null);
       setSessionLaunchSource(sessions[0].source);
       setSessionDraft(sessionToDraft(sessions[0], promptDrafts));
+      setSessionResultDraft(sessions[0].summary ?? "");
     }
 
     setSessionModalOpen(true);
@@ -1134,6 +1144,34 @@ export function App() {
     }
   }
 
+  async function handleSaveSessionResult(options?: { applyToTodo?: boolean; applyToProject?: boolean }) {
+    if (!selectedProject || !selectedSession) {
+      return;
+    }
+
+    setUpdatingSessionId(selectedSession.id);
+    setSessionsError(null);
+
+    try {
+      await updateSession(selectedProject.id, selectedSession.id, {
+        name: selectedSession.name,
+        summary: sessionResultDraft,
+        applyResultToTodo: options?.applyToTodo ?? false,
+        applyResultToProject: options?.applyToProject ?? false
+      });
+
+      await Promise.all([
+        reloadSessions(selectedProject.id, selectedSession.id),
+        options?.applyToTodo && selectedSession.todoId ? reloadTodos(selectedProject.id, selectedSession.todoId) : Promise.resolve(),
+        options?.applyToProject ? reloadProjects(selectedProject.id) : Promise.resolve()
+      ]);
+    } catch (error) {
+      setSessionsError(formatError(error, "会话结果保存失败"));
+    } finally {
+      setUpdatingSessionId(null);
+    }
+  }
+
   async function handleStopSession(session: SessionSummary) {
     if (!selectedProject) {
       return;
@@ -1190,6 +1228,7 @@ export function App() {
 
         if (!nextSessionId) {
           setSessionDraft(emptySessionEditorDraft());
+          setSessionResultDraft("");
           setSessionModalOpen(false);
         }
       }
@@ -1387,10 +1426,16 @@ export function App() {
           source={sessionLaunchSource}
           view={sessionView}
           draft={sessionDraft}
+          resultDraft={sessionResultDraft}
+          savingResult={updatingSessionId === selectedSessionId}
           error={sessionsError}
           loading={sessionsLoading}
           updatingSessionId={updatingSessionId}
           deletingSessionId={deletingSessionId}
+          onResultDraftChange={setSessionResultDraft}
+          onSaveResult={() => void handleSaveSessionResult()}
+          onApplyResultToTodo={() => void handleSaveSessionResult({ applyToTodo: true })}
+          onApplyResultToProject={() => void handleSaveSessionResult({ applyToProject: true })}
           onViewChange={setSessionView}
           onSelectSession={(session) => setSelectedSessionId(session.id)}
           onStopSession={handleStopSession}
@@ -2133,6 +2178,7 @@ function ProjectTabWorkspace({
         onEdit={onEditProject}
         onSelect={onSelectProject}
         onDelete={onDeleteProject}
+        onOpenSession={onOpenSession}
       />
     </div>
   );
@@ -2148,7 +2194,8 @@ function ProjectManagementPanel({
   onCreate,
   onEdit,
   onSelect,
-  onDelete
+  onDelete,
+  onOpenSession
 }: {
   projects: ProjectSummary[];
   selectedProject: ProjectSummary | null;
@@ -2160,6 +2207,7 @@ function ProjectManagementPanel({
   onEdit: () => void;
   onSelect: (project: ProjectSummary) => void;
   onDelete: () => void;
+  onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
 }) {
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.75fr)]">
@@ -2228,6 +2276,21 @@ function ProjectManagementPanel({
               <DetailRow label="Worktree 目录" value={`${selectedProject.path}/.claude/worktree/`} />
               <DetailRow label="创建时间" value={formatDateTime(selectedProject.createdAt)} />
               <DetailRow label="更新时间" value={formatDateTime(selectedProject.updatedAt)} />
+              {selectedProject.latestSessionResult ? (
+                <div className="rounded-lg border border-sky-400/20 bg-sky-400/10 p-3 text-xs text-sky-50">
+                  <div className="font-medium text-sky-100">最近会话结果</div>
+                  <div className="mt-2 text-sky-100">{selectedProject.latestSessionResult.sessionName}</div>
+                  <div className="mt-1 whitespace-pre-wrap text-sky-50/90">{selectedProject.latestSessionResult.summary}</div>
+                  <div className="mt-2 text-sky-100/80">更新：{formatDateTime(selectedProject.latestSessionResult.updatedAt)}</div>
+                  <button
+                    type="button"
+                    onClick={() => onOpenSession("direct", undefined, selectedProject.latestSessionResult?.sessionId)}
+                    className="mt-3 rounded-md border border-sky-200/20 px-2 py-1 text-xs text-sky-50 hover:bg-white/5"
+                  >
+                    打开会话
+                  </button>
+                </div>
+              ) : null}
               {selectedProject.description ? <p className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-slate-400">{selectedProject.description}</p> : null}
               <button
                 type="button"
@@ -3261,6 +3324,25 @@ function TodoPanel({
             />
           </Field>
           {linkedNote ? <p className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">当前关联笔记：{linkedNote.title}</p> : null}
+          {selectedTodo?.latestSessionResult ? (
+            <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs text-emerald-50">
+              <div className="font-medium text-emerald-100">最新会话结果</div>
+              <div className="mt-2 text-emerald-100">{selectedTodo.latestSessionResult.sessionName}</div>
+              <div className="mt-1 whitespace-pre-wrap text-emerald-50/90">{selectedTodo.latestSessionResult.summary}</div>
+              <div className="mt-2 flex flex-wrap gap-3 text-emerald-100/80">
+                <span>状态：{selectedTodo.latestSessionResult.status}</span>
+                <span>退出码：{selectedTodo.latestSessionResult.exitCode ?? "无"}</span>
+                <span>更新：{formatDateTime(selectedTodo.latestSessionResult.updatedAt)}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenSession("todo", selectedTodo.id, selectedTodo.latestSessionResult?.sessionId)}
+                className="mt-3 rounded-md border border-emerald-200/20 px-2 py-1 text-xs text-emerald-50 hover:bg-white/5"
+              >
+                打开会话
+              </button>
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <button disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
               {saving ? "保存中..." : selectedTodo ? "保存修改" : "创建任务"}

@@ -1,5 +1,26 @@
 # 开发进度
 
+## 2026-05-22：会话结果留存与任务 / 项目回写
+
+### 已完成
+- 会话结果继续复用 `sessions.summary`，不新增额外结果表。
+- 修正会话退出时的完成逻辑：成功停止 / 正常退出后不再清空 `summary`，失败退出仅在摘要为空时补 exit code 兜底文本。
+- `projects` 和 `todos` 新增 `latest_session_result` 字段，用轻量快照保存最近一次显式回写的会话结果。
+- 会话 `PATCH` 接口新增结果回写能力：支持保存结果、写回关联任务、写回当前项目。
+- 会话模态框历史视图新增“会话结果”编辑区，可直接保存结果并触发写回动作。
+- 会话列表、模态框左侧列表新增结果摘要预览；项目详情和任务详情新增最近会话结果卡片，并提供“打开会话”入口。
+
+### 验收记录
+- 浏览器验证：通过。
+  - 在会话模态框中打开待办会话的“查看历史”后，可看到结果编辑区和“保存结果 / 写回任务 / 写回项目”按钮。
+  - 在浏览器中真实输入结果并保存后，会话列表即时显示结果摘要预览。
+  - 点击“写回任务”后，任务接口返回 `latestSessionResult`，结果快照与会话关联正确。
+  - 点击“写回项目”后，项目接口返回 `latestSessionResult`，结果快照与会话关联正确。
+- API 验证：通过。
+  - `GET /api/projects/:projectId/sessions` 可读到保存后的 `summary`。
+  - `GET /api/projects/:projectId/todos` 可读到任务级 `latestSessionResult`。
+  - `GET /api/projects/:projectId` 可读到项目级 `latestSessionResult`。
+
 ## 2026-05-22：真实 Claude Code 会话与终端接入
 
 ### 已完成

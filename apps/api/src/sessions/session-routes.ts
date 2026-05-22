@@ -7,17 +7,19 @@ import type {
   SessionResponse,
   SessionResizeRequest,
   SessionsResponse,
+  SessionResultSummary,
   SessionSource,
   SessionStatus,
+  SessionSummary,
   SessionTerminalSnapshotResponse,
   StopSessionResponse,
   UpdateSessionRequest
 } from "@workhorse-station/shared";
 import type { DatabaseState } from "../db/init.js";
-import { getProject } from "../projects/project-repository.js";
+import { getProject, updateProjectLatestSessionResult } from "../projects/project-repository.js";
 import { HttpError } from "../projects/http-error.js";
 import { getProjectPromptDraft } from "../prompt-drafts/prompt-draft-repository.js";
-import { getProjectTodo } from "../todos/todo-repository.js";
+import { getProjectTodo, updateTodoLatestSessionResult } from "../todos/todo-repository.js";
 import {
   createSessionRecord,
   deleteSessionRecord,
@@ -128,15 +130,25 @@ export async function registerSessionRoutes(server: FastifyInstance, database: D
       throw new HttpError(404, "session_not_found", "会话不存在");
     }
 
+    const updateRequest = normalizeUpdateRequest(request.body);
     const session = updateSessionRecord(database.db, request.params.projectId, request.params.sessionId, {
       name: normalizeName(request.body?.name ?? currentSession.name, currentSession.source, currentSession.todoId),
       summary: normalizeSummary(request.body?.summary === undefined ? currentSession.summary : request.body.summary)
     });
-    database.persist();
 
     if (!session) {
       throw new HttpError(404, "session_not_found", "会话不存在");
     }
+
+    if (updateRequest.applyResultToTodo) {
+      applySessionResultToTodo(database, request.params.projectId, session);
+    }
+
+    if (updateRequest.applyResultToProject) {
+      applySessionResultToProject(database, request.params.projectId, session);
+    }
+
+    database.persist();
 
     return {
       ok: true,
@@ -320,6 +332,58 @@ function buildSessionInput(database: DatabaseState, projectId: string, body: Cre
   };
 }
 
+function buildSessionResultSummary(session: SessionSummary): SessionResultSummary {
+  return {
+    sessionId: session.id,
+    sessionName: session.name,
+    summary: session.summary ?? "",
+    status: session.status,
+    exitCode: session.exitCode,
+    updatedAt: session.updatedAt
+  };
+}
+
+function assertSummaryPresent(summary: string | null) {
+  if (!summary?.trim()) {
+    throw new HttpError(400, "session_summary_required", "请先填写会话结果后再执行回写");
+  }
+}
+
+function applySessionResultToTodo(database: DatabaseState, projectId: string, session: SessionSummary) {
+  assertSummaryPresent(session.summary);
+
+  if (!session.todoId) {
+    throw new HttpError(400, "session_todo_missing", "当前会话没有关联任务");
+  }
+
+  if (!getProjectTodo(database.db, projectId, session.todoId)) {
+    throw new HttpError(404, "todo_not_found", "待办不存在或不属于当前项目");
+  }
+
+  updateTodoLatestSessionResult(database.db, projectId, session.todoId, buildSessionResultSummary(session));
+}
+
+function applySessionResultToProject(database: DatabaseState, projectId: string, session: SessionSummary) {
+  assertSummaryPresent(session.summary);
+
+  if (!getProject(database.db, projectId)) {
+    throw new HttpError(404, "project_not_found", "项目不存在");
+  }
+
+  updateProjectLatestSessionResult(database.db, projectId, buildSessionResultSummary(session));
+}
+
+function normalizeUpdateRequest(body: UpdateSessionRequest | undefined) {
+  if (!isObject(body)) {
+    throw new HttpError(400, "validation_error", "请求体必须是 JSON 对象");
+  }
+
+  return {
+    applyResultToTodo: normalizeBoolean(body.applyResultToTodo, "任务回写标记不合法"),
+    applyResultToProject: normalizeBoolean(body.applyResultToProject, "项目回写标记不合法")
+  };
+}
+
 function normalizePrompt(value: unknown) {
   if (typeof value !== "string") {
     throw new HttpError(400, "validation_error", "会话 Prompt 不能为空");
@@ -420,6 +484,18 @@ function normalizeRequestedWorktreeName(value: unknown) {
   }
 
   return name;
+}
+
+function normalizeBoolean(value: unknown, message: string) {
+  if (value === undefined) {
+    return false;
+  }
+
+  if (typeof value !== "boolean") {
+    throw new HttpError(400, "validation_error", message);
+  }
+
+  return value;
 }
 
 function normalizeOptionalId(value: unknown, message: string) {

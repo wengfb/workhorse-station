@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { DatabaseState } from "../db/init.js";
-import { updateSessionCompletion, updateSessionRuntime } from "./session-repository.js";
+import { getProjectSession, updateSessionCompletion, updateSessionRuntime } from "./session-repository.js";
 import { resolveClaudeBinary } from "./claude-cli.js";
 import { SessionPty } from "./session-pty.js";
 import { createRuntimeEvent } from "./session-events.js";
@@ -89,6 +89,8 @@ export class SessionRuntimeManager extends EventEmitter {
 
     pty.on("exit", ({ exitCode }: { exitCode: number }) => {
       const stoppedByUser = state.stopRequested;
+      const currentSession = getProjectSession(this.database.db, input.projectId, input.sessionId);
+      const currentSummary = currentSession?.summary ?? null;
       state.runtimeStatus = stoppedByUser || exitCode === 0 ? "stopped" : "failed";
       state.lastActivityAt = new Date().toISOString();
       updateSessionCompletion(this.database.db, input.projectId, input.sessionId, {
@@ -96,7 +98,8 @@ export class SessionRuntimeManager extends EventEmitter {
         runtimeStatus: state.runtimeStatus,
         exitCode: stoppedByUser ? null : exitCode,
         lastActivityAt: state.lastActivityAt,
-        summary: stoppedByUser || exitCode === 0 ? null : `Claude Code 退出，exit code ${exitCode}`
+        summary:
+          stoppedByUser || exitCode === 0 ? currentSummary : currentSummary ?? `Claude Code 退出，exit code ${exitCode}`
       });
       this.database.persist();
       this.emit(

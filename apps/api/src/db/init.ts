@@ -58,6 +58,7 @@ function createTables(db: Database) {
       path TEXT NOT NULL,
       default_branch TEXT NOT NULL DEFAULT 'main',
       description TEXT,
+      latest_session_result TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -94,6 +95,7 @@ function createTables(db: Database) {
       description TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'pending',
       tags TEXT NOT NULL DEFAULT '[]',
+      latest_session_result TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
@@ -168,6 +170,8 @@ function createTables(db: Database) {
   ensureColumn(db, "sessions", "resolved_worktree_path", "TEXT");
   ensureColumn(db, "sessions", "exit_code", "INTEGER");
   ensureColumn(db, "sessions", "last_activity_at", "TEXT");
+  ensureColumn(db, "projects", "latest_session_result", "TEXT");
+  ensureColumn(db, "todos", "latest_session_result", "TEXT");
 }
 
 function ensureColumn(db: Database, tableName: string, columnName: string, definition: string) {
