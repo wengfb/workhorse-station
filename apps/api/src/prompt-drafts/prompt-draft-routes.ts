@@ -174,7 +174,8 @@ function buildPromptDraftInput(database: DatabaseState, projectId: string, body:
     source: normalizeSource(body.source),
     title: normalizeTitle(body.title),
     prompt: normalizePrompt(body.prompt),
-    status: normalizeStatus(body.status)
+    status: normalizeStatus(body.status),
+    sourceChatSuggestion: null
   };
 }
 

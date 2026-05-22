@@ -26,6 +26,7 @@ import {
   createTodo,
   createWorktree,
   createChatSession,
+  applyChatSuggestion as applyChatSuggestionRequest,
   deleteChatSession,
   deleteNote,
   deleteProject,
@@ -137,6 +138,7 @@ export function App() {
   const [creatingChat, setCreatingChat] = useState(false);
   const [sendingChat, setSendingChat] = useState(false);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
+  const [savingChatSuggestionKey, setSavingChatSuggestionKey] = useState<string | null>(null);
   const [activeProjectTab, setActiveProjectTab] = useState<ProjectTab>("overview");
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
@@ -1050,46 +1052,38 @@ export function App() {
     }
   }
 
-  async function applyChatSuggestion(suggestion: ChatArtifactSuggestion) {
-    if (!selectedProject) {
+  async function applyChatSuggestion(message: ChatMessageSummary, suggestion: ChatArtifactSuggestion) {
+    if (!selectedChat || !selectedProject) {
       setChatError("需先选择项目，才能保存草稿建议。");
       return;
     }
 
+    const suggestionKey = buildChatSuggestionKey(selectedChat.id, message.id, suggestion.id);
+    setSavingChatSuggestionKey(suggestionKey);
     setChatError(null);
 
     try {
-      if (suggestion.type === "note") {
-        const data = await createNote(selectedProject.id, {
-          title: suggestion.title,
-          content: suggestion.content,
-          tags: suggestion.tags ?? []
-        });
-        await reloadNotes(selectedProject.id, data.note.id);
-        return;
-      }
-
-      if (suggestion.type === "todo") {
-        const data = await createTodo(selectedProject.id, {
-          title: suggestion.title,
-          description: suggestion.description ?? suggestion.content,
-          status: suggestion.status ?? "draft",
-          tags: suggestion.tags ?? []
-        });
-        await reloadTodos(selectedProject.id, data.todo.id);
-        return;
-      }
-
-      const data = await createPromptDraft(selectedProject.id, {
-        title: suggestion.title,
-        prompt: suggestion.content,
-        status: "draft",
-        source: "direct",
+      const data = await applyChatSuggestionRequest(selectedChat.id, message.id, suggestion.id, {
+        projectId: selectedProject.id,
         worktreeId: selectedWorktree?.id ?? null
       });
-      await reloadPromptDrafts(selectedProject.id, data.promptDraft.id);
+      await reloadChatSessions(data.chatSession.id);
+
+      if (data.target.type === "note") {
+        await reloadNotes(selectedProject.id, data.target.note.id);
+        return;
+      }
+
+      if (data.target.type === "todo") {
+        await reloadTodos(selectedProject.id, data.target.todo.id);
+        return;
+      }
+
+      await reloadPromptDrafts(selectedProject.id, data.target.promptDraft.id);
     } catch (error) {
       setChatError(formatError(error, "草稿建议保存失败"));
+    } finally {
+      setSavingChatSuggestionKey(null);
     }
   }
 
@@ -1418,12 +1412,13 @@ export function App() {
             creatingChat={creatingChat}
             sendingChat={sendingChat}
             deletingChatId={deletingChatId}
+            savingChatSuggestionKey={savingChatSuggestionKey}
             onChatSelect={(session) => setSelectedChatId(session.id)}
             onCreateChat={() => void createChatSessionRecord()}
             onChatDraftChange={setChatDraft}
             onChatFileChange={(file) => void handleChatFileChange(file)}
             onChatSubmit={(event) => void handleSendChatMessage(event)}
-            onApplyChatSuggestion={(suggestion) => void applyChatSuggestion(suggestion)}
+            onApplyChatSuggestion={(message, suggestion) => void applyChatSuggestion(message, suggestion)}
             onDeleteChat={handleDeleteChatSession}
             onEnterProject={() => setWorkspaceScope("project")}
             onCreateSession={() => openSessionModal("direct")}
@@ -1659,6 +1654,7 @@ function HomeWorkspace({
   creatingChat,
   sendingChat,
   deletingChatId,
+  savingChatSuggestionKey,
   onChatSelect,
   onCreateChat,
   onChatDraftChange,
@@ -1686,12 +1682,13 @@ function HomeWorkspace({
   creatingChat: boolean;
   sendingChat: boolean;
   deletingChatId: string | null;
+  savingChatSuggestionKey: string | null;
   onChatSelect: (session: ChatSessionSummary) => void;
   onCreateChat: () => void;
   onChatDraftChange: (value: string) => void;
   onChatFileChange: (file: File | null) => void;
   onChatSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onApplyChatSuggestion: (suggestion: ChatArtifactSuggestion) => void;
+  onApplyChatSuggestion: (message: ChatMessageSummary, suggestion: ChatArtifactSuggestion) => void;
   onDeleteChat: (chat: ChatSessionSummary) => void;
   onEnterProject: () => void;
   onCreateSession: () => void;
@@ -1711,6 +1708,7 @@ function HomeWorkspace({
           creating={creatingChat}
           sending={sendingChat}
           deletingChatId={deletingChatId}
+          savingSuggestionKey={savingChatSuggestionKey}
           onSelect={onChatSelect}
           onCreate={onCreateChat}
           onDraftChange={onChatDraftChange}
@@ -1745,6 +1743,7 @@ function HomeChatWorkspace({
   creating,
   sending,
   deletingChatId,
+  savingSuggestionKey,
   onSelect,
   onCreate,
   onDraftChange,
@@ -1764,12 +1763,13 @@ function HomeChatWorkspace({
   creating: boolean;
   sending: boolean;
   deletingChatId: string | null;
+  savingSuggestionKey: string | null;
   onSelect: (session: ChatSessionSummary) => void;
   onCreate: () => void;
   onDraftChange: (value: string) => void;
   onFileChange: (file: File | null) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onApplySuggestion: (suggestion: ChatArtifactSuggestion) => void;
+  onApplySuggestion: (message: ChatMessageSummary, suggestion: ChatArtifactSuggestion) => void;
   onDelete: (chat: ChatSessionSummary) => void;
 }) {
   return (
@@ -1836,25 +1836,33 @@ function HomeChatWorkspace({
                   ) : null}
                   {message.role === "assistant" && message.artifactSuggestions.length ? (
                     <div className="space-y-2 border-t border-white/10 pt-3">
-                      {message.artifactSuggestions.map((suggestion) => (
-                        <div key={suggestion.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-slate-300">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="font-medium text-slate-100">{suggestion.title}</div>
-                              <div className="mt-1 text-slate-500">{suggestion.type === "note" ? "笔记草稿" : suggestion.type === "todo" ? "任务草稿" : "Prompt 草稿"}</div>
+                      {message.artifactSuggestions.map((suggestion) => {
+                        const suggestionKey = buildChatSuggestionKey(selectedChat.id, message.id, suggestion.id);
+                        const saving = savingSuggestionKey === suggestionKey;
+                        const saved = suggestion.adoption?.status === "saved";
+                        const disabled = saving || saved || !selectedProject;
+
+                        return (
+                          <div key={suggestion.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-slate-300">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="font-medium text-slate-100">{suggestion.title}</div>
+                                <div className="mt-1 text-slate-500">{suggestion.type === "note" ? "笔记草稿" : suggestion.type === "todo" ? "任务草稿" : "Prompt 草稿"}</div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => onApplySuggestion(message, suggestion)}
+                                disabled={disabled}
+                                className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-200 disabled:opacity-50"
+                              >
+                                {saved ? "已保存" : saving ? "保存中..." : "保存"}
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => onApplySuggestion(suggestion)}
-                              disabled={suggestion.type !== "note" && !selectedProject}
-                              className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-200 disabled:opacity-50"
-                            >
-                              保存
-                            </button>
+                            <div className="mt-2 whitespace-pre-wrap text-slate-400">{suggestion.description ?? suggestion.content}</div>
+                            {saved ? <div className="mt-2 text-[11px] text-emerald-300">已保存到 {formatSuggestionTargetLabel(suggestion.type)}</div> : null}
                           </div>
-                          <div className="mt-2 whitespace-pre-wrap text-slate-400">{suggestion.description ?? suggestion.content}</div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : null}
                 </div>
@@ -3619,6 +3627,22 @@ function formatFileSize(size: number) {
   }
 
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function buildChatSuggestionKey(chatSessionId: string, chatMessageId: string, suggestionId: string) {
+  return `${chatSessionId}:${chatMessageId}:${suggestionId}`;
+}
+
+function formatSuggestionTargetLabel(type: ChatArtifactSuggestion["type"]) {
+  if (type === "note") {
+    return "笔记";
+  }
+
+  if (type === "todo") {
+    return "任务";
+  }
+
+  return "Prompt 草稿";
 }
 
 function formatError(error: unknown, fallback: string) {

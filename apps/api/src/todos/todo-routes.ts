@@ -125,7 +125,8 @@ function buildTodoInput(database: DatabaseState, projectId: string, body: Create
     description: normalizeDescription(body.description),
     status: normalizeStatus(body.status),
     tags: normalizeTags(body.tags),
-    sourceNoteId
+    sourceNoteId,
+    sourceChatSuggestion: null
   };
 }
 

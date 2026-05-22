@@ -150,6 +150,42 @@ export function listChatMessages(db: Database, chatSessionId: string) {
   return rows;
 }
 
+export function getChatSessionMessage(db: Database, chatSessionId: string, messageId: string) {
+  const statement = db.prepare(
+    `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, created_at
+     FROM chat_messages
+     WHERE chat_session_id = ? AND id = ?`,
+    [chatSessionId, messageId]
+  );
+
+  try {
+    if (!statement.step()) {
+      return null;
+    }
+
+    return mapChatMessageRow(statement.getAsObject() as ChatMessageRow);
+  } finally {
+    statement.free();
+  }
+}
+
+export function updateChatMessageArtifactSuggestions(db: Database, chatSessionId: string, messageId: string, artifactSuggestions: ChatArtifactSuggestion[]) {
+  db.run(
+    `UPDATE chat_messages
+     SET artifact_suggestions_json = ?
+     WHERE chat_session_id = ? AND id = ?`,
+    [JSON.stringify(artifactSuggestions), chatSessionId, messageId]
+  );
+  db.run(
+    `UPDATE chat_sessions
+     SET updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [chatSessionId]
+  );
+
+  return getChatSessionMessage(db, chatSessionId, messageId);
+}
+
 function getChatMessage(db: Database, messageId: string) {
   const statement = db.prepare(
     `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, created_at
@@ -223,8 +259,22 @@ function mapChatMessageRow(row: ChatMessageRow): ChatMessageSummary {
     role: row.role,
     content: row.content,
     attachments: parseArray<ChatAttachment>(row.attachments_json),
-    artifactSuggestions: parseArray<ChatArtifactSuggestion>(row.artifact_suggestions_json),
+    artifactSuggestions: parseArray<ChatArtifactSuggestion>(row.artifact_suggestions_json).map(normalizeArtifactSuggestion),
     createdAt: row.created_at
+  };
+}
+
+function normalizeArtifactSuggestion(suggestion: ChatArtifactSuggestion): ChatArtifactSuggestion {
+  return {
+    ...suggestion,
+    adoption: suggestion.adoption ?? {
+      status: "pending",
+      targetType: null,
+      targetId: null,
+      projectId: null,
+      worktreeId: null,
+      adoptedAt: null
+    }
   };
 }
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { CreatePromptDraftRequest, PromptDraftStatus, PromptDraftSummary, SessionSource, UpdatePromptDraftRequest } from "@workhorse-station/shared";
+import type { ChatArtifactSourceRef, CreatePromptDraftRequest, PromptDraftStatus, PromptDraftSummary, SessionSource, UpdatePromptDraftRequest } from "@workhorse-station/shared";
 import type { Database } from "sql.js";
 
 export type PromptDraftWriteInput = {
@@ -12,6 +12,7 @@ export type PromptDraftWriteInput = {
   title: string;
   prompt: string;
   status: PromptDraftStatus;
+  sourceChatSuggestion: ChatArtifactSourceRef | null;
 };
 
 type PromptDraftRow = {
@@ -24,6 +25,7 @@ type PromptDraftRow = {
   title: string;
   prompt: string;
   status: PromptDraftStatus;
+  source_chat_suggestion_json: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -31,7 +33,7 @@ type PromptDraftRow = {
 export function listPromptDrafts(db: Database, projectId: string) {
   return selectRows(
     db,
-    `SELECT id, project_id, todo_id, worktree_id, requested_worktree_name, source, title, prompt, status, created_at, updated_at
+    `SELECT id, project_id, todo_id, worktree_id, requested_worktree_name, source, title, prompt, status, source_chat_suggestion_json, created_at, updated_at
      FROM prompt_drafts
      WHERE project_id = ?
      ORDER BY updated_at DESC, created_at DESC`,
@@ -42,7 +44,7 @@ export function listPromptDrafts(db: Database, projectId: string) {
 export function getProjectPromptDraft(db: Database, projectId: string, promptDraftId: string) {
   return selectOne(
     db,
-    `SELECT id, project_id, todo_id, worktree_id, requested_worktree_name, source, title, prompt, status, created_at, updated_at
+    `SELECT id, project_id, todo_id, worktree_id, requested_worktree_name, source, title, prompt, status, source_chat_suggestion_json, created_at, updated_at
      FROM prompt_drafts
      WHERE project_id = ? AND id = ?`,
     [projectId, promptDraftId]
@@ -52,9 +54,20 @@ export function getProjectPromptDraft(db: Database, projectId: string, promptDra
 export function createPromptDraft(db: Database, input: PromptDraftWriteInput) {
   const id = input.id ?? randomUUID();
   db.run(
-    `INSERT INTO prompt_drafts (id, project_id, todo_id, worktree_id, requested_worktree_name, source, title, prompt, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, input.projectId, input.todoId, input.worktreeId, input.requestedWorktreeName, input.source, input.title, input.prompt, input.status]
+    `INSERT INTO prompt_drafts (id, project_id, todo_id, worktree_id, requested_worktree_name, source, title, prompt, status, source_chat_suggestion_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      input.projectId,
+      input.todoId,
+      input.worktreeId,
+      input.requestedWorktreeName,
+      input.source,
+      input.title,
+      input.prompt,
+      input.status,
+      serializeSourceChatSuggestion(input.sourceChatSuggestion)
+    ]
   );
 
   const promptDraft = getProjectPromptDraft(db, input.projectId, id);
@@ -127,7 +140,25 @@ function mapPromptDraftRow(row: PromptDraftRow): PromptDraftSummary {
     title: row.title,
     prompt: row.prompt,
     status: row.status,
+    sourceChatSuggestion: parseSourceChatSuggestion(row.source_chat_suggestion_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function serializeSourceChatSuggestion(source: ChatArtifactSourceRef | null) {
+  return source ? JSON.stringify(source) : null;
+}
+
+function parseSourceChatSuggestion(raw: string | null): ChatArtifactSourceRef | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as ChatArtifactSourceRef;
+    return parsed && typeof parsed.chatSessionId === "string" && typeof parsed.chatMessageId === "string" && typeof parsed.suggestionId === "string" ? parsed : null;
+  } catch {
+    return null;
+  }
 }

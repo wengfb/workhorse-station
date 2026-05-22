@@ -1,5 +1,25 @@
 # 开发进度
 
+## 2026-05-22：首页 AI 聊天建议确认落库闭环
+
+### 已完成
+- 新增聊天建议采纳状态：`artifactSuggestions` 中记录 `pending` / `saved`、目标实体类型 / ID、采纳项目 / worktree 和采纳时间。
+- 新增 `POST /api/chat-sessions/:chatSessionId/messages/:chatMessageId/suggestions/:suggestionId/apply`，由后端统一完成建议确认、实体创建、来源关联和建议状态回写。
+- `notes` / `todos` / `prompt_drafts` 增加 `source_chat_suggestion_json`，目标实体可反查来源聊天会话、消息和建议 ID。
+- 首页建议卡片保存改为调用 apply API，支持保存中状态、已保存禁用态和刷新后持久显示。
+- 结构化回复解析增强：兼容模型偶发返回 `suggestions` 别名，以及前后夹杂其他 JSON 对象时提取包含 `reply` 的结构化结果。
+
+### 验收记录
+- `pnpm -r typecheck`：通过。
+- `pnpm -r build`：通过。
+- 浏览器验证：通过。
+  - 首页聊天真实生成任务 / 笔记 / Prompt 草稿建议卡片。
+  - 点击任务建议“保存”后，按钮变为“已保存”，任务列表出现草稿任务。
+  - 点击笔记建议“保存”后，按钮变为“已保存”，笔记列表出现对应笔记。
+  - 点击 Prompt 草稿建议“保存”后，按钮变为“已保存”，Prompt 草稿列表出现对应草稿。
+  - 刷新页面后，任务 / 笔记 / Prompt 草稿建议卡片仍显示“已保存”。
+  - API 验证 `todos` / `notes` / `prompt_drafts` 返回 `sourceChatSuggestion`，聊天消息建议返回 `adoption`。
+
 ## 2026-05-22：首页 AI 聊天首切片
 
 ### 已完成

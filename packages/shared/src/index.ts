@@ -112,6 +112,7 @@ export type NoteSummary = {
   title: string;
   content: string;
   tags: string[];
+  sourceChatSuggestion: ChatArtifactSourceRef | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -147,6 +148,7 @@ export type TodoSummary = {
   status: TodoStatus;
   tags: string[];
   latestSessionResult: SessionResultSummary | null;
+  sourceChatSuggestion: ChatArtifactSourceRef | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -188,6 +190,7 @@ export type PromptDraftSummary = {
   title: string;
   prompt: string;
   status: PromptDraftStatus;
+  sourceChatSuggestion: ChatArtifactSourceRef | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -319,6 +322,22 @@ export type UpdateSessionRequest = {
 
 export type ChatRole = "user" | "assistant";
 export type ChatArtifactSuggestionType = "note" | "todo" | "prompt_draft";
+export type ChatArtifactAdoptionStatus = "pending" | "saved";
+
+export type ChatArtifactSourceRef = {
+  chatSessionId: string;
+  chatMessageId: string;
+  suggestionId: string;
+};
+
+export type ChatArtifactSuggestionAdoption = {
+  status: ChatArtifactAdoptionStatus;
+  targetType: ChatArtifactSuggestionType | null;
+  targetId: string | null;
+  projectId: string | null;
+  worktreeId: string | null;
+  adoptedAt: string | null;
+};
 
 export type ChatAttachment = {
   name: string;
@@ -335,6 +354,7 @@ export type ChatArtifactSuggestion = {
   description?: string;
   tags?: string[];
   status?: TodoStatus;
+  adoption?: ChatArtifactSuggestionAdoption;
 };
 
 export type ChatMessageSummary = {
@@ -380,5 +400,22 @@ export type CreateChatMessageRequest = {
   attachments?: ChatAttachment[];
   projectId?: string | null;
   worktreeId?: string | null;
+};
+
+export type ApplyChatSuggestionRequest = {
+  projectId?: string | null;
+  worktreeId?: string | null;
+};
+
+export type AppliedChatSuggestionTarget =
+  | { type: "note"; note: NoteSummary }
+  | { type: "todo"; todo: TodoSummary }
+  | { type: "prompt_draft"; promptDraft: PromptDraftSummary };
+
+export type ApplyChatSuggestionResponse = {
+  chatSession: ChatSessionSummary;
+  suggestion: ChatArtifactSuggestion;
+  target: AppliedChatSuggestionTarget;
+  deduped: boolean;
 };
 

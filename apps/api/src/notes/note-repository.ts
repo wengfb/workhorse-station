@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { CreateNoteRequest, NoteSummary } from "@workhorse-station/shared";
+import type { ChatArtifactSourceRef, CreateNoteRequest, NoteSummary } from "@workhorse-station/shared";
 import type { Database } from "sql.js";
 
 type NoteRow = {
@@ -8,6 +8,7 @@ type NoteRow = {
   title: string;
   content: string;
   tags: string;
+  source_chat_suggestion_json: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -17,12 +18,13 @@ export type NoteWriteInput = Required<Pick<CreateNoteRequest, "title">> & {
   projectId: string;
   content: string;
   tags: string[];
+  sourceChatSuggestion: ChatArtifactSourceRef | null;
 };
 
 export function listNotes(db: Database, projectId: string) {
   return selectRows(
     db,
-    `SELECT id, project_id, title, content, tags, created_at, updated_at
+    `SELECT id, project_id, title, content, tags, source_chat_suggestion_json, created_at, updated_at
      FROM notes
      WHERE project_id = ?
      ORDER BY updated_at DESC, created_at DESC`,
@@ -33,7 +35,7 @@ export function listNotes(db: Database, projectId: string) {
 export function getProjectNote(db: Database, projectId: string, noteId: string) {
   return selectOne(
     db,
-    `SELECT id, project_id, title, content, tags, created_at, updated_at
+    `SELECT id, project_id, title, content, tags, source_chat_suggestion_json, created_at, updated_at
      FROM notes
      WHERE project_id = ? AND id = ?`,
     [projectId, noteId]
@@ -43,9 +45,9 @@ export function getProjectNote(db: Database, projectId: string, noteId: string) 
 export function createNote(db: Database, input: NoteWriteInput) {
   const id = input.id ?? randomUUID();
   db.run(
-    `INSERT INTO notes (id, project_id, title, content, tags)
-     VALUES (?, ?, ?, ?, ?)`,
-    [id, input.projectId, input.title, input.content, JSON.stringify(input.tags)]
+    `INSERT INTO notes (id, project_id, title, content, tags, source_chat_suggestion_json)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, input.projectId, input.title, input.content, JSON.stringify(input.tags), serializeSourceChatSuggestion(input.sourceChatSuggestion)]
   );
 
   const note = getProjectNote(db, input.projectId, id);
@@ -109,6 +111,7 @@ function mapNoteRow(row: NoteRow): NoteSummary {
     title: row.title,
     content: row.content,
     tags: parseTags(row.tags),
+    sourceChatSuggestion: parseSourceChatSuggestion(row.source_chat_suggestion_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -120,5 +123,22 @@ function parseTags(raw: string) {
     return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
   } catch {
     return [];
+  }
+}
+
+function serializeSourceChatSuggestion(source: ChatArtifactSourceRef | null) {
+  return source ? JSON.stringify(source) : null;
+}
+
+function parseSourceChatSuggestion(raw: string | null): ChatArtifactSourceRef | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as ChatArtifactSourceRef;
+    return parsed && typeof parsed.chatSessionId === "string" && typeof parsed.chatMessageId === "string" && typeof parsed.suggestionId === "string" ? parsed : null;
+  } catch {
+    return null;
   }
 }

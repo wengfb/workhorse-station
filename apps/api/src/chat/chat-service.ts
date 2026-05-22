@@ -38,6 +38,7 @@ type StructuredSuggestion = {
 type StructuredChatResponse = {
   reply: string;
   artifactSuggestions?: StructuredSuggestion[];
+  suggestions?: StructuredSuggestion[];
 };
 
 type ParsedChatReply = {
@@ -171,24 +172,84 @@ function extractText(content: Array<{ type: string; text?: string }>) {
 }
 
 function parseStructuredResponse(raw: string): ParsedChatReply {
-  try {
-    const parsed = JSON.parse(raw) as StructuredChatResponse;
-    const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
+  const candidates = extractJsonObjectCandidates(raw);
 
-    if (!reply) {
-      throw new Error("Missing reply");
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as StructuredChatResponse;
+      const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
+
+      if (!reply) {
+        continue;
+      }
+
+      const suggestions = parsed.artifactSuggestions ?? parsed.suggestions ?? [];
+
+      return {
+        reply,
+        artifactSuggestions: Array.isArray(suggestions) ? suggestions.map(toArtifactSuggestion) : []
+      };
+    } catch {
+      // Try the next balanced JSON object candidate.
+    }
+  }
+
+  return {
+    reply: raw || "已收到你的消息，但本次结构化建议解析失败。",
+    artifactSuggestions: []
+  };
+}
+
+function extractJsonObjectCandidates(raw: string) {
+  const candidates: string[] = [];
+
+  for (let start = 0; start < raw.length; start += 1) {
+    if (raw[start] !== "{") {
+      continue;
     }
 
-    return {
-      reply,
-      artifactSuggestions: Array.isArray(parsed.artifactSuggestions) ? parsed.artifactSuggestions.map(toArtifactSuggestion) : []
-    };
-  } catch {
-    return {
-      reply: raw || "已收到你的消息，但本次结构化建议解析失败。",
-      artifactSuggestions: []
-    };
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = start; index < raw.length; index += 1) {
+      const char = raw[index];
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) {
+        continue;
+      }
+
+      if (char === "{") {
+        depth += 1;
+      }
+
+      if (char === "}") {
+        depth -= 1;
+
+        if (depth === 0) {
+          candidates.push(raw.slice(start, index + 1));
+          break;
+        }
+      }
+    }
   }
+
+  return candidates;
 }
 
 function toArtifactSuggestion(suggestion: StructuredSuggestion): ChatArtifactSuggestion {

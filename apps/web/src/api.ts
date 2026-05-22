@@ -1,5 +1,7 @@
 import type {
   ApiResponse,
+  ApplyChatSuggestionRequest,
+  ApplyChatSuggestionResponse,
   ChatSessionResponse,
   ChatSessionsResponse,
   CreateChatMessageRequest,
@@ -69,6 +71,13 @@ export function createChatSession(input: CreateChatSessionRequest) {
 
 export function sendChatMessage(chatSessionId: string, input: CreateChatMessageRequest) {
   return fetchJson<ChatSessionResponse>(`/api/chat-sessions/${chatSessionId}/messages`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function applyChatSuggestion(chatSessionId: string, chatMessageId: string, suggestionId: string, input: ApplyChatSuggestionRequest) {
+  return fetchJson<ApplyChatSuggestionResponse>(`/api/chat-sessions/${chatSessionId}/messages/${chatMessageId}/suggestions/${suggestionId}/apply`, {
     method: "POST",
     body: input
   });

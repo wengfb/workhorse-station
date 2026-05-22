@@ -194,6 +194,9 @@ function createTables(db: Database) {
   ensureColumn(db, "sessions", "last_activity_at", "TEXT");
   ensureColumn(db, "projects", "latest_session_result", "TEXT");
   ensureColumn(db, "todos", "latest_session_result", "TEXT");
+  ensureColumn(db, "notes", "source_chat_suggestion_json", "TEXT");
+  ensureColumn(db, "todos", "source_chat_suggestion_json", "TEXT");
+  ensureColumn(db, "prompt_drafts", "source_chat_suggestion_json", "TEXT");
 }
 
 function ensureColumn(db: Database, tableName: string, columnName: string, definition: string) {

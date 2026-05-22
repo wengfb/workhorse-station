@@ -111,7 +111,8 @@ function buildNoteInput(projectId: string, body: CreateNoteRequest | undefined):
     projectId,
     title: normalizeTitle(body.title),
     content: normalizeContent(body.content),
-    tags: normalizeTags(body.tags)
+    tags: normalizeTags(body.tags),
+    sourceChatSuggestion: null
   };
 }
 
