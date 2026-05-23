@@ -35,6 +35,8 @@ import type {
   PromptDraftPreviewResponse,
   PromptDraftResponse,
   PromptDraftsResponse,
+  RecentSessionsResponse,
+  RunningSessionsResponse,
   SessionInputRequest,
   SessionResizeRequest,
   SessionResponse,
@@ -364,6 +366,15 @@ export function deleteSession(projectId: string, sessionId: string) {
   return fetchJson<DeleteSessionResponse>(`/api/projects/${projectId}/sessions/${sessionId}`, {
     method: "DELETE"
   });
+}
+
+export function getRunningSessions() {
+  return fetchJson<RunningSessionsResponse>("/api/sessions/running");
+}
+
+export function getRecentSessions(limit?: number) {
+  const query = limit ? `?limit=${limit}` : "";
+  return fetchJson<RecentSessionsResponse>(`/api/sessions/recent${query}`);
 }
 
 type FetchOptions = {

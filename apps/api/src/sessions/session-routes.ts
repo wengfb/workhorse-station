@@ -3,6 +3,8 @@ import type {
   ApiResponse,
   CreateSessionRequest,
   DeleteSessionResponse,
+  RecentSessionsResponse,
+  RunningSessionsResponse,
   SessionInputRequest,
   SessionResponse,
   SessionResizeRequest,
@@ -24,6 +26,8 @@ import {
   createSessionRecord,
   deleteSessionRecord,
   getProjectSession,
+  listRecentSessions,
+  listRunningSessions,
   listSessions,
   updateSessionCompletion,
   updateSessionLaunch,
@@ -281,6 +285,19 @@ export async function registerSessionRoutes(server: FastifyInstance, database: D
     return {
       ok: true,
       data: { deleted: true, stoppedRuntime }
+    };
+  });
+
+  server.get("/api/sessions/running", async (): Promise<ApiResponse<RunningSessionsResponse>> => ({
+    ok: true,
+    data: { sessions: listRunningSessions(database.db) }
+  }));
+
+  server.get<{ Querystring: { limit?: string } }>("/api/sessions/recent", async (request): Promise<ApiResponse<RecentSessionsResponse>> => {
+    const limit = Math.min(Math.max(Number(request.query.limit) || 10, 1), 50);
+    return {
+      ok: true,
+      data: { sessions: listRecentSessions(database.db, limit) }
     };
   });
 }

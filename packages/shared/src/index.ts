@@ -319,6 +319,26 @@ export type SessionsResponse = {
   sessions: SessionSummary[];
 };
 
+export type OverviewSessionSummary = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  name: string;
+  status: SessionStatus;
+  runtimeStatus: SessionRuntimeStatus | null;
+  summary: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RunningSessionsResponse = {
+  sessions: OverviewSessionSummary[];
+};
+
+export type RecentSessionsResponse = {
+  sessions: OverviewSessionSummary[];
+};
+
 export type SessionResponse = {
   session: SessionSummary;
 };

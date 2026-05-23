@@ -1,5 +1,26 @@
 # 开发进度
 
+## 2026-05-23：概览页增强
+
+### 已完成
+- 新增跨项目会话 API：`GET /api/sessions/running`（返回所有运行中/排队中的会话）和 `GET /api/sessions/recent?limit=N`（返回最近会话），均 JOIN projects 表带上项目名。
+- 新增共享类型 `OverviewSessionSummary`、`RunningSessionsResponse`、`RecentSessionsResponse`。
+- 前端概览页新增「最近项目」卡片区：展示最近更新的 5 个项目，含项目名、路径、最后会话结果摘要、更新时间，提供「进入」按钮直接跳转项目。
+- 前端概览页新增「运行中会话」列表：展示所有跨项目运行中/排队的 Claude Code 会话，含会话名、项目名、运行时状态和最近活动时间，提供「进入」按钮直接跳转项目并打开会话。
+- 优化「最近聊天」区域描述文案，限制显示最近 6 条聊天会话。
+- 点击最近项目或运行中会话的「进入」按钮可切换到对应项目的工作台。
+
+### 验收记录
+- `pnpm -r typecheck`：通过。
+- `pnpm -r build`：通过。
+- API 验证：`GET /api/sessions/running` 和 `GET /api/sessions/recent?limit=3` 均返回正确数据结构。
+- 浏览器验证：通过。
+  - 概览页展示「最近项目」卡片，显示 workhorse-station 项目名、路径和时间。
+  - 概览页展示「运行中会话」空状态。
+  - 概览页展示「最近聊天」列表。
+  - 点击最近项目的「进入」按钮可正确跳转到项目工作台。
+  - 浏览器控制台无错误。
+
 ## 2026-05-22：全局笔记 CRUD 首切片
 
 ### 已完成

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { SessionRuntimeStatus, SessionSource, SessionStatus, SessionSummary } from "@workhorse-station/shared";
+import type { OverviewSessionSummary, SessionRuntimeStatus, SessionSource, SessionStatus, SessionSummary } from "@workhorse-station/shared";
 import type { Database } from "sql.js";
 
 export type SessionWriteInput = {
@@ -260,6 +260,63 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     resolvedWorktreePath: row.resolved_worktree_path,
     exitCode: row.exit_code,
     lastActivityAt: row.last_activity_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+type OverviewSessionRow = SessionRow & {
+  project_name: string;
+};
+
+export function listRunningSessions(db: Database): OverviewSessionSummary[] {
+  const stmt = db.prepare(
+    `SELECT s.id, s.project_id, s.worktree_id, s.todo_id, s.prompt_draft_id, s.requested_worktree_name, s.source, s.name, s.prompt, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.resolved_worktree_path, s.exit_code, s.last_activity_at, s.created_at, s.updated_at, p.name AS project_name
+     FROM sessions s
+     JOIN projects p ON s.project_id = p.id
+     WHERE s.status IN ('running', 'queued')
+     ORDER BY s.updated_at DESC`
+  );
+  const rows: OverviewSessionSummary[] = [];
+  try {
+    while (stmt.step()) {
+      rows.push(mapOverviewSessionRow(stmt.getAsObject() as OverviewSessionRow));
+    }
+  } finally {
+    stmt.free();
+  }
+  return rows;
+}
+
+export function listRecentSessions(db: Database, limit: number): OverviewSessionSummary[] {
+  const stmt = db.prepare(
+    `SELECT s.id, s.project_id, s.worktree_id, s.todo_id, s.prompt_draft_id, s.requested_worktree_name, s.source, s.name, s.prompt, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.resolved_worktree_path, s.exit_code, s.last_activity_at, s.created_at, s.updated_at, p.name AS project_name
+     FROM sessions s
+     JOIN projects p ON s.project_id = p.id
+     ORDER BY s.updated_at DESC
+     LIMIT ?`,
+    [limit]
+  );
+  const rows: OverviewSessionSummary[] = [];
+  try {
+    while (stmt.step()) {
+      rows.push(mapOverviewSessionRow(stmt.getAsObject() as OverviewSessionRow));
+    }
+  } finally {
+    stmt.free();
+  }
+  return rows;
+}
+
+function mapOverviewSessionRow(row: OverviewSessionRow): OverviewSessionSummary {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    projectName: row.project_name,
+    name: row.name,
+    status: row.status,
+    runtimeStatus: row.runtime_status,
+    summary: row.summary,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

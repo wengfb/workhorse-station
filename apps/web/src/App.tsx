@@ -9,6 +9,7 @@ import type {
   ProjectSkillSummary,
   MetaResponse,
   NoteSummary,
+  OverviewSessionSummary,
   ProjectSummary,
   PromptDraftSummary,
   SessionSource,
@@ -52,6 +53,7 @@ import {
   getProjectSkills,
   getProjects,
   getPromptDrafts,
+  getRunningSessions,
   getSessions,
   getTodos,
   getWorktrees,
@@ -211,6 +213,7 @@ export function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [runningSessions, setRunningSessions] = useState<OverviewSessionSummary[]>([]);
   const [previewingPromptDraft, setPreviewingPromptDraft] = useState(false);
   const [savingPromptDraft, setSavingPromptDraft] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
@@ -268,6 +271,17 @@ export function App() {
           setSelectedProjectId(firstProject.id);
           setProjectMode("edit");
           setProjectDraft(projectToDraft(firstProject));
+        }
+
+        try {
+          const runningData = await getRunningSessions();
+          if (!cancelled) {
+            setRunningSessions(runningData.sessions);
+          }
+        } catch {
+          if (!cancelled) {
+            setRunningSessions([]);
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -531,6 +545,7 @@ export function App() {
 
   const databaseInfo = apiState.meta?.database ?? null;
   const runningSessionCount = sessions.filter((session) => session.status === "running" || session.status === "queued").length;
+  const recentProjects = projects.slice(0, 5);
   const homeMode = homeModes.find((mode) => mode.id === activeHomeMode) ?? homeModes[0];
   const selectedChat = chatSessions.find((session) => session.id === selectedChatId) ?? chatSessions[0] ?? null;
   const featureCards = [
@@ -1867,7 +1882,18 @@ export function App() {
             onRenameGlobalSkill={handleRenameGlobalSkill}
             onDeleteGlobalSkill={handleDeleteGlobalSkill}
             onCopyGlobalSkillToProject={handleCopyGlobalSkillToProject}
-            onEnterProject={() => setWorkspaceScope("project")}
+            recentProjects={recentProjects}
+            runningSessions={runningSessions}
+            onEnterProject={(projectId) => {
+              if (projectId) {
+                const project = projects.find((p) => p.id === projectId);
+                if (project) {
+                  selectProject(project);
+                  return;
+                }
+              }
+              setWorkspaceScope("project");
+            }}
             onCreateSession={() => openSessionModal("direct")}
           />
         ) : (
@@ -2145,7 +2171,9 @@ function HomeWorkspace({
   onDeleteGlobalSkill,
   onCopyGlobalSkillToProject,
   onEnterProject,
-  onCreateSession
+  onCreateSession,
+  recentProjects,
+  runningSessions
 }: {
   activeMode: HomeMode;
   activeModeInfo: { label: string; description: string };
@@ -2196,7 +2224,9 @@ function HomeWorkspace({
   onRenameGlobalSkill: (skill: SkillSummary) => void;
   onDeleteGlobalSkill: (skill: SkillSummary) => void;
   onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
-  onEnterProject: () => void;
+  recentProjects: ProjectSummary[];
+  runningSessions: OverviewSessionSummary[];
+  onEnterProject: (projectId?: string) => void;
   onCreateSession: () => void;
 }) {
   return (
@@ -2244,6 +2274,8 @@ function HomeWorkspace({
           projectSkills={projectSkills}
           operationName={skillOperationName}
           chatSessions={chatSessions}
+          recentProjects={recentProjects}
+          runningSessions={runningSessions}
           onEnterProject={onEnterProject}
           onCreateNote={onCreateGlobalNote}
           onSelectNote={onSelectGlobalNote}
@@ -2456,6 +2488,8 @@ function HomeOverviewWorkspace({
   projectSkills,
   operationName,
   chatSessions,
+  recentProjects,
+  runningSessions,
   onEnterProject,
   onCreateNote,
   onSelectNote,
@@ -2488,7 +2522,9 @@ function HomeOverviewWorkspace({
   projectSkills: ProjectSkillSummary[];
   operationName: string | null;
   chatSessions: ChatSessionSummary[];
-  onEnterProject: () => void;
+  recentProjects: ProjectSummary[];
+  runningSessions: OverviewSessionSummary[];
+  onEnterProject: (projectId?: string) => void;
   onCreateNote: () => void;
   onSelectNote: (note: NoteSummary) => void;
   onNoteDraftChange: (field: keyof NoteDraft, value: string) => void;
@@ -2554,16 +2590,69 @@ function HomeOverviewWorkspace({
       <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="font-medium text-slate-100">最近聊天</div>
-            <p className="mt-1 text-xs text-slate-500">这里展示聊天会话，不是 Claude Code 执行会话。</p>
+            <div className="font-medium text-slate-100">最近项目</div>
+            <p className="mt-1 text-xs text-slate-500">最近更新的项目，点击进入项目工作台。</p>
           </div>
-          <button onClick={onEnterProject} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+          <button onClick={() => onEnterProject()} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
             进入项目
           </button>
         </div>
         <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+          {recentProjects.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-slate-500">还没有项目，先创建一个吧。</div> : null}
+          {recentProjects.map((project) => (
+            <div key={project.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+              <div className="truncate font-medium text-slate-100">{project.name}</div>
+              <div className="mt-0.5 truncate text-xs text-slate-500">{project.path}</div>
+              {project.latestSessionResult ? (
+                <div className="mt-1 truncate text-xs text-slate-400">{project.latestSessionResult.sessionName}: {project.latestSessionResult.summary.slice(0, 60)}{project.latestSessionResult.summary.length > 60 ? "..." : ""}</div>
+              ) : null}
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-xs text-slate-500">{formatDateTime(project.updatedAt)}</span>
+                <button onClick={() => onEnterProject(project.id)} className="rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5">
+                  进入
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="font-medium text-slate-100">运行中会话</div>
+            <p className="mt-1 text-xs text-slate-500">当前正在运行的 Claude Code 会话，点击进入。</p>
+          </div>
+        </div>
+        <div className="mt-3 space-y-2">
+          {runningSessions.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-slate-500">没有运行中的会话</div> : null}
+          {runningSessions.map((session) => (
+            <div key={session.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] p-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-medium text-slate-100">{session.name}</span>
+                  <span className="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-300">{session.runtimeStatus ?? session.status}</span>
+                </div>
+                <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                  <span>{session.projectName}</span>
+                  <span>·</span>
+                  <span>{formatDateTime(session.updatedAt)}</span>
+                </div>
+              </div>
+              <button onClick={() => onEnterProject(session.projectId)} className="ml-3 shrink-0 rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5">
+                进入
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
+        <div>
+          <div className="font-medium text-slate-100">最近聊天</div>
+          <p className="mt-1 text-xs text-slate-500">最近的 AI 聊天会话，不是 Claude Code 执行会话。</p>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
           {chatSessions.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-slate-500">还没有聊天会话</div> : null}
-          {chatSessions.map((session) => (
+          {chatSessions.slice(0, 6).map((session) => (
             <div key={session.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
               <div className="truncate text-slate-100">{session.title}</div>
               <div className="mt-1 text-xs text-slate-500">{formatDateTime(session.updatedAt)}</div>
