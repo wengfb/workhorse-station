@@ -24,6 +24,7 @@ import type {
   WorktreeStatus,
   WorktreeSummary
 } from "@workhorse-station/shared";
+import { MarkdownContent } from "./markdown-content";
 import {
   copyGlobalSkillToProject,
   copyProjectSkillToGlobal,
@@ -2542,8 +2543,8 @@ function HomeChatWorkspace({
             {!loading && !selectedChat ? <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-500">新建或选择一个聊天会话。</div> : null}
             {selectedChat?.messages.map((message) => (
               <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[82%] space-y-3 rounded-2xl px-4 py-3 text-sm ${message.role === "user" ? "bg-slate-100 text-slate-950" : "border border-white/10 bg-white/[0.04] text-slate-200"}`}>
-                  <div className="whitespace-pre-wrap">{message.content}</div>
+                <div className={`space-y-3 rounded-2xl px-4 py-3 text-sm ${message.role === "user" ? "max-w-[82%] bg-slate-100 text-slate-950" : "w-full text-slate-200"}`}>
+                  <MarkdownContent content={message.content} />
                   {message.attachments.length ? (
                     <div className="space-y-2 border-t border-white/10 pt-3 text-xs text-slate-400">
                       {message.attachments.map((attachment) => (
@@ -2603,9 +2604,9 @@ function HomeChatWorkspace({
             ))}
             {streamingChatId && selectedChat?.id === streamingChatId ? (
               <div className="flex justify-start">
-                <div className="max-w-[82%] space-y-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200">
+                <div className="w-full space-y-3 rounded-2xl px-4 py-3 text-sm text-slate-200">
                   {streamingContent ? (
-                    <div className="whitespace-pre-wrap">{streamingContent}</div>
+                    <MarkdownContent content={streamingContent} />
                   ) : (
                     <div className="text-slate-500">...</div>
                   )}
