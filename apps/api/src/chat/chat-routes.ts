@@ -27,6 +27,7 @@ import {
   getChatSession,
   getChatSessionMessage,
   listChatSessions,
+  truncateChatMessages,
   updateChatMessageArtifactSuggestions,
   updateChatSessionContext,
   type ChatSessionWriteInput
@@ -226,6 +227,31 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
       data: { deleted: true }
     };
   });
+
+  server.delete<{ Params: ChatSessionParams; Querystring: { from: string } }>(
+    "/api/chat-sessions/:chatSessionId/messages",
+    async (request): Promise<ApiResponse<ChatSessionsResponse>> => {
+      const { chatSessionId } = request.params;
+      const { from } = request.query;
+
+      if (!from) {
+        throw new HttpError(400, "missing_from", "缺少 from 参数");
+      }
+
+      const session = truncateChatMessages(database.db, chatSessionId, from);
+
+      if (!session) {
+        throw new HttpError(404, "chat_session_not_found", "聊天会话不存在");
+      }
+
+      database.persist();
+
+      return {
+        ok: true,
+        data: { chatSessions: [session] }
+      };
+    }
+  );
 
   server.post<{ Params: ChatSessionParams; Body: ConfirmToolRequest }>(
     "/api/chat-sessions/:chatSessionId/confirm-tool",

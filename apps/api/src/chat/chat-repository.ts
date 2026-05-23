@@ -135,6 +135,38 @@ export function deleteChatSession(db: Database, chatSessionId: string) {
   return db.getRowsModified() > 0;
 }
 
+export function truncateChatMessages(db: Database, chatSessionId: string, fromMessageId: string) {
+  const stmt = db.prepare(
+    "SELECT rowid FROM chat_messages WHERE id = ? AND chat_session_id = ?",
+    [fromMessageId, chatSessionId]
+  );
+
+  let targetRowid: number | null = null;
+
+  try {
+    if (stmt.step()) {
+      const row = stmt.getAsObject() as { rowid: number };
+      targetRowid = row.rowid;
+    }
+  } finally {
+    stmt.free();
+  }
+
+  if (targetRowid === null) {
+    return getChatSession(db, chatSessionId);
+  }
+
+  db.run(
+    "DELETE FROM chat_messages WHERE chat_session_id = ? AND rowid >= ?",
+    [chatSessionId, targetRowid]
+  );
+  db.run(
+    "UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    [chatSessionId]
+  );
+  return getChatSession(db, chatSessionId);
+}
+
 export function listChatMessages(db: Database, chatSessionId: string) {
   const statement = db.prepare(
     `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, tool_calls_json, tool_results_json, created_at

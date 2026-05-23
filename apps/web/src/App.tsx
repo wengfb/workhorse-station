@@ -65,6 +65,7 @@ import {
   renameProjectSkill,
   sendChatMessage,
   streamChatMessage,
+  truncateChatMessages,
   confirmChatTool,
   stopSession,
   updateGlobalNote,
@@ -161,6 +162,7 @@ export function App() {
   const [creatingChat, setCreatingChat] = useState(false);
   const [sendingChat, setSendingChat] = useState(false);
   const [streamingChatId, setStreamingChatId] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState("");
   const [streamingToolCalls, setStreamingToolCalls] = useState<ChatToolCall[]>([]);
   const [streamingToolResults, setStreamingToolResults] = useState<ChatToolResult[]>([]);
@@ -1528,10 +1530,23 @@ export function App() {
       }
     }
 
+    const isEditing = editingMessageId !== null;
+
+    if (isEditing && targetChatId) {
+      try {
+        await truncateChatMessages(targetChatId, editingMessageId!);
+        await reloadChatSessions(targetChatId);
+      } catch (error) {
+        setChatError(formatError(error, "消息清理失败"));
+        return;
+      }
+    }
+
     setSendingChat(true);
     setChatError(null);
     setChatDraft("");
     setChatFile(null);
+    setEditingMessageId(null);
     setStreamingChatId(targetChatId);
     setStreamingContent("");
     setStreamingToolCalls([]);
@@ -1607,6 +1622,17 @@ export function App() {
     confirmChatTool(streamingChatId, toolCallId, approved).catch((error) => {
       setChatError(formatError(error, "工具确认失败"));
     });
+  }
+
+  function handleStartEditMessage(messageId: string, content: string) {
+    setEditingMessageId(messageId);
+    setChatDraft(content);
+    setChatFile(null);
+  }
+
+  function handleCancelEditMessage() {
+    setEditingMessageId(null);
+    setChatDraft("");
   }
 
   async function handleDeleteChatSession(chatSession: ChatSessionSummary) {
@@ -1954,6 +1980,9 @@ export function App() {
             onChatSubmit={(event) => void handleSendChatMessage(event)}
             onDeleteChat={handleDeleteChatSession}
             onConfirmTool={handleConfirmTool}
+            editingMessageId={editingMessageId}
+            onStartEditMessage={handleStartEditMessage}
+            onCancelEditMessage={handleCancelEditMessage}
             streamingChatId={streamingChatId}
             streamingContent={streamingContent}
             streamingToolCalls={streamingToolCalls}
@@ -2255,6 +2284,9 @@ function HomeWorkspace({
   onChatSubmit,
   onDeleteChat,
   onConfirmTool,
+  editingMessageId,
+  onStartEditMessage,
+  onCancelEditMessage,
   streamingChatId,
   streamingContent,
   streamingToolCalls,
@@ -2317,6 +2349,9 @@ function HomeWorkspace({
   onChatSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onDeleteChat: (chat: ChatSessionSummary) => void;
   onConfirmTool: (toolCallId: string, approved: boolean) => void;
+  editingMessageId: string | null;
+  onStartEditMessage: (messageId: string, content: string) => void;
+  onCancelEditMessage: () => void;
   streamingChatId: string | null;
   streamingContent: string;
   streamingToolCalls: ChatToolCall[];
@@ -2368,6 +2403,9 @@ function HomeWorkspace({
           onSubmit={onChatSubmit}
           onDelete={onDeleteChat}
           onConfirmTool={onConfirmTool}
+          editingMessageId={editingMessageId}
+          onStartEditMessage={onStartEditMessage}
+          onCancelEditMessage={onCancelEditMessage}
         />
       ) : (
         <HomeOverviewWorkspace
@@ -2431,13 +2469,16 @@ function HomeChatWorkspace({
   streamingContent,
   streamingToolCalls,
   streamingToolResults,
+  editingMessageId,
   onSelect,
   onCreate,
   onDraftChange,
   onFileChange,
   onSubmit,
   onDelete,
-  onConfirmTool
+  onConfirmTool,
+  onStartEditMessage,
+  onCancelEditMessage
 }: {
   selectedProject: ProjectSummary | null;
   selectedWorktree: WorktreeSummary | null;
@@ -2454,6 +2495,7 @@ function HomeChatWorkspace({
   streamingContent: string;
   streamingToolCalls: ChatToolCall[];
   streamingToolResults: ChatToolResult[];
+  editingMessageId: string | null;
   onSelect: (session: ChatSessionSummary) => void;
   onCreate: () => void;
   onDraftChange: (value: string) => void;
@@ -2461,9 +2503,12 @@ function HomeChatWorkspace({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onDelete: (chat: ChatSessionSummary) => void;
   onConfirmTool: (toolCallId: string, approved: boolean) => void;
+  onStartEditMessage: (messageId: string, content: string) => void;
+  onCancelEditMessage: () => void;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const prevMessageCountRef = useRef(0);
 
   useEffect(() => {
@@ -2493,6 +2538,12 @@ function HomeChatWorkspace({
 
     container.scrollTop = container.scrollHeight;
   }, [streamingContent]);
+
+  useEffect(() => {
+    if (editingMessageId && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [editingMessageId]);
 
   return (
     <section className="grid h-[calc(100vh-80px)] grid-cols-1 overflow-hidden bg-[#0f1117] lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -2532,7 +2583,7 @@ function HomeChatWorkspace({
         </div>
       </aside>
 
-      <div className="flex min-h-0 flex-col">
+      <form onSubmit={onSubmit} className="flex min-h-0 flex-col">
         <div className="mx-auto w-full max-w-[768px] px-4 py-3 text-xs text-slate-500">
           上下文：{selectedProject?.name ?? "未选择项目"} / {selectedWorktree?.name ?? "未选择 worktree"} · 可直接让我搜索笔记、创建任务或保存 Prompt
         </div>
@@ -2543,8 +2594,43 @@ function HomeChatWorkspace({
             {!loading && !selectedChat ? <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-500">新建或选择一个聊天会话。</div> : null}
             {selectedChat?.messages.map((message) => (
               <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`space-y-3 rounded-2xl px-4 py-3 text-sm ${message.role === "user" ? "max-w-[82%] bg-slate-100 text-slate-950" : "w-full text-slate-200"}`}>
-                  <MarkdownContent content={message.content} />
+                <div
+                  className={`space-y-3 rounded-2xl px-4 py-3 text-sm ${message.role === "user" ? "max-w-[82%] bg-slate-100 text-slate-950" : "w-full text-slate-200"} ${message.role === "user" && !streamingChatId ? "cursor-pointer" : ""}`}
+                  onDoubleClick={message.role === "user" && !streamingChatId ? () => onStartEditMessage(message.id, message.content) : undefined}
+                >
+                  {editingMessageId === message.id ? (
+                    <div className="space-y-2">
+                      <textarea
+                        ref={textareaRef}
+                        value={draft}
+                        onChange={(event) => onDraftChange(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && !event.shiftKey) {
+                            event.preventDefault();
+                            const form = event.currentTarget.closest("form");
+                            if (form) form.requestSubmit();
+                          } else if (event.key === "Escape") {
+                            onCancelEditMessage();
+                          }
+                        }}
+                        className="w-full resize-none rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm text-slate-950 outline-none"
+                        rows={3}
+                        autoFocus
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={onCancelEditMessage}
+                          className="rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-200"
+                        >
+                          取消
+                        </button>
+                        <span className="text-[11px] text-slate-400">Enter 发送 · Shift+Enter 换行 · Esc 取消</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <MarkdownContent content={message.content} />
+                  )}
                   {message.attachments.length ? (
                     <div className="space-y-2 border-t border-white/10 pt-3 text-xs text-slate-400">
                       {message.attachments.map((attachment) => (
@@ -2662,7 +2748,7 @@ function HomeChatWorkspace({
             <div ref={messagesEndRef} />
           </div>
         </div>
-        <form onSubmit={onSubmit} className="p-3 sm:p-4">
+        <div className="p-3 sm:p-4">
           <div className="mx-auto w-full max-w-[768px]">
             {chatFile ? (
               <div className="mb-2 flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-300">
@@ -2711,8 +2797,8 @@ function HomeChatWorkspace({
               </button>
             </div>
           </div>
-        </form>
-      </div>
+        </div>
+      </form>
     </section>
   );
 }

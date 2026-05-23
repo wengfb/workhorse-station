@@ -181,6 +181,12 @@ export function deleteChatSession(chatSessionId: string) {
   });
 }
 
+export function truncateChatMessages(chatSessionId: string, fromMessageId: string) {
+  return fetchJson<ChatSessionsResponse>(`/api/chat-sessions/${chatSessionId}/messages?from=${encodeURIComponent(fromMessageId)}`, {
+    method: "DELETE"
+  });
+}
+
 export function getHealth() {
   return fetchJson<HealthResponse>("/health");
 }
