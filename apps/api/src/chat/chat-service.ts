@@ -19,9 +19,9 @@ import { getChatToolDefs, executeChatTool } from "./chat-tools.js";
 import type { ChatMessageWriteInput } from "./chat-repository.js";
 import type { Database } from "sql.js";
 
-const model = "claude-opus-4-7";
-const maxTokens = 2400;
-const maxToolIterations = 5;
+export const MODEL = "claude-opus-4-7";
+export const MAX_TOKENS = 2400;
+export const MAX_TOOL_ITERATIONS = 5;
 
 let client: Anthropic | null = null;
 
@@ -46,10 +46,10 @@ export async function generateChatReply(input: GenerateChatReplyInput): Promise<
   const history = input.chatSession.messages ?? [];
   let messages = toBetaMessages(history);
 
-  for (let iteration = 0; iteration < maxToolIterations; iteration++) {
+  for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     const response = await anthropic.beta.messages.create({
-      model,
-      max_tokens: maxTokens,
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
       system,
       messages,
       tools,
@@ -80,7 +80,8 @@ export async function generateChatReply(input: GenerateChatReplyInput): Promise<
     const toolCalls: ChatToolCall[] = toolUseBlocks.map((b) => ({
       id: b.id,
       name: b.name,
-      input: (b.input ?? {}) as Record<string, unknown>
+      input: (b.input ?? {}) as Record<string, unknown>,
+      status: "executed" as const
     }));
 
     collected.push({
@@ -142,7 +143,7 @@ export async function generateChatReply(input: GenerateChatReplyInput): Promise<
   return { messages: collected };
 }
 
-function getClient() {
+export function getClient() {
   const apiKey = process.env.ANTHROPIC_API_KEY ?? null;
   const authToken = process.env.ANTHROPIC_AUTH_TOKEN ?? null;
   const baseURL = process.env.ANTHROPIC_BASE_URL ?? null;
@@ -159,7 +160,7 @@ function getClient() {
   return client;
 }
 
-function buildSystemPrompt(project: ProjectSummary | null, worktree: WorktreeSummary | null) {
+export function buildSystemPrompt(project: ProjectSummary | null, worktree: WorktreeSummary | null) {
   return [
     "你是开发管理工作台首页聊天助手。",
     "你可以使用工具来搜索笔记、创建笔记、查看任务、创建任务和创建 Prompt 草稿。",
@@ -176,7 +177,7 @@ function buildSystemPrompt(project: ProjectSummary | null, worktree: WorktreeSum
   ].join("\n");
 }
 
-function toBetaMessages(history: ChatMessageSummary[]): BetaMessageParam[] {
+export function toBetaMessages(history: ChatMessageSummary[]): BetaMessageParam[] {
   return history.map((msg) => {
     if (msg.toolResults.length > 0) {
       return {
@@ -211,7 +212,7 @@ function toBetaMessages(history: ChatMessageSummary[]): BetaMessageParam[] {
   });
 }
 
-function renderMessageContent(content: string, attachments: ChatAttachment[]) {
+export function renderMessageContent(content: string, attachments: ChatAttachment[]) {
   if (!attachments.length) {
     return content;
   }

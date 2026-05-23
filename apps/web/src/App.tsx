@@ -4,6 +4,9 @@ import type {
   ChatAttachment,
   ChatMessageSummary,
   ChatSessionSummary,
+  ChatStreamEvent,
+  ChatToolCall,
+  ChatToolResult,
   CreateWorktreeRequest,
   HealthResponse,
   ProjectSkillSummary,
@@ -60,6 +63,8 @@ import {
   renameGlobalSkill,
   renameProjectSkill,
   sendChatMessage,
+  streamChatMessage,
+  confirmChatTool,
   stopSession,
   updateGlobalNote,
   updateNote,
@@ -154,6 +159,11 @@ export function App() {
   const [chatError, setChatError] = useState<string | null>(null);
   const [creatingChat, setCreatingChat] = useState(false);
   const [sendingChat, setSendingChat] = useState(false);
+  const [streamingChatId, setStreamingChatId] = useState<string | null>(null);
+  const [streamingContent, setStreamingContent] = useState("");
+  const [streamingToolCalls, setStreamingToolCalls] = useState<ChatToolCall[]>([]);
+  const [streamingToolResults, setStreamingToolResults] = useState<ChatToolResult[]>([]);
+  const streamAbortRef = useRef<(() => void) | null>(null);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [activeProjectTab, setActiveProjectTab] = useState<ProjectTab>("overview");
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
@@ -1519,22 +1529,83 @@ export function App() {
 
     setSendingChat(true);
     setChatError(null);
+    setChatDraft("");
+    setChatFile(null);
+    setStreamingChatId(targetChatId);
+    setStreamingContent("");
+    setStreamingToolCalls([]);
+    setStreamingToolResults([]);
 
-    try {
-      const data = await sendChatMessage(targetChatId, {
+    streamAbortRef.current?.();
+    const abort = streamChatMessage(
+      targetChatId,
+      {
         content,
         attachments,
         projectId: selectedProject?.id ?? null,
         worktreeId: selectedWorktree?.id ?? null
-      });
-      setChatDraft("");
-      setChatFile(null);
-      await reloadChatSessions(data.chatSession.id);
-    } catch (error) {
-      setChatError(formatError(error, "消息发送失败"));
-    } finally {
-      setSendingChat(false);
+      },
+      (event: ChatStreamEvent) => {
+        switch (event.type) {
+          case "chat.text_delta":
+            setStreamingContent((prev) => prev + (event.text ?? ""));
+            break;
+          case "chat.tool_use_pending":
+            if (event.toolCall) {
+              setStreamingToolCalls((prev) => [...prev, { ...event.toolCall!, status: "pending_confirmation" }]);
+            }
+            break;
+          case "chat.tool_call":
+            if (event.toolCall) {
+              setStreamingToolCalls((prev) =>
+                prev.map((tc) => (tc.id === event.toolCall!.id ? { ...event.toolCall!, status: "executed" as const } : tc))
+              );
+            }
+            break;
+          case "chat.tool_result":
+            if (event.toolResult) {
+              setStreamingToolResults((prev) => [...prev, event.toolResult!]);
+            }
+            break;
+          case "chat.done":
+            setStreamingChatId(null);
+            setSendingChat(false);
+            reloadChatSessions(event.chatSessionId);
+            break;
+          case "chat.error":
+            setChatError(event.message ?? "流式响应出错");
+            setStreamingChatId(null);
+            setSendingChat(false);
+            reloadChatSessions(event.chatSessionId);
+            break;
+        }
+      },
+      (error: Error) => {
+        setChatError(formatError(error, "消息发送失败"));
+        setStreamingChatId(null);
+        setSendingChat(false);
+      }
+    );
+
+    streamAbortRef.current = abort;
+  }
+
+  function handleConfirmTool(toolCallId: string, approved: boolean) {
+    if (!streamingChatId) return;
+
+    if (approved) {
+      setStreamingToolCalls((prev) =>
+        prev.map((tc) => (tc.id === toolCallId ? { ...tc, status: "approved" as const } : tc))
+      );
+    } else {
+      setStreamingToolCalls((prev) =>
+        prev.map((tc) => (tc.id === toolCallId ? { ...tc, status: "rejected" as const } : tc))
+      );
     }
+
+    confirmChatTool(streamingChatId, toolCallId, approved).catch((error) => {
+      setChatError(formatError(error, "工具确认失败"));
+    });
   }
 
   async function handleDeleteChatSession(chatSession: ChatSessionSummary) {
@@ -1875,12 +1946,17 @@ export function App() {
             creatingChat={creatingChat}
             sendingChat={sendingChat}
             deletingChatId={deletingChatId}
-            onChatSelect={(session) => setSelectedChatId(session.id)}
+            onChatSelect={(session) => { streamAbortRef.current?.(); setStreamingChatId(null); setSelectedChatId(session.id); }}
             onCreateChat={() => void createChatSessionRecord()}
             onChatDraftChange={setChatDraft}
             onChatFileChange={(file) => void handleChatFileChange(file)}
             onChatSubmit={(event) => void handleSendChatMessage(event)}
             onDeleteChat={handleDeleteChatSession}
+            onConfirmTool={handleConfirmTool}
+            streamingChatId={streamingChatId}
+            streamingContent={streamingContent}
+            streamingToolCalls={streamingToolCalls}
+            streamingToolResults={streamingToolResults}
             onCreateGlobalNote={startCreateGlobalNote}
             onSelectGlobalNote={(note) => setSelectedGlobalNoteId(note.id)}
             onGlobalNoteDraftChange={updateGlobalNoteDraft}
@@ -2177,6 +2253,11 @@ function HomeWorkspace({
   onChatFileChange,
   onChatSubmit,
   onDeleteChat,
+  onConfirmTool,
+  streamingChatId,
+  streamingContent,
+  streamingToolCalls,
+  streamingToolResults,
   onCreateGlobalNote,
   onSelectGlobalNote,
   onGlobalNoteDraftChange,
@@ -2234,6 +2315,11 @@ function HomeWorkspace({
   onChatFileChange: (file: File | null) => void;
   onChatSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onDeleteChat: (chat: ChatSessionSummary) => void;
+  onConfirmTool: (toolCallId: string, approved: boolean) => void;
+  streamingChatId: string | null;
+  streamingContent: string;
+  streamingToolCalls: ChatToolCall[];
+  streamingToolResults: ChatToolResult[];
   onCreateGlobalNote: () => void;
   onSelectGlobalNote: (note: NoteSummary) => void;
   onGlobalNoteDraftChange: (field: keyof NoteDraft, value: string) => void;
@@ -2265,17 +2351,22 @@ function HomeWorkspace({
           selectedChat={selectedChat}
           draft={chatDraft}
           chatFile={chatFile}
-          loading={chatLoading}
+          loading={chatLoading && !streamingChatId}
           error={chatError}
           creating={creatingChat}
           sending={sendingChat}
           deletingChatId={deletingChatId}
+          streamingChatId={streamingChatId}
+          streamingContent={streamingContent}
+          streamingToolCalls={streamingToolCalls}
+          streamingToolResults={streamingToolResults}
           onSelect={onChatSelect}
           onCreate={onCreateChat}
           onDraftChange={onChatDraftChange}
           onFileChange={onChatFileChange}
           onSubmit={onChatSubmit}
           onDelete={onDeleteChat}
+          onConfirmTool={onConfirmTool}
         />
       ) : (
         <HomeOverviewWorkspace
@@ -2335,12 +2426,17 @@ function HomeChatWorkspace({
   creating,
   sending,
   deletingChatId,
+  streamingChatId,
+  streamingContent,
+  streamingToolCalls,
+  streamingToolResults,
   onSelect,
   onCreate,
   onDraftChange,
   onFileChange,
   onSubmit,
-  onDelete
+  onDelete,
+  onConfirmTool
 }: {
   selectedProject: ProjectSummary | null;
   selectedWorktree: WorktreeSummary | null;
@@ -2353,12 +2449,17 @@ function HomeChatWorkspace({
   creating: boolean;
   sending: boolean;
   deletingChatId: string | null;
+  streamingChatId: string | null;
+  streamingContent: string;
+  streamingToolCalls: ChatToolCall[];
+  streamingToolResults: ChatToolResult[];
   onSelect: (session: ChatSessionSummary) => void;
   onCreate: () => void;
   onDraftChange: (value: string) => void;
   onFileChange: (file: File | null) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onDelete: (chat: ChatSessionSummary) => void;
+  onConfirmTool: (toolCallId: string, approved: boolean) => void;
 }) {
   return (
     <section className="grid min-h-[calc(100vh-80px)] flex-1 grid-cols-1 bg-[#0f1117] lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -2466,6 +2567,63 @@ function HomeChatWorkspace({
                 </div>
               </div>
             ))}
+            {streamingChatId && selectedChat?.id === streamingChatId ? (
+              <div className="flex justify-start">
+                <div className="max-w-[82%] space-y-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200">
+                  {streamingContent ? (
+                    <div className="whitespace-pre-wrap">{streamingContent}</div>
+                  ) : (
+                    <div className="text-slate-500">...</div>
+                  )}
+                  {streamingToolCalls.length > 0 ? (
+                    <div className="space-y-2 border-t border-white/10 pt-3">
+                      {streamingToolCalls.map((tc) => (
+                        <div key={tc.id} className={`rounded-xl border p-3 text-xs ${tc.status === "pending_confirmation" ? "border-amber-500/30 bg-amber-500/10" : tc.status === "rejected" ? "border-red-500/20 bg-red-500/5" : "border-emerald-500/20 bg-emerald-500/5"}`}>
+                          <div className="flex items-center gap-2">
+                            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${tc.status === "pending_confirmation" ? "bg-amber-500/15 text-amber-300" : tc.status === "rejected" ? "bg-red-500/15 text-red-300" : "bg-emerald-500/15 text-emerald-300"}`}>
+                              {toolLabel(tc.name)}
+                            </span>
+                            <span className="truncate font-medium text-slate-100">
+                              {formatToolSummary(tc.name, tc.input)}
+                            </span>
+                            {tc.status === "pending_confirmation" ? (
+                              <span className="ml-auto shrink-0 text-[11px] text-amber-400">等待确认</span>
+                            ) : tc.status === "rejected" ? (
+                              <span className="ml-auto shrink-0 text-[11px] text-red-400">已拒绝</span>
+                            ) : null}
+                          </div>
+                          {tc.status === "pending_confirmation" ? (
+                            <div className="mt-2 flex gap-2">
+                              <button
+                                onClick={() => onConfirmTool(tc.id, true)}
+                                className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/20"
+                              >
+                                执行
+                              </button>
+                              <button
+                                onClick={() => onConfirmTool(tc.id, false)}
+                                className="rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-[11px] text-red-300 hover:bg-red-500/20"
+                              >
+                                拒绝
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {streamingToolResults.length > 0 ? (
+                    <div className="space-y-1 border-t border-white/10 pt-3">
+                      {streamingToolResults.map((tr) => (
+                        <div key={tr.toolCallId} className={`text-xs ${tr.isError ? "text-red-300" : "text-emerald-300"}`}>
+                          {tr.isError ? "❌ " : "✅ "}{tr.result}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
         <form onSubmit={onSubmit} className="p-3 sm:p-4">
@@ -2493,8 +2651,8 @@ function HomeChatWorkspace({
                 className="max-h-36 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600"
                 placeholder="输入消息。我会在需要时帮你搜索、创建笔记、任务或 Prompt。"
               />
-              <button disabled={creating || sending} className="shrink-0 rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
-                {sending ? "发送中..." : creating ? "创建中..." : "发送"}
+              <button disabled={creating || sending || !!streamingChatId} className="shrink-0 rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
+                {streamingChatId ? "接收中..." : sending ? "发送中..." : creating ? "创建中..." : "发送"}
               </button>
             </div>
           </div>

@@ -427,10 +427,13 @@ export type ChatAttachment = {
   textContent: string;
 };
 
+export type ChatToolCallStatus = "pending_confirmation" | "approved" | "rejected" | "executed";
+
 export type ChatToolCall = {
   id: string;
   name: string;
   input: Record<string, unknown>;
+  status: ChatToolCallStatus;
 };
 
 export type ChatToolResult = {
@@ -512,5 +515,28 @@ export type ApplyChatSuggestionResponse = {
   suggestion: ChatArtifactSuggestion;
   target: AppliedChatSuggestionTarget;
   deduped: boolean;
+};
+
+export type ChatStreamEventType =
+  | "chat.text_delta"
+  | "chat.tool_use_pending"
+  | "chat.tool_call"
+  | "chat.tool_result"
+  | "chat.done"
+  | "chat.error";
+
+export type ChatStreamEvent = {
+  type: ChatStreamEventType;
+  chatSessionId: string;
+  timestamp: string;
+  text?: string;
+  toolCall?: ChatToolCall;
+  toolResult?: ChatToolResult;
+  message?: string;
+};
+
+export type ConfirmToolRequest = {
+  toolCallId: string;
+  approved: boolean;
 };
 

@@ -16,6 +16,7 @@ type ToolDef = {
   name: string;
   description: string;
   input_schema: JsonSchema;
+  confirmation: "auto" | "confirm";
 };
 
 type ToolResult = {
@@ -28,6 +29,7 @@ export function getChatToolDefs(): ToolDef[] {
     {
       name: "search_notes",
       description: "搜索笔记。可以跨项目搜索或限定项目。用于在创建新笔记前检查是否已有相关笔记，或查找参考资料。",
+      confirmation: "auto",
       input_schema: {
         type: "object",
         properties: {
@@ -40,6 +42,7 @@ export function getChatToolDefs(): ToolDef[] {
     {
       name: "create_note",
       description: "创建一条新笔记。支持全局笔记（不传 projectId）或项目笔记。",
+      confirmation: "confirm",
       input_schema: {
         type: "object",
         properties: {
@@ -54,6 +57,7 @@ export function getChatToolDefs(): ToolDef[] {
     {
       name: "list_todos",
       description: "列出指定项目的所有任务（待办事项），用于了解当前有哪些任务需要处理。",
+      confirmation: "auto",
       input_schema: {
         type: "object",
         properties: {
@@ -65,6 +69,7 @@ export function getChatToolDefs(): ToolDef[] {
     {
       name: "create_todo",
       description: "在项目中创建一条新任务（待办事项）。",
+      confirmation: "confirm",
       input_schema: {
         type: "object",
         properties: {
@@ -80,6 +85,7 @@ export function getChatToolDefs(): ToolDef[] {
     {
       name: "create_prompt_draft",
       description: "创建一个 Prompt 草稿，用于后续启动 Claude Code 会话执行代码任务。当用户想要执行某个开发任务时使用。",
+      confirmation: "confirm",
       input_schema: {
         type: "object",
         properties: {
@@ -93,6 +99,7 @@ export function getChatToolDefs(): ToolDef[] {
     {
       name: "list_projects",
       description: "列出所有已注册的项目，了解有哪些项目可用。",
+      confirmation: "auto",
       input_schema: {
         type: "object",
         properties: {},
@@ -102,6 +109,7 @@ export function getChatToolDefs(): ToolDef[] {
     {
       name: "list_worktrees",
       description: "列出指定项目下的所有 worktree。",
+      confirmation: "auto",
       input_schema: {
         type: "object",
         properties: {
@@ -113,6 +121,7 @@ export function getChatToolDefs(): ToolDef[] {
     {
       name: "list_prompt_drafts",
       description: "列出指定项目的所有 Prompt 草稿。",
+      confirmation: "auto",
       input_schema: {
         type: "object",
         properties: {
@@ -122,6 +131,12 @@ export function getChatToolDefs(): ToolDef[] {
       }
     }
   ];
+}
+
+const toolDefMap = new Map(getChatToolDefs().map((t) => [t.name, t]));
+
+export function getToolConfirmation(name: string): "auto" | "confirm" {
+  return toolDefMap.get(name)?.confirmation ?? "confirm";
 }
 
 export function executeChatTool(db: Database, name: string, input: Record<string, unknown>): ToolResult {

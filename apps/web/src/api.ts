@@ -4,6 +4,8 @@ import type {
   ApplyChatSuggestionResponse,
   ChatSessionResponse,
   ChatSessionsResponse,
+  ChatStreamEvent,
+  ConfirmToolRequest,
   CreateChatMessageRequest,
   CreateChatSessionRequest,
   CreateNoteRequest,
@@ -85,6 +87,84 @@ export function sendChatMessage(chatSessionId: string, input: CreateChatMessageR
   return fetchJson<ChatSessionResponse>(`/api/chat-sessions/${chatSessionId}/messages`, {
     method: "POST",
     body: input
+  });
+}
+
+export function streamChatMessage(
+  chatSessionId: string,
+  input: CreateChatMessageRequest,
+  onEvent: (event: ChatStreamEvent) => void,
+  onError: (error: Error) => void
+): () => void {
+  const controller = new AbortController();
+
+  fetch(`/api/chat-sessions/${chatSessionId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    signal: controller.signal
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        const err = body?.error ?? {};
+        onError(new ApiError(err.code ?? "stream_error", err.message ?? "流式请求失败", response.status));
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        onError(new Error("浏览器不支持流式读取"));
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() ?? "";
+
+          for (const part of parts) {
+            const trimmed = part.trim();
+            if (!trimmed) continue;
+
+            const match = trimmed.match(/^data:\s*(.+)$/s);
+            if (match) {
+              try {
+                const event = JSON.parse(match[1]) as ChatStreamEvent;
+                onEvent(event);
+              } catch {
+                // Skip malformed JSON lines
+              }
+            }
+          }
+        }
+      } catch (error) {
+        if (error instanceof Error && error.name !== "AbortError") {
+          onError(error);
+        }
+      }
+    })
+    .catch((error) => {
+      if (error instanceof Error && error.name !== "AbortError") {
+        onError(error);
+      }
+    });
+
+  return () => controller.abort();
+}
+
+export function confirmChatTool(chatSessionId: string, toolCallId: string, approved: boolean) {
+  return fetchJson<{ confirmed: boolean }>(`/api/chat-sessions/${chatSessionId}/confirm-tool`, {
+    method: "POST",
+    body: { toolCallId, approved } satisfies ConfirmToolRequest
   });
 }
 

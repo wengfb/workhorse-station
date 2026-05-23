@@ -1,5 +1,32 @@
 # 开发进度
 
+## 2026-05-23：聊天 SSE 流式输出与工具调用确认机制
+
+### 已完成
+- 新增共享类型 `ChatToolCallStatus`、`ChatStreamEvent`、`ChatStreamEventType`、`ConfirmToolRequest`。
+- `ChatToolCall` 增加 `status` 字段，历史数据默认视为 `"executed"`。
+- 工具定义增加 `confirmation: "auto" | "confirm"` 字段：5 个查询工具为 auto，3 个写操作工具（create_note、create_todo、create_prompt_draft）为 confirm。
+- 新增 `ChatStreamHandler`：管理单会话 Anthropic 流式 API 调用和工具循环，通过回调发送 SSE 事件，内部维护 pending confirmations 的 Promise Map。
+- 新增 `chat-events.ts`：统一注入 timestamp 的 SSE 事件工厂函数。
+- 聊天路由改造：`POST /api/chat-sessions/:chatSessionId/messages` 从同步阻塞改为 SSE 流式端点，使用 `reply.hijack()` + `await processMessage()` 保持连接。
+- 新增 `POST /api/chat-sessions/:chatSessionId/confirm-tool`：接收前端确认/拒绝指令。
+- 前端 `streamChatMessage()`：使用 fetch + ReadableStream 解析 SSE 事件。
+- 前端聊天 UI 改造：流式文本渲染、工具调用卡片（含 pending/executed 状态）、确认按钮（执行/拒绝）、发送按钮流式状态（接收中...）。
+- 待确认工具默认 5 分钟超时自动拒绝。
+
+### 关键问题与修复
+- **POST 请求下 SSE 连接立即断开**：fire-and-forget 模式（`.catch()` 不 await）导致 Fastify 在 POST handler 返回后触发请求关闭。修复为 `await handler.processMessage()` 保持 handler 存活至流结束，同时将连接关闭监听从 `request.raw.on("close")` 改为 `request.raw.socket?.on("close")`。
+
+### 验收记录
+- `pnpm -r build`：通过。
+- curl 验证 SSE 输出：259 行事件，text_delta 逐字输出正常。
+- 浏览器验证：通过。
+  - 流式文本输出正常（逐字显示）。
+  - 自动工具调用（search_notes）自动执行，结果实时显示。
+  - 确认工具调用（create_note）显示「等待确认」卡片和执行/拒绝按钮。
+  - 点击「执行」后创建成功，AI 基于结果继续对话。
+  - 发送按钮在流式接收中显示「接收中...」并禁用，完成后恢复「发送」。
+
 ## 2026-05-23：AI 聊天从 Structured Output 改为 Tool Use
 
 ### 已完成

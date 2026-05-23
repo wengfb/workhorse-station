@@ -8,6 +8,7 @@ import type {
   ChatArtifactSourceRef,
   ChatSessionResponse,
   ChatSessionsResponse,
+  ConfirmToolRequest,
   CreateChatMessageRequest,
   CreateChatSessionRequest,
   DeleteChatSessionResponse
@@ -30,7 +31,8 @@ import {
   updateChatSessionContext,
   type ChatSessionWriteInput
 } from "./chat-repository.js";
-import { generateChatReply } from "./chat-service.js";
+import { ChatStreamHandler, registerStreamHandler, getStreamHandler, unregisterStreamHandler } from "./chat-stream-handler.js";
+import { createChatStreamEvent } from "./chat-events.js";
 
 type ChatSessionParams = {
   chatSessionId: string;
@@ -67,7 +69,7 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
 
   server.post<{ Params: ChatSessionParams; Body: CreateChatMessageRequest }>(
     "/api/chat-sessions/:chatSessionId/messages",
-    async (request): Promise<ApiResponse<ChatSessionResponse>> => {
+    async (request, reply) => {
       const currentSession = getChatSession(database.db, request.params.chatSessionId);
 
       if (!currentSession) {
@@ -86,14 +88,10 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
         worktreeId: request.body?.worktreeId ?? currentSession.worktreeId
       });
       const title = deriveSessionTitle(currentSession.title, content, attachments);
-      const updatedSession = updateChatSessionContext(database.db, currentSession.id, {
+      updateChatSessionContext(database.db, currentSession.id, {
         ...input,
         title
       });
-
-      if (!updatedSession) {
-        throw new HttpError(404, "chat_session_not_found", "聊天会话不存在");
-      }
 
       appendChatMessage(database.db, {
         chatSessionId: currentSession.id,
@@ -108,33 +106,44 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
 
       const project = input.projectId ? getProject(database.db, input.projectId) : null;
       const worktree = input.projectId && input.worktreeId ? getProjectWorktree(database.db, input.projectId, input.worktreeId) : null;
-      const refreshedSession = getChatSession(database.db, currentSession.id);
 
-      if (!refreshedSession) {
-        throw new HttpError(404, "chat_session_not_found", "聊天会话不存在");
-      }
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive"
+      });
+      reply.raw.write("\n");
 
-      const result = await generateChatReply({
-        chatSession: refreshedSession,
+      const handler = new ChatStreamHandler(
+        currentSession.id,
+        database,
         project,
         worktree,
-        db: database.db
+        (event) => {
+          if (reply.raw.writable) {
+            reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+          }
+        }
+      );
+
+      registerStreamHandler(currentSession.id, handler);
+
+      request.raw.socket?.on("close", () => {
+        handler.destroy();
+        unregisterStreamHandler(currentSession.id);
       });
 
-      for (const msg of result.messages) {
-        appendChatMessage(database.db, {
-          ...msg,
-          chatSessionId: currentSession.id
-        });
-      }
-      database.persist();
-
-      return {
-        ok: true,
-        data: {
-          chatSession: getChatSession(database.db, currentSession.id) ?? refreshedSession
+      try {
+        await handler.processMessage(content, attachments);
+      } catch (err) {
+        console.error("[ChatRoute] processMessage error:", err);
+      } finally {
+        unregisterStreamHandler(currentSession.id);
+        if (reply.raw.writable) {
+          reply.raw.end();
         }
-      };
+      }
     }
   );
 
@@ -217,6 +226,24 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
       data: { deleted: true }
     };
   });
+
+  server.post<{ Params: ChatSessionParams; Body: ConfirmToolRequest }>(
+    "/api/chat-sessions/:chatSessionId/confirm-tool",
+    async (request): Promise<ApiResponse<{ confirmed: boolean }>> => {
+      const handler = getStreamHandler(request.params.chatSessionId);
+
+      if (!handler) {
+        throw new HttpError(404, "stream_not_found", "没有活跃的聊天流");
+      }
+
+      handler.confirmTool(request.body.toolCallId, request.body.approved);
+
+      return {
+        ok: true,
+        data: { confirmed: true }
+      };
+    }
+  );
 }
 
 function readAppliedSuggestionTarget(database: DatabaseState, suggestion: ChatArtifactSuggestion): AppliedChatSuggestionTarget | null {
