@@ -26,6 +26,7 @@ import type {
 } from "@workhorse-station/shared";
 import { MarkdownContent } from "./markdown-content";
 import { Select } from "./components/ui/Select";
+import { useConfirmDialog } from "./components/DialogContext";
 import {
   copyGlobalSkillToProject,
   copyProjectSkillToGlobal,
@@ -282,6 +283,7 @@ export function App() {
   const [projectSkillsError, setProjectSkillsError] = useState<string | null>(null);
   const [selectedProjectSkillName, setSelectedProjectSkillName] = useState<string | null>(null);
   const [skillOperationName, setSkillOperationName] = useState<string | null>(null);
+  const { confirm, prompt } = useConfirmDialog();
 
   useEffect(() => {
     let cancelled = false;
@@ -1007,7 +1009,7 @@ export function App() {
   }
 
   async function handleCreateGlobalSkill() {
-    const name = window.prompt("请输入全局 Skill 文件夹名");
+    const name = await prompt("请输入全局 Skill 文件夹名");
 
     if (!name) {
       return;
@@ -1028,7 +1030,7 @@ export function App() {
   }
 
   async function handleRenameGlobalSkill(skill: SkillSummary) {
-    const newName = window.prompt("请输入新的全局 Skill 文件夹名", skill.name);
+    const newName = await prompt("请输入新的全局 Skill 文件夹名", { defaultValue: skill.name });
 
     if (!newName || newName.trim() === skill.name) {
       return;
@@ -1049,7 +1051,7 @@ export function App() {
   }
 
   async function handleDeleteGlobalSkill(skill: SkillSummary) {
-    const confirmed = window.confirm(`确认删除全局 Skill 文件夹「${skill.name}」？\n\n将删除目录：${skill.path}`);
+    const confirmed = await confirm(`确认删除全局 Skill 文件夹「${skill.name}」？\n\n将删除目录：${skill.path}`, { danger: true });
 
     if (!confirmed) {
       return;
@@ -1074,7 +1076,7 @@ export function App() {
     }
 
     const existingProjectSkill = projectSkills.find((item) => item.name === skill.name && item.hasProject);
-    const overwrite = existingProjectSkill ? window.confirm(`项目中已存在同名 Skill「${skill.name}」，是否覆盖项目文件夹？`) : false;
+    const overwrite = existingProjectSkill ? await confirm(`项目中已存在同名 Skill「${skill.name}」，是否覆盖项目文件夹？`, { danger: true }) : false;
 
     if (existingProjectSkill && !overwrite) {
       return;
@@ -1099,7 +1101,7 @@ export function App() {
       return;
     }
 
-    const name = window.prompt("请输入项目 Skill 文件夹名");
+    const name = await prompt("请输入项目 Skill 文件夹名");
 
     if (!name) {
       return;
@@ -1124,7 +1126,7 @@ export function App() {
       return;
     }
 
-    const newName = window.prompt("请输入新的项目 Skill 文件夹名", skill.name);
+    const newName = await prompt("请输入新的项目 Skill 文件夹名", { defaultValue: skill.name });
 
     if (!newName || newName.trim() === skill.name) {
       return;
@@ -1149,7 +1151,7 @@ export function App() {
       return;
     }
 
-    const confirmed = window.confirm(`确认删除项目 Skill 文件夹「${skill.name}」？\n\n将删除目录：${skill.projectPath ?? skill.effectivePath}`);
+    const confirmed = await confirm(`确认删除项目 Skill 文件夹「${skill.name}」？\n\n将删除目录：${skill.projectPath ?? skill.effectivePath}`, { danger: true });
 
     if (!confirmed) {
       return;
@@ -1173,7 +1175,7 @@ export function App() {
       return;
     }
 
-    const overwrite = skill.hasGlobal ? window.confirm(`全局中已存在同名 Skill「${skill.name}」，是否覆盖全局文件夹？`) : false;
+    const overwrite = skill.hasGlobal ? await confirm(`全局中已存在同名 Skill「${skill.name}」，是否覆盖全局文件夹？`, { danger: true }) : false;
 
     if (skill.hasGlobal && !overwrite) {
       return;
@@ -1198,7 +1200,7 @@ export function App() {
       return;
     }
 
-    const confirmed = window.confirm("删除项目只会移除 Workhorse Station 中的记录，不会删除本地代码目录。若项目仍有 worktree，需要先删除 worktree。确认删除？");
+    const confirmed = await confirm("删除项目只会移除 Workhorse Station 中的记录，不会删除本地代码目录。若项目仍有 worktree，需要先删除 worktree。确认删除？", { danger: true });
 
     if (!confirmed) {
       return;
@@ -1244,8 +1246,9 @@ export function App() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `确认删除 worktree「${worktree.name}」？\n\n将删除目录：${worktree.path}\n将删除本地分支：${worktree.branch}\n\n如果存在未提交改动或未合并提交，后端会阻止删除。`
+    const confirmed = await confirm(
+      `确认删除 worktree「${worktree.name}」？\n\n将删除目录：${worktree.path}\n将删除本地分支：${worktree.branch}\n\n如果存在未提交改动或未合并提交，后端会阻止删除。`,
+      { danger: true }
     );
 
     if (!confirmed) {
@@ -1295,7 +1298,7 @@ export function App() {
   }
 
   async function handleGlobalNoteDelete(note: NoteSummary) {
-    const confirmed = window.confirm(`确认删除全局笔记「${note.title}」？`);
+    const confirmed = await confirm(`确认删除全局笔记「${note.title}」？`, { danger: true });
 
     if (!confirmed) {
       return;
@@ -1353,7 +1356,7 @@ export function App() {
       return;
     }
 
-    const confirmed = window.confirm(`确认删除笔记「${note.title}」？如果有任务引用它，来源关联会被清空。`);
+    const confirmed = await confirm(`确认删除笔记「${note.title}」？如果有任务引用它，来源关联会被清空。`, { danger: true });
 
     if (!confirmed) {
       return;
@@ -1430,7 +1433,7 @@ export function App() {
       return;
     }
 
-    const confirmed = window.confirm(`确认删除任务「${todo.title}」？`);
+    const confirmed = await confirm(`确认删除任务「${todo.title}」？`, { danger: true });
 
     if (!confirmed) {
       return;
@@ -1653,7 +1656,7 @@ export function App() {
   }
 
   async function handleDeleteChatSession(chatSession: ChatSessionSummary) {
-    const confirmed = window.confirm(`确认删除聊天「${chatSession.title}」？`);
+    const confirmed = await confirm(`确认删除聊天「${chatSession.title}」？`, { danger: true });
 
     if (!confirmed) {
       return;
@@ -1877,7 +1880,7 @@ export function App() {
       return;
     }
 
-    const confirmed = window.confirm(`确认删除会话「${session.name}」？`);
+    const confirmed = await confirm(`确认删除会话「${session.name}」？`, { danger: true });
 
     if (!confirmed) {
       return;
