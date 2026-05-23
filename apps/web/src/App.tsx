@@ -2510,6 +2510,7 @@ function HomeChatWorkspace({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const prevMessageCountRef = useRef(0);
+  const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -2646,17 +2647,49 @@ function HomeChatWorkspace({
                   ) : null}
                   {message.toolCalls.length ? (
                     <div className="space-y-2 border-t border-white/10 pt-3">
-                      {message.toolCalls.map((tc) => (
-                        <div key={tc.id} className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-slate-300">
-                          <div className="flex items-center gap-2">
-                            <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300">{toolLabel(tc.name)}</span>
-                            <span className="truncate font-medium text-slate-100">{formatToolSummary(tc.name, tc.input)}</span>
+                      {message.toolCalls.map((tc) => {
+                        const result = message.toolResults.find(tr => tr.toolCallId === tc.id);
+                        const isExpanded = expandedToolCalls.has(tc.id);
+                        const isLong = result && result.result.length > 80;
+                        const showExpanded = result && (result.isError || !isLong || isExpanded);
+
+                        return (
+                          <div key={tc.id} className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300">{toolLabel(tc.name)}</span>
+                              <span className="truncate font-medium text-slate-100">{formatToolSummary(tc.name, tc.input)}</span>
+                            </div>
+                            {result ? (
+                              <div className={`mt-2 border-t pt-2 ${result.isError ? "border-red-500/20" : "border-emerald-500/10"}`}>
+                                {showExpanded ? (
+                                  <div className={result.isError ? "text-red-300" : "text-slate-400"}>
+                                    {result.isError ? "❌ " : "✅ "}{result.result}
+                                    {isLong && !result.isError ? (
+                                      <button onClick={() => {
+                                        setExpandedToolCalls(prev => {
+                                          const next = new Set(prev);
+                                          next.delete(tc.id);
+                                          return next;
+                                        });
+                                      }} className="ml-1 text-emerald-400 hover:text-emerald-300">收起</button>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <div className="text-slate-400">
+                                    {result.result.slice(0, 80)}...
+                                    <button onClick={() => {
+                                      setExpandedToolCalls(prev => new Set([...prev, tc.id]));
+                                    }} className="ml-1 text-emerald-400 hover:text-emerald-300">展开</button>
+                                  </div>
+                                )}
+                              </div>
+                            ) : null}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : null}
-                  {message.toolResults.length ? (
+                  {message.role === "user" && message.toolResults.length ? (
                     <div className="space-y-1 border-t border-white/10 pt-3">
                       {message.toolResults.map((tr) => (
                         <div key={tr.toolCallId} className={`text-xs ${tr.isError ? "text-red-300" : "text-emerald-300"}`}>
@@ -2698,48 +2731,72 @@ function HomeChatWorkspace({
                   )}
                   {streamingToolCalls.length > 0 ? (
                     <div className="space-y-2 border-t border-white/10 pt-3">
-                      {streamingToolCalls.map((tc) => (
-                        <div key={tc.id} className={`rounded-xl border p-3 text-xs ${tc.status === "pending_confirmation" ? "border-amber-500/30 bg-amber-500/10" : tc.status === "rejected" ? "border-red-500/20 bg-red-500/5" : "border-emerald-500/20 bg-emerald-500/5"}`}>
-                          <div className="flex items-center gap-2">
-                            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${tc.status === "pending_confirmation" ? "bg-amber-500/15 text-amber-300" : tc.status === "rejected" ? "bg-red-500/15 text-red-300" : "bg-emerald-500/15 text-emerald-300"}`}>
-                              {toolLabel(tc.name)}
-                            </span>
-                            <span className="truncate font-medium text-slate-100">
-                              {formatToolSummary(tc.name, tc.input)}
-                            </span>
+                      {streamingToolCalls.map((tc) => {
+                        const result = streamingToolResults.find(tr => tr.toolCallId === tc.id);
+                        const isExecuted = tc.status === "executed" || tc.status === "approved";
+                        const isExpanded = expandedToolCalls.has(tc.id);
+                        const isLong = result && result.result.length > 80;
+                        const showExpanded = result && (result.isError || !isLong || isExpanded);
+
+                        return (
+                          <div key={tc.id} className={`rounded-xl border p-3 text-xs ${tc.status === "pending_confirmation" ? "border-amber-500/30 bg-amber-500/10" : tc.status === "rejected" ? "border-red-500/20 bg-red-500/5" : "border-emerald-500/20 bg-emerald-500/5"}`}>
+                            <div className="flex items-center gap-2">
+                              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${tc.status === "pending_confirmation" ? "bg-amber-500/15 text-amber-300" : tc.status === "rejected" ? "bg-red-500/15 text-red-300" : "bg-emerald-500/15 text-emerald-300"}`}>
+                                {toolLabel(tc.name)}
+                              </span>
+                              <span className="truncate font-medium text-slate-100">
+                                {formatToolSummary(tc.name, tc.input)}
+                              </span>
+                              {tc.status === "pending_confirmation" ? (
+                                <span className="ml-auto shrink-0 text-[11px] text-amber-400">等待确认</span>
+                              ) : tc.status === "rejected" ? (
+                                <span className="ml-auto shrink-0 text-[11px] text-red-400">已拒绝</span>
+                              ) : null}
+                            </div>
                             {tc.status === "pending_confirmation" ? (
-                              <span className="ml-auto shrink-0 text-[11px] text-amber-400">等待确认</span>
-                            ) : tc.status === "rejected" ? (
-                              <span className="ml-auto shrink-0 text-[11px] text-red-400">已拒绝</span>
+                              <div className="mt-2 flex gap-2">
+                                <button
+                                  onClick={() => onConfirmTool(tc.id, true)}
+                                  className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/20"
+                                >
+                                  执行
+                                </button>
+                                <button
+                                  onClick={() => onConfirmTool(tc.id, false)}
+                                  className="rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-[11px] text-red-300 hover:bg-red-500/20"
+                                >
+                                  拒绝
+                                </button>
+                              </div>
+                            ) : null}
+                            {isExecuted && result ? (
+                              <div className={`mt-2 border-t pt-2 ${result.isError ? "border-red-500/20" : "border-emerald-500/10"}`}>
+                                {showExpanded ? (
+                                  <div className={result.isError ? "text-red-300" : "text-slate-400"}>
+                                    {result.isError ? "❌ " : "✅ "}{result.result}
+                                    {isLong && !result.isError ? (
+                                      <button onClick={() => {
+                                        setExpandedToolCalls(prev => {
+                                          const next = new Set(prev);
+                                          next.delete(tc.id);
+                                          return next;
+                                        });
+                                      }} className="ml-1 text-emerald-400 hover:text-emerald-300">收起</button>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <div className="text-slate-400">
+                                    {result.result.slice(0, 80)}...
+                                    <button onClick={() => {
+                                      setExpandedToolCalls(prev => new Set([...prev, tc.id]));
+                                    }} className="ml-1 text-emerald-400 hover:text-emerald-300">展开</button>
+                                  </div>
+                                )}
+                              </div>
                             ) : null}
                           </div>
-                          {tc.status === "pending_confirmation" ? (
-                            <div className="mt-2 flex gap-2">
-                              <button
-                                onClick={() => onConfirmTool(tc.id, true)}
-                                className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/20"
-                              >
-                                执行
-                              </button>
-                              <button
-                                onClick={() => onConfirmTool(tc.id, false)}
-                                className="rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-[11px] text-red-300 hover:bg-red-500/20"
-                              >
-                                拒绝
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  {streamingToolResults.length > 0 ? (
-                    <div className="space-y-1 border-t border-white/10 pt-3">
-                      {streamingToolResults.map((tr) => (
-                        <div key={tr.toolCallId} className={`text-xs ${tr.isError ? "text-red-300" : "text-emerald-300"}`}>
-                          {tr.isError ? "❌ " : "✅ "}{tr.result}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : null}
                 </div>

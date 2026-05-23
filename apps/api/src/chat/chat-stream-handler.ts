@@ -223,22 +223,10 @@ export class ChatStreamHandler {
           attachments: [],
           artifactSuggestions: [],
           toolCalls: chatToolCalls,
-          toolResults: []
+          toolResults
         });
 
-        if (toolResults.length > 0) {
-          appendChatMessage(this.database.db, {
-            id: randomUUID(),
-            chatSessionId: this.chatSessionId,
-            role: "user",
-            content: "",
-            attachments: [],
-            artifactSuggestions: [],
-            toolCalls: [],
-            toolResults
-          });
-          this.database.persist();
-        }
+        this.database.persist();
 
         const assistantContent: unknown[] = [];
         if (replyText) {

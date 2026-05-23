@@ -178,19 +178,9 @@ export function buildSystemPrompt(project: ProjectSummary | null, worktree: Work
 }
 
 export function toBetaMessages(history: ChatMessageSummary[]): BetaMessageParam[] {
-  return history.map((msg) => {
-    if (msg.toolResults.length > 0) {
-      return {
-        role: "user",
-        content: msg.toolResults.map((tr) => ({
-          type: "tool_result" as const,
-          tool_use_id: tr.toolCallId,
-          content: tr.result,
-          is_error: tr.isError
-        })) as BetaMessageParam["content"]
-      };
-    }
+  const result: BetaMessageParam[] = [];
 
+  for (const msg of history) {
     if (msg.toolCalls.length > 0) {
       const blocks: Array<{ type: "text"; text: string } | { type: "tool_use"; id: string; name: string; input: unknown }> = [];
       if (msg.content) {
@@ -199,17 +189,33 @@ export function toBetaMessages(history: ChatMessageSummary[]): BetaMessageParam[
       for (const tc of msg.toolCalls) {
         blocks.push({ type: "tool_use", id: tc.id, name: tc.name, input: tc.input });
       }
-      return {
+      result.push({
         role: "assistant",
         content: blocks as BetaMessageParam["content"]
-      };
+      });
     }
 
-    return {
-      role: msg.role as "user" | "assistant",
-      content: renderMessageContent(msg.content, msg.attachments)
-    };
-  });
+    if (msg.toolResults.length > 0) {
+      result.push({
+        role: "user",
+        content: msg.toolResults.map((tr) => ({
+          type: "tool_result" as const,
+          tool_use_id: tr.toolCallId,
+          content: tr.result,
+          is_error: tr.isError
+        })) as BetaMessageParam["content"]
+      });
+    }
+
+    if (msg.toolCalls.length === 0 && msg.toolResults.length === 0) {
+      result.push({
+        role: msg.role as "user" | "assistant",
+        content: renderMessageContent(msg.content, msg.attachments)
+      });
+    }
+  }
+
+  return result;
 }
 
 export function renderMessageContent(content: string, attachments: ChatAttachment[]) {
