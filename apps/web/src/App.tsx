@@ -121,12 +121,13 @@ type ChatFileDraft = {
 type ProjectMode = "create" | "edit";
 type WorkspaceScope = "home" | "project";
 type HomeMode = "chat" | "overview";
+type WorkbenchTab = "notes" | "skills" | "projects" | "chats" | "sessions";
 type ProjectTab = "overview" | "todos" | "notes" | "skills" | "sessions" | "worktrees";
 type SessionView = "terminal" | "history";
 
 const topModes: Array<{ id: HomeMode; label: string; description: string }> = [
   { id: "chat", label: "聊天", description: "左侧聊天会话列表，右侧简洁聊天区" },
-  { id: "overview", label: "概览", description: "管理全局笔记、全局 Skill、最近项目和运行中会话" }
+  { id: "overview", label: "工作台", description: "管理全局笔记、Skill、项目、聊天和运行中会话" }
 ];
 
 const homeModes = topModes;
@@ -1998,6 +1999,7 @@ export function App() {
             onRenameGlobalSkill={handleRenameGlobalSkill}
             onDeleteGlobalSkill={handleDeleteGlobalSkill}
             onCopyGlobalSkillToProject={handleCopyGlobalSkillToProject}
+            projects={projects}
             recentProjects={recentProjects}
             runningSessions={runningSessions}
             onEnterProject={(projectId) => {
@@ -2304,6 +2306,7 @@ function HomeWorkspace({
   onCopyGlobalSkillToProject,
   onEnterProject,
   onCreateSession,
+  projects,
   recentProjects,
   runningSessions,
   globalNoteSearchQuery = "",
@@ -2367,6 +2370,7 @@ function HomeWorkspace({
   onRenameGlobalSkill: (skill: SkillSummary) => void;
   onDeleteGlobalSkill: (skill: SkillSummary) => void;
   onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
+  projects: ProjectSummary[];
   recentProjects: ProjectSummary[];
   runningSessions: OverviewSessionSummary[];
   onEnterProject: (projectId?: string) => void;
@@ -2409,7 +2413,6 @@ function HomeWorkspace({
         />
       ) : (
         <HomeOverviewWorkspace
-          featureCards={featureCards}
           apiConnected={apiConnected}
           apiError={apiError}
           databaseInfo={databaseInfo}
@@ -2428,9 +2431,11 @@ function HomeWorkspace({
           projectSkills={projectSkills}
           operationName={skillOperationName}
           chatSessions={chatSessions}
+          projects={projects}
           recentProjects={recentProjects}
           runningSessions={runningSessions}
           onEnterProject={onEnterProject}
+          onSelectChat={onChatSelect}
           onCreateNote={onCreateGlobalNote}
           onSelectNote={onSelectGlobalNote}
           onNoteDraftChange={onGlobalNoteDraftChange}
@@ -2860,6 +2865,14 @@ function HomeChatWorkspace({
   );
 }
 
+const workbenchTabs: Array<{ id: WorkbenchTab; label: string }> = [
+  { id: "notes", label: "笔记" },
+  { id: "skills", label: "Skill" },
+  { id: "projects", label: "项目" },
+  { id: "chats", label: "聊天" },
+  { id: "sessions", label: "会话" }
+];
+
 function HomeOverviewWorkspace({
   apiConnected,
   apiError,
@@ -2879,9 +2892,11 @@ function HomeOverviewWorkspace({
   projectSkills,
   operationName,
   chatSessions,
+  projects,
   recentProjects,
   runningSessions,
   onEnterProject,
+  onSelectChat,
   onCreateNote,
   onSelectNote,
   onNoteDraftChange,
@@ -2899,7 +2914,6 @@ function HomeOverviewWorkspace({
   onGlobalNoteSearchChange,
   onGlobalNoteFilterTagsChange
 }: {
-  featureCards: Array<{ title: string; value: string; detail: string }>;
   apiConnected: boolean;
   apiError: string | null;
   databaseInfo: MetaResponse["database"] | null;
@@ -2918,9 +2932,11 @@ function HomeOverviewWorkspace({
   projectSkills: ProjectSkillSummary[];
   operationName: string | null;
   chatSessions: ChatSessionSummary[];
+  projects: ProjectSummary[];
   recentProjects: ProjectSummary[];
   runningSessions: OverviewSessionSummary[];
   onEnterProject: (projectId?: string) => void;
+  onSelectChat: (session: ChatSessionSummary) => void;
   onCreateNote: () => void;
   onSelectNote: (note: NoteSummary) => void;
   onNoteDraftChange: (field: keyof NoteDraft, value: string) => void;
@@ -2938,38 +2954,87 @@ function HomeOverviewWorkspace({
   onGlobalNoteSearchChange?: (query: string) => void;
   onGlobalNoteFilterTagsChange?: (tags: string[]) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<WorkbenchTab>("notes");
+
+  const projectCount = projects.length;
+  const runningCount = runningSessions.length;
+  const chatCount = chatSessions.length;
+  const noteCount = globalNotes.length;
+  const skillCount = globalSkills.length;
+
   return (
-    <div className="space-y-5">
-      <NotePanel
-        project={null}
-        title="全局笔记"
-        description="沉淀跨项目上下文、复盘和可复用想法。"
-        emptyText="还没有全局笔记，先记录一条跨项目上下文。"
-        notes={globalNotes}
-        selectedNote={selectedGlobalNote}
-        loading={globalNotesLoading}
-        error={globalNotesError}
-        draft={globalNoteDraft}
-        saving={savingGlobalNote}
-        creatingTodo={false}
-        deletingNoteId={deletingGlobalNoteId}
-        settingsOpen={globalNoteSettingsOpen}
-        showCreateTodo={false}
-        searchQuery={globalNoteSearchQuery}
-        filterTags={globalNoteFilterTags}
-        availableTags={availableGlobalNoteTags}
-        onCreate={onCreateNote}
-        onSelect={onSelectNote}
-        onDraftChange={onNoteDraftChange}
-        onSave={onSaveNote}
-        onDelete={onDeleteNote}
-        onCreateTodo={() => undefined}
-        onOpenSettings={onOpenNoteSettings}
-        onCloseSettings={onCloseNoteSettings}
-        onSearchChange={onGlobalNoteSearchChange}
-        onFilterTagsChange={onGlobalNoteFilterTagsChange}
-      />
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.65fr)]">
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#151821] px-4 py-2.5 text-xs text-slate-400">
+        <span className="font-medium text-slate-300">系统状态</span>
+        <span className={`inline-flex items-center gap-1 ${apiConnected ? "text-emerald-400" : "text-red-400"}`}>
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${apiConnected ? "bg-emerald-400" : "bg-red-400"}`} />
+          API
+        </span>
+        <span className="text-slate-600">|</span>
+        <span className={`inline-flex items-center gap-1 ${databaseInfo?.connected ? "text-emerald-400" : "text-slate-500"}`}>
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${databaseInfo?.connected ? "bg-emerald-400" : "bg-slate-500"}`} />
+          DB
+        </span>
+        <span className="text-slate-600">|</span>
+        <span className={`inline-flex items-center gap-1 ${databaseInfo?.fts5 ? "text-emerald-400" : "text-slate-500"}`}>
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${databaseInfo?.fts5 ? "bg-emerald-400" : "bg-slate-500"}`} />
+          FTS5
+        </span>
+        {apiError ? (
+          <>
+            <span className="text-slate-600">|</span>
+            <span className="text-red-400">{apiError}</span>
+          </>
+        ) : null}
+      </div>
+
+      <nav className="flex rounded-lg border border-white/10 bg-black/20 p-1">
+        {workbenchTabs.map((tab) => {
+          const count = tab.id === "projects" ? projectCount : tab.id === "sessions" ? runningCount : tab.id === "chats" ? chatCount : tab.id === "notes" ? noteCount : skillCount;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm ${activeTab === tab.id ? "bg-white text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-slate-100"}`}
+            >
+              {tab.label}
+              <span className={`rounded px-1 text-[11px] ${activeTab === tab.id ? "bg-slate-200 text-slate-700" : "bg-white/10 text-slate-500"}`}>{count}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {activeTab === "notes" ? (
+        <NotePanel
+          project={null}
+          title="全局笔记"
+          description="沉淀跨项目上下文、复盘和可复用想法。"
+          emptyText="还没有全局笔记，先记录一条跨项目上下文。"
+          notes={globalNotes}
+          selectedNote={selectedGlobalNote}
+          loading={globalNotesLoading}
+          error={globalNotesError}
+          draft={globalNoteDraft}
+          saving={savingGlobalNote}
+          creatingTodo={false}
+          deletingNoteId={deletingGlobalNoteId}
+          settingsOpen={globalNoteSettingsOpen}
+          showCreateTodo={false}
+          searchQuery={globalNoteSearchQuery}
+          filterTags={globalNoteFilterTags}
+          availableTags={availableGlobalNoteTags}
+          onCreate={onCreateNote}
+          onSelect={onSelectNote}
+          onDraftChange={onNoteDraftChange}
+          onSave={onSaveNote}
+          onDelete={onDeleteNote}
+          onCreateTodo={() => undefined}
+          onOpenSettings={onOpenNoteSettings}
+          onCloseSettings={onCloseNoteSettings}
+          onSearchChange={onGlobalNoteSearchChange}
+          onFilterTagsChange={onGlobalNoteFilterTagsChange}
+        />
+      ) : activeTab === "skills" ? (
         <GlobalSkillPanel
           selectedProject={selectedProject}
           skills={globalSkills}
@@ -2982,90 +3047,112 @@ function HomeOverviewWorkspace({
           onDelete={onDeleteSkill}
           onCopyToProject={onCopyToProject}
         />
+      ) : activeTab === "projects" ? (
         <section className="rounded-xl border border-white/10 bg-[#151821]">
-          <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">系统状态</div>
-          <div className="space-y-4 p-4 text-sm text-slate-300">
-            <DetailRow label="当前阶段" value="Phase 2" />
-            <DetailRow label="API 状态" value={apiConnected ? "已连接" : "未连接"} />
-            <DetailRow label="SQLite" value={databaseInfo?.connected ? "已初始化" : "等待后端"} />
-            <DetailRow label="FTS5" value={databaseInfo ? (databaseInfo.fts5 ? "可用" : "不可用") : "未知"} />
-            {apiError ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{apiError}</p> : null}
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+            <div>
+              <div className="text-sm font-medium text-slate-100">项目管理</div>
+              <p className="mt-0.5 text-xs text-slate-500">所有项目，点击进入项目工作台。</p>
+            </div>
+            <button onClick={() => onEnterProject()} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+              新建项目
+            </button>
+          </div>
+          <div className="p-4">
+            {projects.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">还没有项目，先创建一个吧。</div>
+            ) : (
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                {projects.map((project) => (
+                  <div key={project.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium text-slate-100">{project.name}</div>
+                        <div className="mt-0.5 truncate text-xs text-slate-500">{project.path}</div>
+                      </div>
+                      <button onClick={() => onEnterProject(project.id)} className="shrink-0 rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5">
+                        进入
+                      </button>
+                    </div>
+                    {project.latestSessionResult ? (
+                      <div className="mt-2 truncate rounded bg-white/[0.03] px-2 py-1 text-xs text-slate-400">
+                        {project.latestSessionResult.sessionName}: {project.latestSessionResult.summary.slice(0, 80)}{project.latestSessionResult.summary.length > 80 ? "..." : ""}
+                      </div>
+                    ) : null}
+                    <div className="mt-2 text-xs text-slate-500">更新于 {formatDateTime(project.updatedAt)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
-      </div>
-      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="font-medium text-slate-100">最近项目</div>
-            <p className="mt-1 text-xs text-slate-500">最近更新的项目，点击进入项目工作台。</p>
+      ) : activeTab === "chats" ? (
+        <section className="rounded-xl border border-white/10 bg-[#151821]">
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+            <div>
+              <div className="text-sm font-medium text-slate-100">聊天会话</div>
+              <p className="mt-0.5 text-xs text-slate-500">AI 聊天会话，点击进入聊天。</p>
+            </div>
           </div>
-          <button onClick={() => onEnterProject()} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
-            进入项目
-          </button>
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-          {recentProjects.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-slate-500">还没有项目，先创建一个吧。</div> : null}
-          {recentProjects.map((project) => (
-            <div key={project.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-              <div className="truncate font-medium text-slate-100">{project.name}</div>
-              <div className="mt-0.5 truncate text-xs text-slate-500">{project.path}</div>
-              {project.latestSessionResult ? (
-                <div className="mt-1 truncate text-xs text-slate-400">{project.latestSessionResult.sessionName}: {project.latestSessionResult.summary.slice(0, 60)}{project.latestSessionResult.summary.length > 60 ? "..." : ""}</div>
-              ) : null}
-              <div className="mt-2 flex items-center justify-between">
-                <span className="text-xs text-slate-500">{formatDateTime(project.updatedAt)}</span>
-                <button onClick={() => onEnterProject(project.id)} className="rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5">
-                  进入
-                </button>
+          <div className="p-4">
+            {chatSessions.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">还没有聊天会话，切换到聊天页面开始吧。</div>
+            ) : (
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                {chatSessions.map((session) => (
+                  <button
+                    key={session.id}
+                    onClick={() => onSelectChat(session)}
+                    className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-left transition-colors hover:bg-white/[0.06]"
+                  >
+                    <div className="truncate font-medium text-slate-100">{session.title}</div>
+                    <div className="mt-1 text-xs text-slate-500">{formatDateTime(session.updatedAt)}</div>
+                    {session.messages.length > 0 ? (
+                      <div className="mt-1.5 truncate text-xs text-slate-400">{session.messages[session.messages.length - 1].content.slice(0, 100)}</div>
+                    ) : null}
+                  </button>
+                ))}
               </div>
-            </div>
-          ))}
-        </div>
-      </section>
-      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="font-medium text-slate-100">运行中会话</div>
-            <p className="mt-1 text-xs text-slate-500">当前正在运行的 Claude Code 会话，点击进入。</p>
+            )}
           </div>
-        </div>
-        <div className="mt-3 space-y-2">
-          {runningSessions.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-slate-500">没有运行中的会话</div> : null}
-          {runningSessions.map((session) => (
-            <div key={session.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] p-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="truncate font-medium text-slate-100">{session.name}</span>
-                  <span className="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-300">{session.runtimeStatus ?? session.status}</span>
-                </div>
-                <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-                  <span>{session.projectName}</span>
-                  <span>·</span>
-                  <span>{formatDateTime(session.updatedAt)}</span>
-                </div>
+        </section>
+      ) : (
+        <section className="rounded-xl border border-white/10 bg-[#151821]">
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+            <div>
+              <div className="text-sm font-medium text-slate-100">运行中会话</div>
+              <p className="mt-0.5 text-xs text-slate-500">当前正在运行的 Claude Code 执行会话。</p>
+            </div>
+          </div>
+          <div className="p-4">
+            {runningSessions.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">没有运行中的会话</div>
+            ) : (
+              <div className="space-y-2">
+                {runningSessions.map((session) => (
+                  <div key={session.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+                        <span className="truncate font-medium text-slate-100">{session.name}</span>
+                        <span className="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-300">{session.runtimeStatus ?? session.status}</span>
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                        <span>{session.projectName}</span>
+                        <span>·</span>
+                        <span>{formatDateTime(session.updatedAt)}</span>
+                      </div>
+                    </div>
+                    <button onClick={() => onEnterProject(session.projectId)} className="ml-3 shrink-0 rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5">
+                      进入
+                    </button>
+                  </div>
+                ))}
               </div>
-              <button onClick={() => onEnterProject(session.projectId)} className="ml-3 shrink-0 rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5">
-                进入
-              </button>
-            </div>
-          ))}
-        </div>
-      </section>
-      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
-        <div>
-          <div className="font-medium text-slate-100">最近聊天</div>
-          <p className="mt-1 text-xs text-slate-500">最近的 AI 聊天会话，不是 Claude Code 执行会话。</p>
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-          {chatSessions.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-slate-500">还没有聊天会话</div> : null}
-          {chatSessions.slice(0, 6).map((session) => (
-            <div key={session.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-              <div className="truncate text-slate-100">{session.title}</div>
-              <div className="mt-1 text-xs text-slate-500">{formatDateTime(session.updatedAt)}</div>
-            </div>
-          ))}
-        </div>
-      </section>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
