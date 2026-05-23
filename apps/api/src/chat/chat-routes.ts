@@ -100,7 +100,9 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
         role: "user",
         content,
         attachments,
-        artifactSuggestions: []
+        artifactSuggestions: [],
+        toolCalls: [],
+        toolResults: []
       });
       database.persist();
 
@@ -112,19 +114,19 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
         throw new HttpError(404, "chat_session_not_found", "聊天会话不存在");
       }
 
-      const assistant = await generateChatReply({
+      const result = await generateChatReply({
         chatSession: refreshedSession,
         project,
-        worktree
+        worktree,
+        db: database.db
       });
 
-      appendChatMessage(database.db, {
-        chatSessionId: currentSession.id,
-        role: "assistant",
-        content: assistant.reply,
-        attachments: [],
-        artifactSuggestions: assistant.artifactSuggestions
-      });
+      for (const msg of result.messages) {
+        appendChatMessage(database.db, {
+          ...msg,
+          chatSessionId: currentSession.id
+        });
+      }
       database.persist();
 
       return {

@@ -34,7 +34,6 @@ import {
   createTodo,
   createWorktree,
   createChatSession,
-  applyChatSuggestion as applyChatSuggestionRequest,
   deleteChatSession,
   deleteGlobalSkill,
   deleteGlobalNote,
@@ -156,7 +155,6 @@ export function App() {
   const [creatingChat, setCreatingChat] = useState(false);
   const [sendingChat, setSendingChat] = useState(false);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
-  const [savingChatSuggestionKey, setSavingChatSuggestionKey] = useState<string | null>(null);
   const [activeProjectTab, setActiveProjectTab] = useState<ProjectTab>("overview");
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
@@ -1539,41 +1537,6 @@ export function App() {
     }
   }
 
-  async function applyChatSuggestion(message: ChatMessageSummary, suggestion: ChatArtifactSuggestion) {
-    if (!selectedChat || !selectedProject) {
-      setChatError("需先选择项目，才能保存草稿建议。");
-      return;
-    }
-
-    const suggestionKey = buildChatSuggestionKey(selectedChat.id, message.id, suggestion.id);
-    setSavingChatSuggestionKey(suggestionKey);
-    setChatError(null);
-
-    try {
-      const data = await applyChatSuggestionRequest(selectedChat.id, message.id, suggestion.id, {
-        projectId: selectedProject.id,
-        worktreeId: selectedWorktree?.id ?? null
-      });
-      await reloadChatSessions(data.chatSession.id);
-
-      if (data.target.type === "note") {
-        await reloadNotes(selectedProject.id, data.target.note.id);
-        return;
-      }
-
-      if (data.target.type === "todo") {
-        await reloadTodos(selectedProject.id, data.target.todo.id);
-        return;
-      }
-
-      await reloadPromptDrafts(selectedProject.id, data.target.promptDraft.id);
-    } catch (error) {
-      setChatError(formatError(error, "草稿建议保存失败"));
-    } finally {
-      setSavingChatSuggestionKey(null);
-    }
-  }
-
   async function handleDeleteChatSession(chatSession: ChatSessionSummary) {
     const confirmed = window.confirm(`确认删除聊天「${chatSession.title}」？`);
 
@@ -1912,13 +1875,11 @@ export function App() {
             creatingChat={creatingChat}
             sendingChat={sendingChat}
             deletingChatId={deletingChatId}
-            savingChatSuggestionKey={savingChatSuggestionKey}
             onChatSelect={(session) => setSelectedChatId(session.id)}
             onCreateChat={() => void createChatSessionRecord()}
             onChatDraftChange={setChatDraft}
             onChatFileChange={(file) => void handleChatFileChange(file)}
             onChatSubmit={(event) => void handleSendChatMessage(event)}
-            onApplyChatSuggestion={(message, suggestion) => void applyChatSuggestion(message, suggestion)}
             onDeleteChat={handleDeleteChatSession}
             onCreateGlobalNote={startCreateGlobalNote}
             onSelectGlobalNote={(note) => setSelectedGlobalNoteId(note.id)}
@@ -2210,13 +2171,11 @@ function HomeWorkspace({
   creatingChat,
   sendingChat,
   deletingChatId,
-  savingChatSuggestionKey,
   onChatSelect,
   onCreateChat,
   onChatDraftChange,
   onChatFileChange,
   onChatSubmit,
-  onApplyChatSuggestion,
   onDeleteChat,
   onCreateGlobalNote,
   onSelectGlobalNote,
@@ -2269,13 +2228,11 @@ function HomeWorkspace({
   creatingChat: boolean;
   sendingChat: boolean;
   deletingChatId: string | null;
-  savingChatSuggestionKey: string | null;
   onChatSelect: (session: ChatSessionSummary) => void;
   onCreateChat: () => void;
   onChatDraftChange: (value: string) => void;
   onChatFileChange: (file: File | null) => void;
   onChatSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onApplyChatSuggestion: (message: ChatMessageSummary, suggestion: ChatArtifactSuggestion) => void;
   onDeleteChat: (chat: ChatSessionSummary) => void;
   onCreateGlobalNote: () => void;
   onSelectGlobalNote: (note: NoteSummary) => void;
@@ -2313,13 +2270,11 @@ function HomeWorkspace({
           creating={creatingChat}
           sending={sendingChat}
           deletingChatId={deletingChatId}
-          savingSuggestionKey={savingChatSuggestionKey}
           onSelect={onChatSelect}
           onCreate={onCreateChat}
           onDraftChange={onChatDraftChange}
           onFileChange={onChatFileChange}
           onSubmit={onChatSubmit}
-          onApplySuggestion={onApplyChatSuggestion}
           onDelete={onDeleteChat}
         />
       ) : (
@@ -2380,13 +2335,11 @@ function HomeChatWorkspace({
   creating,
   sending,
   deletingChatId,
-  savingSuggestionKey,
   onSelect,
   onCreate,
   onDraftChange,
   onFileChange,
   onSubmit,
-  onApplySuggestion,
   onDelete
 }: {
   selectedProject: ProjectSummary | null;
@@ -2400,13 +2353,11 @@ function HomeChatWorkspace({
   creating: boolean;
   sending: boolean;
   deletingChatId: string | null;
-  savingSuggestionKey: string | null;
   onSelect: (session: ChatSessionSummary) => void;
   onCreate: () => void;
   onDraftChange: (value: string) => void;
   onFileChange: (file: File | null) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onApplySuggestion: (message: ChatMessageSummary, suggestion: ChatArtifactSuggestion) => void;
   onDelete: (chat: ChatSessionSummary) => void;
 }) {
   return (
@@ -2447,7 +2398,7 @@ function HomeChatWorkspace({
 
       <div className="flex min-h-0 flex-col">
         <div className="mx-auto w-full max-w-[768px] px-4 py-3 text-xs text-slate-500">
-          上下文：{selectedProject?.name ?? "未选择项目"} / {selectedWorktree?.name ?? "未选择 worktree"} · 默认 Skill：生成笔记、任务、提示词、文件摘要
+          上下文：{selectedProject?.name ?? "未选择项目"} / {selectedWorktree?.name ?? "未选择 worktree"} · 可直接让我搜索笔记、创建任务或保存 Prompt
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto w-full max-w-[768px] space-y-4 p-4 sm:p-6">
@@ -2471,13 +2422,31 @@ function HomeChatWorkspace({
                       ))}
                     </div>
                   ) : null}
-                  {message.role === "assistant" && message.artifactSuggestions.length ? (
+                  {message.toolCalls.length ? (
+                    <div className="space-y-2 border-t border-white/10 pt-3">
+                      {message.toolCalls.map((tc) => (
+                        <div key={tc.id} className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-slate-300">
+                          <div className="flex items-center gap-2">
+                            <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300">{toolLabel(tc.name)}</span>
+                            <span className="truncate font-medium text-slate-100">{formatToolSummary(tc.name, tc.input)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {message.toolResults.length ? (
+                    <div className="space-y-1 border-t border-white/10 pt-3">
+                      {message.toolResults.map((tr) => (
+                        <div key={tr.toolCallId} className={`text-xs ${tr.isError ? "text-red-300" : "text-emerald-300"}`}>
+                          {tr.isError ? "❌ " : "✅ "}{tr.result}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {message.artifactSuggestions.length ? (
                     <div className="space-y-2 border-t border-white/10 pt-3">
                       {message.artifactSuggestions.map((suggestion) => {
-                        const suggestionKey = buildChatSuggestionKey(selectedChat.id, message.id, suggestion.id);
-                        const saving = savingSuggestionKey === suggestionKey;
                         const saved = suggestion.adoption?.status === "saved";
-                        const disabled = saving || saved || !selectedProject;
 
                         return (
                           <div key={suggestion.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-slate-300">
@@ -2486,16 +2455,8 @@ function HomeChatWorkspace({
                                 <div className="font-medium text-slate-100">{suggestion.title}</div>
                                 <div className="mt-1 text-slate-500">{suggestion.type === "note" ? "笔记草稿" : suggestion.type === "todo" ? "任务草稿" : "Prompt 草稿"}</div>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => onApplySuggestion(message, suggestion)}
-                                disabled={disabled}
-                                className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-200 disabled:opacity-50"
-                              >
-                                {saved ? "已保存" : saving ? "保存中..." : "保存"}
-                              </button>
+                              {saved ? <span className="shrink-0 rounded-md border border-white/10 px-2 py-1 text-[11px] text-emerald-300">已保存</span> : null}
                             </div>
-                            <div className="mt-2 whitespace-pre-wrap text-slate-400">{suggestion.description ?? suggestion.content}</div>
                             {saved ? <div className="mt-2 text-[11px] text-emerald-300">已保存到 {formatSuggestionTargetLabel(suggestion.type)}</div> : null}
                           </div>
                         );
@@ -2530,7 +2491,7 @@ function HomeChatWorkspace({
                 value={draft}
                 onChange={(event) => onDraftChange(event.target.value)}
                 className="max-h-36 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600"
-                placeholder="输入消息。需要生成笔记、任务、提示词时，直接用自然语言说明。"
+                placeholder="输入消息。我会在需要时帮你搜索、创建笔记、任务或 Prompt。"
               />
               <button disabled={creating || sending} className="shrink-0 rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
                 {sending ? "发送中..." : creating ? "创建中..." : "发送"}
@@ -4805,10 +4766,6 @@ function formatFileSize(size: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function buildChatSuggestionKey(chatSessionId: string, chatMessageId: string, suggestionId: string) {
-  return `${chatSessionId}:${chatMessageId}:${suggestionId}`;
-}
-
 function formatSuggestionTargetLabel(type: ChatArtifactSuggestion["type"]) {
   if (type === "note") {
     return "笔记";
@@ -4819,6 +4776,25 @@ function formatSuggestionTargetLabel(type: ChatArtifactSuggestion["type"]) {
   }
 
   return "Prompt 草稿";
+}
+
+function toolLabel(name: string) {
+  switch (name) {
+    case "search_notes": return "搜索笔记";
+    case "create_note": return "创建笔记";
+    case "list_todos": return "查看任务";
+    case "create_todo": return "创建任务";
+    case "create_prompt_draft": return "保存 Prompt";
+    case "list_projects": return "查看项目";
+    case "list_worktrees": return "查看 Worktree";
+    case "list_prompt_drafts": return "查看 Prompt";
+    default: return name;
+  }
+}
+
+function formatToolSummary(name: string, input: Record<string, unknown>) {
+  const title = (input.title || input.query || "") as string;
+  return title ? String(title).slice(0, 80) : name;
 }
 
 function formatError(error: unknown, fallback: string) {

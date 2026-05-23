@@ -4,7 +4,9 @@ import type {
   ChatAttachment,
   ChatMessageSummary,
   ChatRole,
-  ChatSessionSummary
+  ChatSessionSummary,
+  ChatToolCall,
+  ChatToolResult
 } from "@workhorse-station/shared";
 import type { Database } from "sql.js";
 
@@ -22,6 +24,8 @@ export type ChatMessageWriteInput = {
   content: string;
   attachments: ChatAttachment[];
   artifactSuggestions: ChatArtifactSuggestion[];
+  toolCalls: ChatToolCall[];
+  toolResults: ChatToolResult[];
 };
 
 type ChatSessionRow = {
@@ -40,6 +44,8 @@ type ChatMessageRow = {
   content: string;
   attachments_json: string;
   artifact_suggestions_json: string;
+  tool_calls_json: string;
+  tool_results_json: string;
   created_at: string;
 };
 
@@ -104,9 +110,9 @@ export function updateChatSessionContext(db: Database, chatSessionId: string, in
 export function appendChatMessage(db: Database, input: ChatMessageWriteInput) {
   const id = input.id ?? randomUUID();
   db.run(
-    `INSERT INTO chat_messages (id, chat_session_id, role, content, attachments_json, artifact_suggestions_json)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, input.chatSessionId, input.role, input.content, JSON.stringify(input.attachments), JSON.stringify(input.artifactSuggestions)]
+    `INSERT INTO chat_messages (id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, tool_calls_json, tool_results_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, input.chatSessionId, input.role, input.content, JSON.stringify(input.attachments), JSON.stringify(input.artifactSuggestions), JSON.stringify(input.toolCalls), JSON.stringify(input.toolResults)]
   );
   db.run(
     `UPDATE chat_sessions
@@ -131,10 +137,10 @@ export function deleteChatSession(db: Database, chatSessionId: string) {
 
 export function listChatMessages(db: Database, chatSessionId: string) {
   const statement = db.prepare(
-    `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, created_at
+    `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, tool_calls_json, tool_results_json, created_at
      FROM chat_messages
      WHERE chat_session_id = ?
-     ORDER BY created_at ASC, id ASC`,
+     ORDER BY rowid ASC`,
     [chatSessionId]
   );
   const rows: ChatMessageSummary[] = [];
@@ -152,7 +158,7 @@ export function listChatMessages(db: Database, chatSessionId: string) {
 
 export function getChatSessionMessage(db: Database, chatSessionId: string, messageId: string) {
   const statement = db.prepare(
-    `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, created_at
+    `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, tool_calls_json, tool_results_json, created_at
      FROM chat_messages
      WHERE chat_session_id = ? AND id = ?`,
     [chatSessionId, messageId]
@@ -188,7 +194,7 @@ export function updateChatMessageArtifactSuggestions(db: Database, chatSessionId
 
 function getChatMessage(db: Database, messageId: string) {
   const statement = db.prepare(
-    `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, created_at
+    `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, tool_calls_json, tool_results_json, created_at
      FROM chat_messages
      WHERE id = ?`,
     [messageId]
@@ -260,6 +266,8 @@ function mapChatMessageRow(row: ChatMessageRow): ChatMessageSummary {
     content: row.content,
     attachments: parseArray<ChatAttachment>(row.attachments_json),
     artifactSuggestions: parseArray<ChatArtifactSuggestion>(row.artifact_suggestions_json).map(normalizeArtifactSuggestion),
+    toolCalls: parseArray<ChatToolCall>(row.tool_calls_json),
+    toolResults: parseArray<ChatToolResult>(row.tool_results_json),
     createdAt: row.created_at
   };
 }

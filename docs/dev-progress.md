@@ -1,5 +1,27 @@
 # 开发进度
 
+## 2026-05-23：AI 聊天从 Structured Output 改为 Tool Use
+
+### 已完成
+- 新增共享类型 `ChatToolCall`、`ChatToolResult`，扩展 `ChatMessageSummary`。
+- 数据库迁移：`chat_messages` 新增 `tool_calls_json`、`tool_results_json` 列。
+- `chat-repository.ts` 扩展 write input / row mapping 支持新字段。
+- 新建 `chat-tools.ts`：定义 8 个工具（search_notes、create_note、list_todos、create_todo、create_prompt_draft、list_projects、list_worktrees、list_prompt_drafts），使用 JSON Schema 定义，纯函数执行器直接读写 SQLite。
+- 重写 `chat-service.ts`：移除 `output_config.json_schema`，改为手动 Tool Use 循环（最多 5 次迭代），通过 `client.beta.messages.create()` 传入 `tools` 参数，`toBetaMessages()` 将 DB 历史还原为 `BetaMessageParam[]`。
+- `chat-routes.ts` 适配多消息返回：遍历 `generateChatReply` 返回的 `messages[]` 逐条写入 DB。
+- 前端 `App.tsx`：新增 tool call 卡片（绿色边框）和 tool result 渲染，移除 apply 逻辑和 `savingChatSuggestionKey` 状态，旧 `artifactSuggestions` 改为只读展示。
+- 修复消息排序问题：`ORDER BY created_at ASC, id ASC` 改为 `ORDER BY rowid ASC`，避免同一秒内插入的多条消息按随机 UUID 排序导致 tool_use/tool_result 配对错乱。
+
+### 验收记录
+- `pnpm -r typecheck`：通过。
+- `pnpm -r build`：通过。
+- 浏览器验证：通过。
+  - search_notes 正确调用并返回搜索结果。
+  - create_note 正确创建笔记，消息顺序为 tool call → tool result → AI 回复。
+  - 三轮连续对话无错误，tool_use/tool_result 正确配对。
+  - tool call 卡片绿色边框显示，tool result 带 ✅ 前缀。
+  - 旧聊天会话的 artifactSuggestions 卡片只读显示。
+
 ## 2026-05-23：笔记标签过滤与全文搜索
 
 ### 已完成

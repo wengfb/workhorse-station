@@ -212,6 +212,8 @@ function createTables(db: Database, fts5: boolean) {
   ensureColumn(db, "todos", "latest_session_result", "TEXT");
   ensureColumn(db, "notes", "source_chat_suggestion_json", "TEXT");
   ensureColumn(db, "todos", "source_chat_suggestion_json", "TEXT");
+  ensureColumn(db, "chat_messages", "tool_calls_json", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, "chat_messages", "tool_results_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "prompt_drafts", "source_chat_suggestion_json", "TEXT");
 }
 

@@ -427,6 +427,18 @@ export type ChatAttachment = {
   textContent: string;
 };
 
+export type ChatToolCall = {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+};
+
+export type ChatToolResult = {
+  toolCallId: string;
+  result: string;
+  isError: boolean;
+};
+
 export type ChatArtifactSuggestion = {
   id: string;
   type: ChatArtifactSuggestionType;
@@ -445,6 +457,8 @@ export type ChatMessageSummary = {
   content: string;
   attachments: ChatAttachment[];
   artifactSuggestions: ChatArtifactSuggestion[];
+  toolCalls: ChatToolCall[];
+  toolResults: ChatToolResult[];
   createdAt: string;
 };
 

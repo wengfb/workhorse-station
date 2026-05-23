@@ -1,17 +1,27 @@
+import { randomUUID } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import type {
-  ChatArtifactSuggestion,
+  BetaMessageParam,
+  BetaToolUnion,
+  BetaToolUseBlock
+} from "@anthropic-ai/sdk/resources/beta/messages/messages";
+import type {
   ChatAttachment,
   ChatMessageSummary,
   ChatSessionSummary,
-  TodoStatus,
+  ChatToolCall,
+  ChatToolResult,
   ProjectSummary,
   WorktreeSummary
 } from "@workhorse-station/shared";
 import { HttpError } from "../projects/http-error.js";
+import { getChatToolDefs, executeChatTool } from "./chat-tools.js";
+import type { ChatMessageWriteInput } from "./chat-repository.js";
+import type { Database } from "sql.js";
 
 const model = "claude-opus-4-7";
-const maxTokens = 1800;
+const maxTokens = 2400;
+const maxToolIterations = 5;
 
 let client: Anthropic | null = null;
 
@@ -19,97 +29,117 @@ export type GenerateChatReplyInput = {
   chatSession: ChatSessionSummary;
   project: ProjectSummary | null;
   worktree: WorktreeSummary | null;
+  db: Database;
 };
 
 export type GenerateChatReplyResult = {
-  reply: string;
-  artifactSuggestions: ChatArtifactSuggestion[];
-};
-
-type StructuredSuggestion = {
-  type: "note" | "todo" | "prompt_draft";
-  title: string;
-  content: string;
-  description?: string;
-  tags?: string[];
-  status?: TodoStatus;
-};
-
-type StructuredChatResponse = {
-  reply: string;
-  artifactSuggestions?: StructuredSuggestion[];
-  suggestions?: StructuredSuggestion[];
-};
-
-type ParsedChatReply = {
-  reply: string;
-  artifactSuggestions: ChatArtifactSuggestion[];
+  messages: ChatMessageWriteInput[];
 };
 
 export async function generateChatReply(input: GenerateChatReplyInput): Promise<GenerateChatReplyResult> {
   const anthropic = getClient();
-  const messages = buildMessages(input.chatSession.messages);
+  const toolDefs = getChatToolDefs();
+  const tools: BetaToolUnion[] = toolDefs as BetaToolUnion[];
   const system = buildSystemPrompt(input.project, input.worktree);
 
-  try {
-    const response = await anthropic.messages.create({
+  const collected: ChatMessageWriteInput[] = [];
+  const history = input.chatSession.messages ?? [];
+  let messages = toBetaMessages(history);
+
+  for (let iteration = 0; iteration < maxToolIterations; iteration++) {
+    const response = await anthropic.beta.messages.create({
       model,
       max_tokens: maxTokens,
       system,
       messages,
-      // SDK 类型暂未覆盖 adaptive thinking，这里按官方文档直传。
-      // @ts-expect-error adaptive thinking is supported by the API
-      thinking: { type: "adaptive", display: "summarized" },
-      output_config: {
-        effort: "high",
-        format: {
-          type: "json_schema",
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              reply: { type: "string" },
-              artifactSuggestions: {
-                type: "array",
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    type: { type: "string", enum: ["note", "todo", "prompt_draft"] },
-                    title: { type: "string" },
-                    content: { type: "string" },
-                    description: { type: "string" },
-                    tags: {
-                      type: "array",
-                      items: { type: "string" }
-                    },
-                    status: { type: "string", enum: ["draft", "pending", "in_progress", "completed"] }
-                  },
-                  required: ["type", "title", "content"]
-                }
-              }
-            },
-            required: ["reply"]
-          }
-        }
-      }
+      tools,
+      tool_choice: { type: "auto" },
+      thinking: { type: "disabled" }
     });
 
-    const text = extractText(response.content);
-    const parsed = parseStructuredResponse(text);
+    const textBlocks = response.content.filter((b) => b.type === "text") as { type: "text"; text: string }[];
+    const toolUseBlocks = response.content.filter((b) => b.type === "tool_use") as BetaToolUseBlock[];
+    const replyText = textBlocks.map((b) => b.text).join("\n").trim();
 
-    return {
-      reply: parsed.reply,
-      artifactSuggestions: parsed.artifactSuggestions ?? []
-    };
-  } catch (error) {
-    if (error instanceof Error && "status" in error) {
-      const apiError = error as Error & { status?: number };
-      throw new HttpError(apiError.status ?? 502, "anthropic_api_error", apiError.message);
+    if (toolUseBlocks.length === 0) {
+      collected.push({
+        id: randomUUID(),
+        chatSessionId: input.chatSession.id,
+        role: "assistant",
+        content: replyText,
+        attachments: [],
+        artifactSuggestions: [],
+        toolCalls: [],
+        toolResults: []
+      });
+
+      messages.push({ role: "assistant", content: replyText });
+      break;
     }
 
-    throw error;
+    const toolCalls: ChatToolCall[] = toolUseBlocks.map((b) => ({
+      id: b.id,
+      name: b.name,
+      input: (b.input ?? {}) as Record<string, unknown>
+    }));
+
+    collected.push({
+      id: randomUUID(),
+      chatSessionId: input.chatSession.id,
+      role: "assistant",
+      content: replyText,
+      attachments: [],
+      artifactSuggestions: [],
+      toolCalls,
+      toolResults: []
+    });
+
+    const assistantContent: unknown[] = [];
+    if (replyText) {
+      assistantContent.push({ type: "text", text: replyText });
+    }
+    for (const b of toolUseBlocks) {
+      assistantContent.push({ type: "tool_use", id: b.id, name: b.name, input: b.input });
+    }
+    messages.push({ role: "assistant", content: assistantContent as BetaMessageParam["content"] });
+
+    const toolResults: ChatToolResult[] = [];
+    const toolResultContent: unknown[] = [];
+
+    for (const block of toolUseBlocks) {
+      const result = executeChatTool(input.db, block.name, (block.input ?? {}) as Record<string, unknown>);
+      toolResults.push({
+        toolCallId: block.id,
+        result: result.result,
+        isError: result.isError
+      });
+      toolResultContent.push({
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: result.result,
+        is_error: result.isError
+      });
+    }
+
+    collected.push({
+      id: randomUUID(),
+      chatSessionId: input.chatSession.id,
+      role: "user",
+      content: "",
+      attachments: [],
+      artifactSuggestions: [],
+      toolCalls: [],
+      toolResults
+    });
+
+    messages.push({ role: "user", content: toolResultContent as BetaMessageParam["content"] });
+
+    if (response.stop_reason === "end_turn") {
+      break;
+    }
   }
+
+  return { messages: collected };
 }
 
 function getClient() {
@@ -132,20 +162,53 @@ function getClient() {
 function buildSystemPrompt(project: ProjectSummary | null, worktree: WorktreeSummary | null) {
   return [
     "你是开发管理工作台首页聊天助手。",
-    "你的职责是：回复用户，并在合适时生成可供用户确认的草稿建议。",
-    "只能输出 JSON，字段必须符合 schema。",
-    "AI 输出只能作为草稿建议，不能假设已经创建了笔记、任务或 prompt。",
-    "如果用户是在整理开发工作，优先生成 note、todo、prompt_draft 建议。",
-    `当前项目：${project ? `${project.name} (${project.path})` : "未选择项目"}`,
-    `当前 worktree：${worktree ? `${worktree.name} (${worktree.branch})` : "未选择 worktree"}`
+    "你可以使用工具来搜索笔记、创建笔记、查看任务、创建任务和创建 Prompt 草稿。",
+    "重要规则：",
+    "- 在创建新笔记前，先搜索是否已有相关笔记，避免重复。",
+    "- 创建笔记/任务/Prompt 草稿后，直接告诉用户结果，不要重复创建。",
+    "- 搜索笔记时可以跨项目搜索，也可以限定项目。",
+    "- 如果用户没指定项目，创建笔记时可以不传 projectId（创建为全局笔记）。",
+    "- 创建任务和 Prompt 草稿必须指定 projectId。",
+    "- 当用户想要执行开发任务（如修复bug、添加功能）时，使用 create_prompt_draft。",
+    `当前项目：${project ? `${project.name} (${project.path}, id=${project.id})` : "未选择项目"}`,
+    `当前 worktree：${worktree ? `${worktree.name} (${worktree.branch})` : "未选择 worktree"}`,
+    project ? `如果需要创建任务或 Prompt 草稿，使用 projectId="${project.id}"。` : "如果需要创建任务或 Prompt 草稿，请先让用户选择一个项目。"
   ].join("\n");
 }
 
-function buildMessages(history: ChatMessageSummary[]) {
-  return history.map((message) => ({
-    role: message.role,
-    content: [{ type: "text" as const, text: renderMessageContent(message.content, message.attachments) }]
-  }));
+function toBetaMessages(history: ChatMessageSummary[]): BetaMessageParam[] {
+  return history.map((msg) => {
+    if (msg.toolResults.length > 0) {
+      return {
+        role: "user",
+        content: msg.toolResults.map((tr) => ({
+          type: "tool_result" as const,
+          tool_use_id: tr.toolCallId,
+          content: tr.result,
+          is_error: tr.isError
+        })) as BetaMessageParam["content"]
+      };
+    }
+
+    if (msg.toolCalls.length > 0) {
+      const blocks: Array<{ type: "text"; text: string } | { type: "tool_use"; id: string; name: string; input: unknown }> = [];
+      if (msg.content) {
+        blocks.push({ type: "text", text: msg.content });
+      }
+      for (const tc of msg.toolCalls) {
+        blocks.push({ type: "tool_use", id: tc.id, name: tc.name, input: tc.input });
+      }
+      return {
+        role: "assistant",
+        content: blocks as BetaMessageParam["content"]
+      };
+    }
+
+    return {
+      role: msg.role as "user" | "assistant",
+      content: renderMessageContent(msg.content, msg.attachments)
+    };
+  });
 }
 
 function renderMessageContent(content: string, attachments: ChatAttachment[]) {
@@ -161,105 +224,4 @@ function renderMessageContent(content: string, attachments: ChatAttachment[]) {
     .join("\n\n");
 
   return `${content || "请结合附件处理。"}\n\n${attachmentText}`;
-}
-
-function extractText(content: Array<{ type: string; text?: string }>) {
-  return content
-    .filter((block): block is { type: "text"; text: string } => block.type === "text" && typeof block.text === "string")
-    .map((block) => block.text)
-    .join("\n")
-    .trim();
-}
-
-function parseStructuredResponse(raw: string): ParsedChatReply {
-  const candidates = extractJsonObjectCandidates(raw);
-
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate) as StructuredChatResponse;
-      const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
-
-      if (!reply) {
-        continue;
-      }
-
-      const suggestions = parsed.artifactSuggestions ?? parsed.suggestions ?? [];
-
-      return {
-        reply,
-        artifactSuggestions: Array.isArray(suggestions) ? suggestions.map(toArtifactSuggestion) : []
-      };
-    } catch {
-      // Try the next balanced JSON object candidate.
-    }
-  }
-
-  return {
-    reply: raw || "已收到你的消息，但本次结构化建议解析失败。",
-    artifactSuggestions: []
-  };
-}
-
-function extractJsonObjectCandidates(raw: string) {
-  const candidates: string[] = [];
-
-  for (let start = 0; start < raw.length; start += 1) {
-    if (raw[start] !== "{") {
-      continue;
-    }
-
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-
-    for (let index = start; index < raw.length; index += 1) {
-      const char = raw[index];
-
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-
-      if (char === "\\") {
-        escaped = true;
-        continue;
-      }
-
-      if (char === '"') {
-        inString = !inString;
-        continue;
-      }
-
-      if (inString) {
-        continue;
-      }
-
-      if (char === "{") {
-        depth += 1;
-      }
-
-      if (char === "}") {
-        depth -= 1;
-
-        if (depth === 0) {
-          candidates.push(raw.slice(start, index + 1));
-          break;
-        }
-      }
-    }
-  }
-
-  return candidates;
-}
-
-function toArtifactSuggestion(suggestion: StructuredSuggestion): ChatArtifactSuggestion {
-  return {
-    id: `${suggestion.type}-${Math.random().toString(36).slice(2, 10)}`,
-    type: suggestion.type,
-    title: suggestion.title,
-    content: suggestion.content,
-    description: suggestion.description,
-    tags: Array.isArray(suggestion.tags) ? suggestion.tags.filter((tag) => typeof tag === "string") : undefined,
-    status: suggestion.status
-  };
 }
