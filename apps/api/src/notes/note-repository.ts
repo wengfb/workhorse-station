@@ -23,15 +23,14 @@ export type NoteWriteInput = Required<Pick<CreateNoteRequest, "title">> & {
 
 type SqlParam = string | null;
 
-export function listGlobalNotes(db: Database) {
-  return selectRows(
-    db,
-    `SELECT id, project_id, title, content, tags, source_chat_suggestion_json, created_at, updated_at
-     FROM notes
-     WHERE project_id IS NULL
-     ORDER BY updated_at DESC, created_at DESC`,
-    []
-  );
+let fts5Available = false;
+
+export function setFts5Available(enabled: boolean) {
+  fts5Available = enabled;
+}
+
+export function listGlobalNotes(db: Database, opts?: { search?: string; tags?: string[] }) {
+  return queryNotes(db, null, opts);
 }
 
 export function getGlobalNote(db: Database, noteId: string) {
@@ -44,15 +43,8 @@ export function getGlobalNote(db: Database, noteId: string) {
   );
 }
 
-export function listNotes(db: Database, projectId: string) {
-  return selectRows(
-    db,
-    `SELECT id, project_id, title, content, tags, source_chat_suggestion_json, created_at, updated_at
-     FROM notes
-     WHERE project_id = ?
-     ORDER BY updated_at DESC, created_at DESC`,
-    [projectId]
-  );
+export function listNotes(db: Database, projectId: string, opts?: { search?: string; tags?: string[] }) {
+  return queryNotes(db, projectId, opts);
 }
 
 export function getProjectNote(db: Database, projectId: string, noteId: string) {
@@ -73,6 +65,16 @@ export function createNote(db: Database, input: NoteWriteInput) {
     [id, input.projectId, input.title, input.content, JSON.stringify(input.tags), serializeSourceChatSuggestion(input.sourceChatSuggestion)]
   );
 
+  if (fts5Available) {
+    const rowid = getNoteRowid(db, id);
+    if (rowid !== null) {
+      db.run(
+        "INSERT INTO notes_fts(rowid, title, content, tags) VALUES (?, ?, ?, ?)",
+        [rowid, input.title, input.content, JSON.stringify(input.tags)]
+      );
+    }
+  }
+
   const note = getNoteByScope(db, input.projectId, id);
 
   if (!note) {
@@ -90,6 +92,16 @@ export function updateGlobalNote(db: Database, noteId: string, input: NoteWriteI
     [input.title, input.content, JSON.stringify(input.tags), noteId]
   );
 
+  if (fts5Available) {
+    const rowid = getNoteRowid(db, noteId);
+    if (rowid !== null) {
+      db.run(
+        "UPDATE notes_fts SET title = ?, content = ?, tags = ? WHERE rowid = ?",
+        [input.title, input.content, JSON.stringify(input.tags), rowid]
+      );
+    }
+  }
+
   return getGlobalNote(db, noteId);
 }
 
@@ -101,15 +113,37 @@ export function updateNote(db: Database, projectId: string, noteId: string, inpu
     [input.title, input.content, JSON.stringify(input.tags), projectId, noteId]
   );
 
+  if (fts5Available) {
+    const rowid = getNoteRowid(db, noteId);
+    if (rowid !== null) {
+      db.run(
+        "UPDATE notes_fts SET title = ?, content = ?, tags = ? WHERE rowid = ?",
+        [input.title, input.content, JSON.stringify(input.tags), rowid]
+      );
+    }
+  }
+
   return getProjectNote(db, projectId, noteId);
 }
 
 export function deleteNote(db: Database, projectId: string, noteId: string) {
+  if (fts5Available) {
+    const rowid = getNoteRowid(db, noteId);
+    if (rowid !== null) {
+      db.run("DELETE FROM notes_fts WHERE rowid = ?", [rowid]);
+    }
+  }
   db.run("DELETE FROM notes WHERE project_id = ? AND id = ?", [projectId, noteId]);
   return db.getRowsModified() > 0;
 }
 
 export function deleteGlobalNote(db: Database, noteId: string) {
+  if (fts5Available) {
+    const rowid = getNoteRowid(db, noteId);
+    if (rowid !== null) {
+      db.run("DELETE FROM notes_fts WHERE rowid = ?", [rowid]);
+    }
+  }
   db.run("DELETE FROM notes WHERE project_id IS NULL AND id = ?", [noteId]);
   return db.getRowsModified() > 0;
 }
@@ -184,4 +218,126 @@ function parseSourceChatSuggestion(raw: string | null): ChatArtifactSourceRef | 
   } catch {
     return null;
   }
+}
+
+function getNoteRowid(db: Database, noteId: string): number | null {
+  const stmt = db.prepare("SELECT rowid FROM notes WHERE id = ?", [noteId]);
+  try {
+    if (stmt.step()) {
+      return (stmt.getAsObject() as { rowid: number }).rowid;
+    }
+    return null;
+  } finally {
+    stmt.free();
+  }
+}
+
+function buildFtsQuery(raw: string): string {
+  const terms = raw
+    .replace(/[^\w一-鿿\s]/g, "")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (terms.length === 0) return raw;
+  return terms.map((t) => `"${t}"*`).join(" AND ");
+}
+
+const NOTE_SELECT = `SELECT id, project_id, title, content, tags, source_chat_suggestion_json, created_at, updated_at
+  FROM notes`;
+
+function queryNotes(
+  db: Database,
+  projectId: string | null,
+  opts?: { search?: string; tags?: string[] }
+): NoteSummary[] {
+  const search = opts?.search?.trim();
+  const filterTags = opts?.tags?.filter((t) => t.trim()) ?? [];
+
+  if (!search && filterTags.length === 0) {
+    const where = projectId === null ? "WHERE project_id IS NULL" : "WHERE project_id = ?";
+    const params: SqlParam[] = projectId === null ? [] : [projectId];
+    return selectRows(db, `${NOTE_SELECT} ${where} ORDER BY updated_at DESC, created_at DESC`, params);
+  }
+
+  if (search && fts5Available) {
+    return queryWithFts(db, projectId, search, filterTags);
+  }
+
+  return queryWithLike(db, projectId, search, filterTags);
+}
+
+function queryWithFts(
+  db: Database,
+  projectId: string | null,
+  search: string,
+  filterTags: string[]
+): NoteSummary[] {
+  const ftsQuery = buildFtsQuery(search);
+  const ftsStmt = db.prepare("SELECT rowid FROM notes_fts WHERE notes_fts MATCH ? ORDER BY rank", [ftsQuery]);
+  const matchingRowids: number[] = [];
+
+  try {
+    while (ftsStmt.step()) {
+      matchingRowids.push((ftsStmt.getAsObject() as { rowid: number }).rowid);
+    }
+  } finally {
+    ftsStmt.free();
+  }
+
+  if (matchingRowids.length === 0) return [];
+
+  const conditions: string[] = [`n.rowid IN (${matchingRowids.map(() => "?").join(",")})`];
+  const params: SqlParam[] = matchingRowids.map((r) => String(r));
+
+  if (projectId !== null) {
+    conditions.push("n.project_id = ?");
+    params.push(projectId);
+  } else {
+    conditions.push("n.project_id IS NULL");
+  }
+
+  for (const tag of filterTags) {
+    conditions.push("n.tags LIKE ?");
+    params.push(`%"${tag}"%`);
+  }
+
+  const sql = `SELECT n.id, n.project_id, n.title, n.content, n.tags, n.source_chat_suggestion_json, n.created_at, n.updated_at
+    FROM notes n
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY n.updated_at DESC, n.created_at DESC`;
+
+  return selectRows(db, sql, params);
+}
+
+function queryWithLike(
+  db: Database,
+  projectId: string | null,
+  search: string | undefined,
+  filterTags: string[]
+): NoteSummary[] {
+  const conditions: string[] = [];
+  const params: SqlParam[] = [];
+
+  if (projectId !== null) {
+    conditions.push("project_id = ?");
+    params.push(projectId);
+  } else {
+    conditions.push("project_id IS NULL");
+  }
+
+  if (search) {
+    const like = `%${search}%`;
+    conditions.push("(title LIKE ? OR content LIKE ? OR tags LIKE ?)");
+    params.push(like, like, like);
+  }
+
+  for (const tag of filterTags) {
+    conditions.push("tags LIKE ?");
+    params.push(`%"${tag}"%`);
+  }
+
+  return selectRows(
+    db,
+    `${NOTE_SELECT} WHERE ${conditions.join(" AND ")} ORDER BY updated_at DESC, created_at DESC`,
+    params
+  );
 }

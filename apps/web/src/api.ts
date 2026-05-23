@@ -215,8 +215,12 @@ export function deleteWorktree(projectId: string, worktreeId: string, input: Del
   });
 }
 
-export function getGlobalNotes() {
-  return fetchJson<NotesResponse>("/api/notes");
+export function getGlobalNotes(opts?: { search?: string; tags?: string[] }) {
+  const params = new URLSearchParams();
+  if (opts?.search) params.set("search", opts.search);
+  if (opts?.tags?.length) params.set("tags", opts.tags.join(","));
+  const qs = params.toString();
+  return fetchJson<NotesResponse>(`/api/notes${qs ? `?${qs}` : ""}`);
 }
 
 export function createGlobalNote(input: CreateNoteRequest) {
@@ -239,8 +243,12 @@ export function deleteGlobalNote(noteId: string) {
   });
 }
 
-export function getNotes(projectId: string) {
-  return fetchJson<NotesResponse>(`/api/projects/${projectId}/notes`);
+export function getNotes(projectId: string, opts?: { search?: string; tags?: string[] }) {
+  const params = new URLSearchParams();
+  if (opts?.search) params.set("search", opts.search);
+  if (opts?.tags?.length) params.set("tags", opts.tags.join(","));
+  const qs = params.toString();
+  return fetchJson<NotesResponse>(`/api/projects/${projectId}/notes${qs ? `?${qs}` : ""}`);
 }
 
 export function createNote(projectId: string, input: CreateNoteRequest) {

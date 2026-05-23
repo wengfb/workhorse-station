@@ -10,7 +10,7 @@ import type {
 import type { DatabaseState } from "../db/init.js";
 import { HttpError } from "../projects/http-error.js";
 import { getProject } from "../projects/project-repository.js";
-import { createNote, deleteGlobalNote, deleteNote, getGlobalNote, getProjectNote, listGlobalNotes, listNotes, updateGlobalNote, updateNote, type NoteWriteInput } from "./note-repository.js";
+import { createNote, deleteGlobalNote, deleteNote, getGlobalNote, getProjectNote, listGlobalNotes, listNotes, setFts5Available, updateGlobalNote, updateNote, type NoteWriteInput } from "./note-repository.js";
 
 type ProjectParams = {
   projectId: string;
@@ -21,10 +21,12 @@ type ProjectNoteParams = ProjectParams & {
 };
 
 export async function registerNoteRoutes(server: FastifyInstance, database: DatabaseState) {
-  server.get("/api/notes", async (): Promise<ApiResponse<NotesResponse>> => ({
+  setFts5Available(database.fts5);
+
+  server.get<{ Querystring: { search?: string; tags?: string } }>("/api/notes", async (request): Promise<ApiResponse<NotesResponse>> => ({
     ok: true,
     data: {
-      notes: listGlobalNotes(database.db)
+      notes: listGlobalNotes(database.db, parseFilterOptions(request.query))
     }
   }));
 
@@ -78,13 +80,13 @@ export async function registerNoteRoutes(server: FastifyInstance, database: Data
     };
   });
 
-  server.get<{ Params: ProjectParams }>("/api/projects/:projectId/notes", async (request): Promise<ApiResponse<NotesResponse>> => {
+  server.get<{ Params: ProjectParams; Querystring: { search?: string; tags?: string } }>("/api/projects/:projectId/notes", async (request): Promise<ApiResponse<NotesResponse>> => {
     assertProjectExists(database, request.params.projectId);
 
     return {
       ok: true,
       data: {
-        notes: listNotes(database.db, request.params.projectId)
+        notes: listNotes(database.db, request.params.projectId, parseFilterOptions(request.query))
       }
     };
   });
@@ -223,6 +225,13 @@ function normalizeTags(value: unknown) {
   }
 
   return tags;
+}
+
+function parseFilterOptions(query: { search?: string; tags?: string }): { search?: string; tags?: string[] } {
+  return {
+    search: query.search || undefined,
+    tags: query.tags ? query.tags.split(",").map((t) => t.trim()).filter(Boolean) : undefined
+  };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

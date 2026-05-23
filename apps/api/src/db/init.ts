@@ -23,7 +23,16 @@ export async function initDatabase(databasePath = process.env.DATABASE_PATH ?? d
   const db = existsSync(resolvedPath) ? new SQL.Database(readFileSync(resolvedPath)) : new SQL.Database();
 
   db.exec("PRAGMA foreign_keys = ON;");
-  createTables(db);
+  const fts5 = detectFts5(db);
+  createTables(db, fts5);
+
+  if (fts5) {
+    db.exec(`
+      INSERT INTO notes_fts(rowid, title, content, tags)
+      SELECT rowid, title, content, tags FROM notes
+      WHERE rowid NOT IN (SELECT rowid FROM notes_fts);
+    `);
+  }
 
   const persist = () => {
     writeFileSync(resolvedPath, Buffer.from(db.export()));
@@ -35,7 +44,7 @@ export async function initDatabase(databasePath = process.env.DATABASE_PATH ?? d
     db,
     path: resolvedPath,
     connected: true,
-    fts5: detectFts5(db),
+    fts5,
     persist,
     close: () => {
       persist();
@@ -44,7 +53,7 @@ export async function initDatabase(databasePath = process.env.DATABASE_PATH ?? d
   };
 }
 
-function createTables(db: Database) {
+function createTables(db: Database, fts5: boolean) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS migrations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,6 +95,13 @@ function createTables(db: Database) {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
     );
+
+    ${fts5 ? `
+    CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+      title, content, tags,
+      content=''
+    );
+    ` : ""}
 
     CREATE TABLE IF NOT EXISTS todos (
       id TEXT PRIMARY KEY,

@@ -229,6 +229,32 @@ export function App() {
   const [globalNoteSettingsOpen, setGlobalNoteSettingsOpen] = useState(false);
   const [globalNoteTitleLocked, setGlobalNoteTitleLocked] = useState(false);
   const globalNoteAutosaveSkipRef = useRef(false);
+  const [noteSearchQuery, setNoteSearchQuery] = useState("");
+  const [noteFilterTags, setNoteFilterTags] = useState<string[]>([]);
+  const [globalNoteSearchQuery, setGlobalNoteSearchQuery] = useState("");
+  const [globalNoteFilterTags, setGlobalNoteFilterTags] = useState<string[]>([]);
+  const noteSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const globalNoteSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const availableNoteTags = (() => {
+    const tagSet = new Set<string>();
+    for (const note of notes) {
+      for (const tag of note.tags) {
+        tagSet.add(tag);
+      }
+    }
+    return Array.from(tagSet).sort();
+  })();
+
+  const availableGlobalNoteTags = (() => {
+    const tagSet = new Set<string>();
+    for (const note of globalNotes) {
+      for (const tag of note.tags) {
+        tagSet.add(tag);
+      }
+    }
+    return Array.from(tagSet).sort();
+  })();
   const [globalSkills, setGlobalSkills] = useState<SkillSummary[]>([]);
   const [globalSkillsLoading, setGlobalSkillsLoading] = useState(true);
   const [globalSkillsError, setGlobalSkillsError] = useState<string | null>(null);
@@ -516,6 +542,23 @@ export function App() {
   }, [noteDraft.content, noteDraft.tags, noteDraft.title, selectedNoteId, selectedProjectId]);
 
   useEffect(() => {
+    if (!selectedProjectId) return;
+    if (noteSearchTimerRef.current) clearTimeout(noteSearchTimerRef.current);
+    noteSearchTimerRef.current = setTimeout(() => {
+      reloadNotes(selectedProjectId, null);
+    }, 300);
+    return () => { if (noteSearchTimerRef.current) clearTimeout(noteSearchTimerRef.current); };
+  }, [noteSearchQuery, noteFilterTags]);
+
+  useEffect(() => {
+    if (globalNoteSearchTimerRef.current) clearTimeout(globalNoteSearchTimerRef.current);
+    globalNoteSearchTimerRef.current = setTimeout(() => {
+      reloadGlobalNotes(null);
+    }, 300);
+    return () => { if (globalNoteSearchTimerRef.current) clearTimeout(globalNoteSearchTimerRef.current); };
+  }, [globalNoteSearchQuery, globalNoteFilterTags]);
+
+  useEffect(() => {
     if (selectedTodo) {
       setTodoDraft(todoToDraft(selectedTodo));
       return;
@@ -638,7 +681,10 @@ export function App() {
     setGlobalNotesLoading(true);
 
     try {
-      const data = await getGlobalNotes();
+      const data = await getGlobalNotes({
+        search: globalNoteSearchQuery || undefined,
+        tags: globalNoteFilterTags.length ? globalNoteFilterTags : undefined
+      });
       const nextNote =
         (preferredNoteId ? data.notes.find((note) => note.id === preferredNoteId) : null) ?? data.notes.find((note) => note.id === selectedGlobalNoteId) ?? data.notes[0] ?? null;
 
@@ -691,7 +737,10 @@ export function App() {
     setNotesLoading(true);
 
     try {
-      const data = await getNotes(projectId);
+      const data = await getNotes(projectId, {
+        search: noteSearchQuery || undefined,
+        tags: noteFilterTags.length ? noteFilterTags : undefined
+      });
       const nextNote =
         (preferredNoteId ? data.notes.find((note) => note.id === preferredNoteId) : null) ?? data.notes.find((note) => note.id === selectedNoteId) ?? data.notes[0] ?? null;
 
@@ -1895,6 +1944,11 @@ export function App() {
               setWorkspaceScope("project");
             }}
             onCreateSession={() => openSessionModal("direct")}
+            globalNoteSearchQuery={globalNoteSearchQuery}
+            globalNoteFilterTags={globalNoteFilterTags}
+            availableGlobalNoteTags={availableGlobalNoteTags}
+            onGlobalNoteSearchChange={setGlobalNoteSearchQuery}
+            onGlobalNoteFilterTagsChange={setGlobalNoteFilterTags}
           />
         ) : (
           <ProjectWorkspacePage
@@ -1962,6 +2016,11 @@ export function App() {
             onCopyProjectSkillToGlobal={handleCopyProjectSkillToGlobal}
             onCopyGlobalSkillToProject={handleCopyGlobalSkillToProject}
             onOpenSession={openSessionModal}
+            noteSearchQuery={noteSearchQuery}
+            noteFilterTags={noteFilterTags}
+            availableNoteTags={availableNoteTags}
+            onNoteSearchChange={setNoteSearchQuery}
+            onNoteFilterTagsChange={setNoteFilterTags}
           />
         )}
       </main>
@@ -2173,7 +2232,12 @@ function HomeWorkspace({
   onEnterProject,
   onCreateSession,
   recentProjects,
-  runningSessions
+  runningSessions,
+  globalNoteSearchQuery = "",
+  globalNoteFilterTags = [],
+  availableGlobalNoteTags = [],
+  onGlobalNoteSearchChange,
+  onGlobalNoteFilterTagsChange
 }: {
   activeMode: HomeMode;
   activeModeInfo: { label: string; description: string };
@@ -2228,6 +2292,11 @@ function HomeWorkspace({
   runningSessions: OverviewSessionSummary[];
   onEnterProject: (projectId?: string) => void;
   onCreateSession: () => void;
+  globalNoteSearchQuery?: string;
+  globalNoteFilterTags?: string[];
+  availableGlobalNoteTags?: string[];
+  onGlobalNoteSearchChange?: (query: string) => void;
+  onGlobalNoteFilterTagsChange?: (tags: string[]) => void;
 }) {
   return (
     <div className={activeMode === "chat" ? "flex min-h-[calc(100vh-104px)] w-full flex-col" : "mx-auto flex w-full max-w-7xl flex-col gap-5"}>
@@ -2288,6 +2357,11 @@ function HomeWorkspace({
           onRenameSkill={onRenameGlobalSkill}
           onDeleteSkill={onDeleteGlobalSkill}
           onCopyToProject={onCopyGlobalSkillToProject}
+          globalNoteSearchQuery={globalNoteSearchQuery}
+          globalNoteFilterTags={globalNoteFilterTags}
+          availableGlobalNoteTags={availableGlobalNoteTags}
+          onGlobalNoteSearchChange={onGlobalNoteSearchChange}
+          onGlobalNoteFilterTagsChange={onGlobalNoteFilterTagsChange}
         />
       )}
     </div>
@@ -2501,7 +2575,12 @@ function HomeOverviewWorkspace({
   onCreateSkill,
   onRenameSkill,
   onDeleteSkill,
-  onCopyToProject
+  onCopyToProject,
+  globalNoteSearchQuery = "",
+  globalNoteFilterTags = [],
+  availableGlobalNoteTags = [],
+  onGlobalNoteSearchChange,
+  onGlobalNoteFilterTagsChange
 }: {
   featureCards: Array<{ title: string; value: string; detail: string }>;
   apiConnected: boolean;
@@ -2536,6 +2615,11 @@ function HomeOverviewWorkspace({
   onRenameSkill: (skill: SkillSummary) => void;
   onDeleteSkill: (skill: SkillSummary) => void;
   onCopyToProject: (skill: SkillSummary) => void;
+  globalNoteSearchQuery?: string;
+  globalNoteFilterTags?: string[];
+  availableGlobalNoteTags?: string[];
+  onGlobalNoteSearchChange?: (query: string) => void;
+  onGlobalNoteFilterTagsChange?: (tags: string[]) => void;
 }) {
   return (
     <div className="space-y-5">
@@ -2554,6 +2638,9 @@ function HomeOverviewWorkspace({
         deletingNoteId={deletingGlobalNoteId}
         settingsOpen={globalNoteSettingsOpen}
         showCreateTodo={false}
+        searchQuery={globalNoteSearchQuery}
+        filterTags={globalNoteFilterTags}
+        availableTags={availableGlobalNoteTags}
         onCreate={onCreateNote}
         onSelect={onSelectNote}
         onDraftChange={onNoteDraftChange}
@@ -2562,6 +2649,8 @@ function HomeOverviewWorkspace({
         onCreateTodo={() => undefined}
         onOpenSettings={onOpenNoteSettings}
         onCloseSettings={onCloseNoteSettings}
+        onSearchChange={onGlobalNoteSearchChange}
+        onFilterTagsChange={onGlobalNoteFilterTagsChange}
       />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.65fr)]">
         <GlobalSkillPanel
@@ -2727,7 +2816,12 @@ function ProjectWorkspacePage({
   onDeleteProjectSkill,
   onCopyProjectSkillToGlobal,
   onCopyGlobalSkillToProject,
-  onOpenSession
+  onOpenSession,
+  noteSearchQuery = "",
+  noteFilterTags = [],
+  availableNoteTags = [],
+  onNoteSearchChange,
+  onNoteFilterTagsChange
 }: {
   activeTab: ProjectTab;
   onTabChange: (tab: ProjectTab) => void;
@@ -2793,6 +2887,11 @@ function ProjectWorkspacePage({
   onCopyProjectSkillToGlobal: (skill: ProjectSkillSummary) => void;
   onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
   onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
+  noteSearchQuery?: string;
+  noteFilterTags?: string[];
+  availableNoteTags?: string[];
+  onNoteSearchChange?: (query: string) => void;
+  onNoteFilterTagsChange?: (tags: string[]) => void;
 }) {
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
@@ -2885,6 +2984,11 @@ function ProjectWorkspacePage({
         onCopyProjectSkillToGlobal={onCopyProjectSkillToGlobal}
         onCopyGlobalSkillToProject={onCopyGlobalSkillToProject}
         onOpenSession={onOpenSession}
+        noteSearchQuery={noteSearchQuery}
+        noteFilterTags={noteFilterTags}
+        availableNoteTags={availableNoteTags}
+        onNoteSearchChange={onNoteSearchChange}
+        onNoteFilterTagsChange={onNoteFilterTagsChange}
       />
     </div>
   );
@@ -2971,7 +3075,12 @@ function ProjectTabWorkspace({
   onDeleteProjectSkill,
   onCopyProjectSkillToGlobal,
   onCopyGlobalSkillToProject,
-  onOpenSession
+  onOpenSession,
+  noteSearchQuery = "",
+  noteFilterTags = [],
+  availableNoteTags = [],
+  onNoteSearchChange,
+  onNoteFilterTagsChange
 }: {
   activeTab: ProjectTab;
   projects: ProjectSummary[];
@@ -3036,6 +3145,11 @@ function ProjectTabWorkspace({
   onCopyProjectSkillToGlobal: (skill: ProjectSkillSummary) => void;
   onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
   onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
+  noteSearchQuery?: string;
+  noteFilterTags?: string[];
+  availableNoteTags?: string[];
+  onNoteSearchChange?: (query: string) => void;
+  onNoteFilterTagsChange?: (tags: string[]) => void;
 }) {
   if (activeTab === "worktrees") {
     return selectedProject ? (
@@ -3106,6 +3220,9 @@ function ProjectTabWorkspace({
         creatingTodo={savingTodo}
         deletingNoteId={deletingNoteId}
         settingsOpen={noteSettingsOpen}
+        searchQuery={noteSearchQuery}
+        filterTags={noteFilterTags}
+        availableTags={availableNoteTags}
         onCreate={onCreateNote}
         onSelect={onSelectNote}
         onDraftChange={onNoteDraftChange}
@@ -3114,6 +3231,8 @@ function ProjectTabWorkspace({
         onCreateTodo={onCreateTodoFromNote}
         onOpenSettings={onOpenNoteSettings}
         onCloseSettings={onCloseNoteSettings}
+        onSearchChange={onNoteSearchChange}
+        onFilterTagsChange={onNoteFilterTagsChange}
       />
     );
   }
@@ -4177,6 +4296,10 @@ function NotePanel({
   deletingNoteId,
   settingsOpen,
   showCreateTodo = true,
+  searchQuery = "",
+  filterTags = [],
+  availableTags = [],
+  showSearch = true,
   onCreate,
   onSelect,
   onDraftChange,
@@ -4184,7 +4307,9 @@ function NotePanel({
   onDelete,
   onCreateTodo,
   onOpenSettings,
-  onCloseSettings
+  onCloseSettings,
+  onSearchChange,
+  onFilterTagsChange
 }: {
   project: ProjectSummary | null;
   title?: string;
@@ -4200,6 +4325,10 @@ function NotePanel({
   deletingNoteId: string | null;
   settingsOpen: boolean;
   showCreateTodo?: boolean;
+  searchQuery?: string;
+  filterTags?: string[];
+  availableTags?: string[];
+  showSearch?: boolean;
   onCreate: () => void;
   onSelect: (note: NoteSummary) => void;
   onDraftChange: (field: keyof NoteDraft, value: string) => void;
@@ -4208,6 +4337,8 @@ function NotePanel({
   onCreateTodo: () => void;
   onOpenSettings: () => void;
   onCloseSettings: () => void;
+  onSearchChange?: (query: string) => void;
+  onFilterTagsChange?: (tags: string[]) => void;
 }) {
   if (!project && showCreateTodo) {
     return <EmptyProjectNotice onCreateProject={() => undefined} />;
@@ -4228,13 +4359,56 @@ function NotePanel({
               新建笔记
             </button>
           </div>
+
+          {showSearch ? (
+            <div className="border-b border-white/10 px-4 py-2 space-y-2">
+              <div className="relative">
+                <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => onSearchChange?.(e.target.value)}
+                  placeholder="搜索笔记标题、内容、标签..."
+                  className="w-full rounded-md border border-white/10 bg-black/20 pl-8 pr-3 py-1.5 text-xs text-slate-100 outline-none focus:border-slate-400"
+                />
+              </div>
+              {availableTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {availableTags.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => {
+                        const next = filterTags.includes(tag)
+                          ? filterTags.filter((t) => t !== tag)
+                          : [...filterTags, tag];
+                        onFilterTagsChange?.(next);
+                      }}
+                      className={`rounded-full px-2 py-0.5 text-[11px] transition ${
+                        filterTags.includes(tag)
+                          ? "bg-blue-500/20 text-blue-300 border border-blue-400/30"
+                          : "border border-white/10 text-slate-400 hover:bg-white/5"
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="text-[11px] text-slate-500">
+                {notes.length} 条结果
+                {(searchQuery || filterTags.length > 0) ? "（已筛选）" : ""}
+              </div>
+            </div>
+          ) : null}
+
           <div className="min-h-[320px] divide-y divide-white/10">
             {loading ? <div className="px-4 py-6 text-sm text-slate-400">{title}加载中...</div> : null}
             {!loading && notes.length === 0 ? <div className="px-4 py-8 text-sm text-slate-500">{emptyText}</div> : null}
             {!loading
               ? notes.map((note) => (
                   <div key={note.id} className={`flex items-start gap-3 px-4 py-3 ${selectedNote?.id === note.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}>
-                    <button onClick={() => onSelect(note)} className="min-w-0 flex-1 text-left text-sm">
+                    <div role="button" tabIndex={0} onClick={() => onSelect(note)} onKeyDown={(e) => { if (e.key === "Enter") onSelect(note); }} className="min-w-0 flex-1 cursor-pointer text-left text-sm">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate font-medium text-slate-100">{note.title}</div>
@@ -4243,9 +4417,29 @@ function NotePanel({
                         <span className="shrink-0 text-xs text-slate-500">{formatDateTime(note.updatedAt)}</span>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
-                        {note.tags.length > 0 ? note.tags.map((tag) => <span key={tag} className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-slate-300">{tag}</span>) : <span className="text-xs text-slate-600">无标签</span>}
+                        {note.tags.length > 0 ? note.tags.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!onFilterTagsChange) return;
+                              const next = filterTags.includes(tag)
+                                ? filterTags.filter((t) => t !== tag)
+                                : [...filterTags, tag];
+                              onFilterTagsChange(next);
+                            }}
+                            className={`rounded-full border px-2 py-0.5 text-[11px] transition ${
+                              filterTags.includes(tag)
+                                ? "border-blue-400/30 bg-blue-500/20 text-blue-300"
+                                : "border-white/10 text-slate-300 hover:bg-white/5"
+                            }`}
+                          >
+                            {tag}
+                          </button>
+                        )) : <span className="text-xs text-slate-600">无标签</span>}
                       </div>
-                    </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => {
