@@ -1,6 +1,7 @@
 import type { FormEvent, ReactNode } from "react";
 import type { ProjectSummary, PromptDraftSummary, SessionSource, SessionStatus, SessionStreamEvent, SessionSummary, TodoSummary, WorktreeSummary } from "@workhorse-station/shared";
 import { SessionTerminal } from "./session-terminal";
+import { Select } from "./components/ui/Select";
 
 export type SessionEditorDraft = {
   sessionName: string;
@@ -184,32 +185,18 @@ export function CreateSessionModal({
             </div>
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
               <Field label="关联任务">
-                <select
+                <Select
                   value={draft.todoId}
-                  onChange={(event) => onDraftChange("todoId", event.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-                >
-                  <option value="">不关联</option>
-                  {todos.map((todo) => (
-                    <option key={todo.id} value={todo.id}>
-                      {todo.title}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => onDraftChange("todoId", value)}
+                  options={[{ value: "", label: "不关联" }, ...todos.map((t) => ({ value: t.id, label: t.title }))]}
+                />
               </Field>
               <Field label="选择已有 Worktree">
-                <select
+                <Select
                   value={draft.worktreeId}
-                  onChange={(event) => onDraftChange("worktreeId", event.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-                >
-                  <option value="">不绑定</option>
-                  {worktrees.map((worktree) => (
-                    <option key={worktree.id} value={worktree.id}>
-                      {worktree.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => onDraftChange("worktreeId", value)}
+                  options={[{ value: "", label: "不绑定" }, ...worktrees.map((w) => ({ value: w.id, label: w.name }))]}
+                />
               </Field>
               <Field label="或填写新 Worktree 名称">
                 <input

@@ -25,6 +25,7 @@ import type {
   WorktreeSummary
 } from "@workhorse-station/shared";
 import { MarkdownContent } from "./markdown-content";
+import { Select } from "./components/ui/Select";
 import {
   copyGlobalSkillToProject,
   copyProjectSkillToGlobal,
@@ -5207,31 +5208,18 @@ function TodoPanel({
             </Field>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="状态">
-                <select
+                <Select
                   value={draft.status}
-                  onChange={(event) => onDraftChange("status", event.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-                >
-                  {todoStatusOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => onDraftChange("status", value)}
+                  options={todoStatusOptions}
+                />
               </Field>
               <Field label="来源笔记">
-                <select
+                <Select
                   value={draft.sourceNoteId}
-                  onChange={(event) => onDraftChange("sourceNoteId", event.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-                >
-                  <option value="">不关联</option>
-                  {noteOptions.map((note) => (
-                    <option key={note.id} value={note.id}>
-                      {note.title}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => onDraftChange("sourceNoteId", value)}
+                  options={[{ value: "", label: "不关联" }, ...noteOptions.map((n) => ({ value: n.id, label: n.title }))]}
+                />
               </Field>
             </div>
             <Field label="标签">

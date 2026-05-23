@@ -24,6 +24,16 @@ input {
   font: inherit;
 }
 
+/* 下拉选项暗色主题 */
+select option {
+  background: #1a1d28;
+  color: #f1f5f9;
+}
+
+select option:checked {
+  background: #2d3343;
+}
+
 /* 全局隐藏纵向滚动条，保留滚动能力 */
 * {
   scrollbar-width: none;
