@@ -2461,6 +2461,38 @@ function HomeChatWorkspace({
   onDelete: (chat: ChatSessionSummary) => void;
   onConfirmTool: (toolCallId: string, approved: boolean) => void;
 }) {
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const prevMessageCountRef = useRef(0);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const currentCount = selectedChat?.messages.length ?? 0;
+    const isNewMessage = currentCount > prevMessageCountRef.current;
+    prevMessageCountRef.current = currentCount;
+
+    // Always scroll when a new message arrives (user sent or assistant replied)
+    if (isNewMessage) {
+      container.scrollTop = container.scrollHeight;
+      return;
+    }
+  }, [selectedChat?.messages]);
+
+  useEffect(() => {
+    if (!streamingContent) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    // During streaming, only follow if user is near the bottom
+    const threshold = 150;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom > threshold) return;
+
+    container.scrollTop = container.scrollHeight;
+  }, [streamingContent]);
+
   return (
     <section className="grid h-[calc(100vh-80px)] grid-cols-1 overflow-hidden bg-[#0f1117] lg:grid-cols-[260px_minmax(0,1fr)]">
       <aside className="flex flex-col overflow-hidden bg-[#111318] p-3">
@@ -2503,7 +2535,7 @@ function HomeChatWorkspace({
         <div className="mx-auto w-full max-w-[768px] px-4 py-3 text-xs text-slate-500">
           上下文：{selectedProject?.name ?? "未选择项目"} / {selectedWorktree?.name ?? "未选择 worktree"} · 可直接让我搜索笔记、创建任务或保存 Prompt
         </div>
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto w-full max-w-[768px] space-y-4 p-4 sm:p-6">
             {loading ? <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6 text-center text-sm text-slate-500">聊天会话加载中...</div> : null}
             {!loading && error ? <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div> : null}
@@ -2626,6 +2658,7 @@ function HomeChatWorkspace({
                 </div>
               </div>
             ) : null}
+            <div ref={messagesEndRef} />
           </div>
         </div>
         <form onSubmit={onSubmit} className="p-3 sm:p-4">
