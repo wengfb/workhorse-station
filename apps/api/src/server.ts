@@ -1,5 +1,8 @@
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import type { ApiResponse, HealthResponse, MetaResponse } from "@workhorse-station/shared";
 import { registerChatRoutes } from "./chat/chat-routes.js";
 import { initDatabase } from "./db/init.js";
@@ -85,6 +88,26 @@ await registerTodoRoutes(server, database);
 await registerPromptDraftRoutes(server, database);
 await registerSessionRoutes(server, database, sessionRuntimeManager);
 await registerSkillRoutes(server, database);
+
+if (process.env.NODE_ENV === "production") {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const webDistPath = path.resolve(__dirname, "../../web/dist");
+
+  await server.register(fastifyStatic, {
+    root: webDistPath,
+    prefix: "/"
+  });
+
+  server.setNotFoundHandler((request, reply) => {
+    if (request.method === "GET" && !request.url.startsWith("/api/") && request.url !== "/health") {
+      return reply.sendFile("index.html");
+    }
+    reply.status(404).send({
+      ok: false,
+      error: { code: "not_found", message: "Not found" }
+    });
+  });
+}
 
 const close = async () => {
   await server.close();
