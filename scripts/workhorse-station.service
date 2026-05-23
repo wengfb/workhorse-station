@@ -1,0 +1,14 @@
+[Unit]
+Description=Workhorse Station - AI Dev Management Web App
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=PROJECT_ROOT
+ExecStart=PROJECT_ROOT/node_modules/.bin/node PROJECT_ROOT/apps/api/dist/server.js
+Environment=NODE_ENV=production
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
