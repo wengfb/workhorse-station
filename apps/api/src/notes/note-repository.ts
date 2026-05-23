@@ -29,8 +29,12 @@ export function setFts5Available(enabled: boolean) {
   fts5Available = enabled;
 }
 
-export function listGlobalNotes(db: Database, opts?: { search?: string; tags?: string[] }) {
+export function listGlobalNotes(db: Database, opts?: { search?: string; tags?: string[]; page?: number; pageSize?: number }) {
   return queryNotes(db, null, opts);
+}
+
+export function countGlobalNotes(db: Database, opts?: { search?: string; tags?: string[] }) {
+  return countNotes(db, null, opts);
 }
 
 export function getGlobalNote(db: Database, noteId: string) {
@@ -43,8 +47,33 @@ export function getGlobalNote(db: Database, noteId: string) {
   );
 }
 
-export function listNotes(db: Database, projectId: string, opts?: { search?: string; tags?: string[] }) {
+export function listNotes(db: Database, projectId: string, opts?: { search?: string; tags?: string[]; page?: number; pageSize?: number }) {
   return queryNotes(db, projectId, opts);
+}
+
+export function countNotes(db: Database, projectId: string | null, opts?: { search?: string; tags?: string[] }) {
+  const search = opts?.search?.trim();
+  const filterTags = opts?.tags?.filter((t) => t.trim()) ?? [];
+
+  if (!search && filterTags.length === 0) {
+    const where = projectId === null ? "WHERE project_id IS NULL" : "WHERE project_id = ?";
+    const params: SqlParam[] = projectId === null ? [] : [projectId];
+    const stmt = db.prepare(`SELECT COUNT(*) as count FROM notes ${where}`, params);
+    try {
+      if (stmt.step()) {
+        return (stmt.getAsObject() as { count: number }).count;
+      }
+      return 0;
+    } finally {
+      stmt.free();
+    }
+  }
+
+  if (search && fts5Available) {
+    return countWithFts(db, projectId, search, filterTags);
+  }
+
+  return countWithLike(db, projectId, search, filterTags);
 }
 
 export function getProjectNote(db: Database, projectId: string, noteId: string) {
@@ -247,29 +276,34 @@ const NOTE_SELECT = `SELECT id, project_id, title, content, tags, source_chat_su
 function queryNotes(
   db: Database,
   projectId: string | null,
-  opts?: { search?: string; tags?: string[] }
+  opts?: { search?: string; tags?: string[]; page?: number; pageSize?: number }
 ): NoteSummary[] {
   const search = opts?.search?.trim();
   const filterTags = opts?.tags?.filter((t) => t.trim()) ?? [];
+  const page = opts?.page ?? 1;
+  const pageSize = opts?.pageSize ?? 12;
+  const offset = (page - 1) * pageSize;
 
   if (!search && filterTags.length === 0) {
     const where = projectId === null ? "WHERE project_id IS NULL" : "WHERE project_id = ?";
     const params: SqlParam[] = projectId === null ? [] : [projectId];
-    return selectRows(db, `${NOTE_SELECT} ${where} ORDER BY updated_at DESC, created_at DESC`, params);
+    return selectRows(db, `${NOTE_SELECT} ${where} ORDER BY updated_at DESC, created_at DESC LIMIT ${pageSize} OFFSET ${offset}`, params);
   }
 
   if (search && fts5Available) {
-    return queryWithFts(db, projectId, search, filterTags);
+    return queryWithFts(db, projectId, search, filterTags, pageSize, offset);
   }
 
-  return queryWithLike(db, projectId, search, filterTags);
+  return queryWithLike(db, projectId, search, filterTags, pageSize, offset);
 }
 
 function queryWithFts(
   db: Database,
   projectId: string | null,
   search: string,
-  filterTags: string[]
+  filterTags: string[],
+  limit?: number,
+  offset?: number
 ): NoteSummary[] {
   const ftsQuery = buildFtsQuery(search);
   const ftsStmt = db.prepare("SELECT rowid FROM notes_fts WHERE notes_fts MATCH ? ORDER BY rank", [ftsQuery]);
@@ -300,10 +334,15 @@ function queryWithFts(
     params.push(`%"${tag}"%`);
   }
 
-  const sql = `SELECT n.id, n.project_id, n.title, n.content, n.tags, n.source_chat_suggestion_json, n.created_at, n.updated_at
+  let sql = `SELECT n.id, n.project_id, n.title, n.content, n.tags, n.source_chat_suggestion_json, n.created_at, n.updated_at
     FROM notes n
     WHERE ${conditions.join(" AND ")}
     ORDER BY n.updated_at DESC, n.created_at DESC`;
+
+  if (limit !== undefined) {
+    sql += ` LIMIT ${limit}`;
+    if (offset !== undefined) sql += ` OFFSET ${offset}`;
+  }
 
   return selectRows(db, sql, params);
 }
@@ -312,7 +351,9 @@ function queryWithLike(
   db: Database,
   projectId: string | null,
   search: string | undefined,
-  filterTags: string[]
+  filterTags: string[],
+  limit?: number,
+  offset?: number
 ): NoteSummary[] {
   const conditions: string[] = [];
   const params: SqlParam[] = [];
@@ -335,9 +376,98 @@ function queryWithLike(
     params.push(`%"${tag}"%`);
   }
 
-  return selectRows(
-    db,
-    `${NOTE_SELECT} WHERE ${conditions.join(" AND ")} ORDER BY updated_at DESC, created_at DESC`,
-    params
-  );
+  let sql = `${NOTE_SELECT} WHERE ${conditions.join(" AND ")} ORDER BY updated_at DESC, created_at DESC`;
+
+  if (limit !== undefined) {
+    sql += ` LIMIT ${limit}`;
+    if (offset !== undefined) sql += ` OFFSET ${offset}`;
+  }
+
+  return selectRows(db, sql, params);
+}
+
+function countWithFts(
+  db: Database,
+  projectId: string | null,
+  search: string,
+  filterTags: string[]
+): number {
+  const ftsQuery = buildFtsQuery(search);
+  const ftsStmt = db.prepare("SELECT rowid FROM notes_fts WHERE notes_fts MATCH ? ORDER BY rank", [ftsQuery]);
+  const matchingRowids: number[] = [];
+
+  try {
+    while (ftsStmt.step()) {
+      matchingRowids.push((ftsStmt.getAsObject() as { rowid: number }).rowid);
+    }
+  } finally {
+    ftsStmt.free();
+  }
+
+  if (matchingRowids.length === 0) return 0;
+
+  const conditions: string[] = [`n.rowid IN (${matchingRowids.map(() => "?").join(",")})`];
+  const params: SqlParam[] = matchingRowids.map((r) => String(r));
+
+  if (projectId !== null) {
+    conditions.push("n.project_id = ?");
+    params.push(projectId);
+  } else {
+    conditions.push("n.project_id IS NULL");
+  }
+
+  for (const tag of filterTags) {
+    conditions.push("n.tags LIKE ?");
+    params.push(`%"${tag}"%`);
+  }
+
+  const sql = `SELECT COUNT(*) as count FROM notes n WHERE ${conditions.join(" AND ")}`;
+  const stmt = db.prepare(sql, params);
+  try {
+    if (stmt.step()) {
+      return (stmt.getAsObject() as { count: number }).count;
+    }
+    return 0;
+  } finally {
+    stmt.free();
+  }
+}
+
+function countWithLike(
+  db: Database,
+  projectId: string | null,
+  search: string | undefined,
+  filterTags: string[]
+): number {
+  const conditions: string[] = [];
+  const params: SqlParam[] = [];
+
+  if (projectId !== null) {
+    conditions.push("project_id = ?");
+    params.push(projectId);
+  } else {
+    conditions.push("project_id IS NULL");
+  }
+
+  if (search) {
+    const like = `%${search}%`;
+    conditions.push("(title LIKE ? OR content LIKE ? OR tags LIKE ?)");
+    params.push(like, like, like);
+  }
+
+  for (const tag of filterTags) {
+    conditions.push("tags LIKE ?");
+    params.push(`%"${tag}"%`);
+  }
+
+  const sql = `SELECT COUNT(*) as count FROM notes WHERE ${conditions.join(" AND ")}`;
+  const stmt = db.prepare(sql, params);
+  try {
+    if (stmt.step()) {
+      return (stmt.getAsObject() as { count: number }).count;
+    }
+    return 0;
+  } finally {
+    stmt.free();
+  }
 }

@@ -12,7 +12,7 @@ import type { DatabaseState } from "../db/init.js";
 import { HttpError } from "../projects/http-error.js";
 import { getProject } from "../projects/project-repository.js";
 import { getProjectNote } from "../notes/note-repository.js";
-import { createTodo, deleteTodo, getProjectTodo, listTodos, updateTodo, type TodoWriteInput } from "./todo-repository.js";
+import { countTodos, createTodo, deleteTodo, getProjectTodo, listTodos, updateTodo, type TodoWriteInput } from "./todo-repository.js";
 
 type ProjectParams = {
   projectId: string;
@@ -25,13 +25,22 @@ type ProjectTodoParams = ProjectParams & {
 const todoStatuses: TodoStatus[] = ["draft", "pending", "in_progress", "completed"];
 
 export async function registerTodoRoutes(server: FastifyInstance, database: DatabaseState) {
-  server.get<{ Params: ProjectParams }>("/api/projects/:projectId/todos", async (request): Promise<ApiResponse<TodosResponse>> => {
+  server.get<{ Params: ProjectParams; Querystring: { page?: string; pageSize?: string } }>("/api/projects/:projectId/todos", async (request): Promise<ApiResponse<TodosResponse>> => {
     assertProjectExists(database, request.params.projectId);
+    const page = request.query.page ? parseInt(request.query.page, 10) : undefined;
+    const pageSize = request.query.pageSize ? parseInt(request.query.pageSize, 10) : undefined;
+    const opts = {
+      page: page && page > 0 ? page : undefined,
+      pageSize: pageSize && pageSize > 0 && pageSize <= 100 ? pageSize : undefined
+    };
 
     return {
       ok: true,
       data: {
-        todos: listTodos(database.db, request.params.projectId)
+        todos: listTodos(database.db, request.params.projectId, opts),
+        total: countTodos(database.db, request.params.projectId),
+        page: opts.page ?? 1,
+        pageSize: opts.pageSize ?? 12
       }
     };
   });

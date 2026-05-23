@@ -203,6 +203,8 @@ export function App() {
   const [savingWorktree, setSavingWorktree] = useState(false);
   const [deletingWorktreeId, setDeletingWorktreeId] = useState<string | null>(null);
   const [notes, setNotes] = useState<NoteSummary[]>([]);
+  const [notesTotal, setNotesTotal] = useState(0);
+  const [notesPage, setNotesPage] = useState(1);
   const [notesLoading, setNotesLoading] = useState(false);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState<NoteDraft>(emptyNoteDraft());
@@ -215,6 +217,8 @@ export function App() {
   const noteAutosaveSkipRef = useRef(false);
 
   const [todos, setTodos] = useState<TodoSummary[]>([]);
+  const [todosTotal, setTodosTotal] = useState(0);
+  const [todosPage, setTodosPage] = useState(1);
   const [todosLoading, setTodosLoading] = useState(false);
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
   const [todoDraft, setTodoDraft] = useState<TodoDraft>(emptyTodoDraft());
@@ -232,6 +236,8 @@ export function App() {
   const [updatingSessionId, setUpdatingSessionId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [globalNotes, setGlobalNotes] = useState<NoteSummary[]>([]);
+  const [globalNotesTotal, setGlobalNotesTotal] = useState(0);
+  const [globalNotesPage, setGlobalNotesPage] = useState(1);
   const [globalNotesLoading, setGlobalNotesLoading] = useState(true);
   const [selectedGlobalNoteId, setSelectedGlobalNoteId] = useState<string | null>(null);
   const [globalNoteDraft, setGlobalNoteDraft] = useState<NoteDraft>(emptyNoteDraft());
@@ -555,6 +561,7 @@ export function App() {
 
   useEffect(() => {
     if (!selectedProjectId) return;
+    setNotesPage(1);
     if (noteSearchTimerRef.current) clearTimeout(noteSearchTimerRef.current);
     noteSearchTimerRef.current = setTimeout(() => {
       reloadNotes(selectedProjectId, null);
@@ -563,6 +570,7 @@ export function App() {
   }, [noteSearchQuery, noteFilterTags]);
 
   useEffect(() => {
+    setGlobalNotesPage(1);
     if (globalNoteSearchTimerRef.current) clearTimeout(globalNoteSearchTimerRef.current);
     globalNoteSearchTimerRef.current = setTimeout(() => {
       reloadGlobalNotes(null);
@@ -695,12 +703,15 @@ export function App() {
     try {
       const data = await getGlobalNotes({
         search: globalNoteSearchQuery || undefined,
-        tags: globalNoteFilterTags.length ? globalNoteFilterTags : undefined
+        tags: globalNoteFilterTags.length ? globalNoteFilterTags : undefined,
+        page: globalNotesPage,
+        pageSize: 12
       });
       const nextNote =
         (preferredNoteId ? data.notes.find((note) => note.id === preferredNoteId) : null) ?? data.notes.find((note) => note.id === selectedGlobalNoteId) ?? data.notes[0] ?? null;
 
       setGlobalNotes(data.notes);
+      setGlobalNotesTotal(data.total);
       setSelectedGlobalNoteId(nextNote?.id ?? null);
       setGlobalNotesError(null);
     } catch (error) {
@@ -751,12 +762,15 @@ export function App() {
     try {
       const data = await getNotes(projectId, {
         search: noteSearchQuery || undefined,
-        tags: noteFilterTags.length ? noteFilterTags : undefined
+        tags: noteFilterTags.length ? noteFilterTags : undefined,
+        page: notesPage,
+        pageSize: 12
       });
       const nextNote =
         (preferredNoteId ? data.notes.find((note) => note.id === preferredNoteId) : null) ?? data.notes.find((note) => note.id === selectedNoteId) ?? data.notes[0] ?? null;
 
       setNotes(data.notes);
+      setNotesTotal(data.total);
       setSelectedNoteId(nextNote?.id ?? null);
       setNotesError(null);
     } catch (error) {
@@ -770,11 +784,12 @@ export function App() {
     setTodosLoading(true);
 
     try {
-      const data = await getTodos(projectId);
+      const data = await getTodos(projectId, { page: todosPage, pageSize: 12 });
       const nextTodo =
         (preferredTodoId ? data.todos.find((todo) => todo.id === preferredTodoId) : null) ?? data.todos.find((todo) => todo.id === selectedTodoId) ?? data.todos[0] ?? null;
 
       setTodos(data.todos);
+      setTodosTotal(data.total);
       setSelectedTodoId(nextTodo?.id ?? null);
       setTodosError(null);
     } catch (error) {
@@ -2018,6 +2033,9 @@ export function App() {
             availableGlobalNoteTags={availableGlobalNoteTags}
             onGlobalNoteSearchChange={setGlobalNoteSearchQuery}
             onGlobalNoteFilterTagsChange={setGlobalNoteFilterTags}
+            globalNotesTotal={globalNotesTotal}
+            globalNotesPage={globalNotesPage}
+            onGlobalNotesPageChange={setGlobalNotesPage}
           />
         ) : (
           <ProjectWorkspacePage
@@ -2034,6 +2052,8 @@ export function App() {
             projectError={projectError}
             worktreeError={worktreeError}
             notes={notes}
+            notesTotal={notesTotal}
+            notesPage={notesPage}
             selectedNote={selectedNote}
             notesLoading={notesLoading}
             notesError={notesError}
@@ -2042,6 +2062,8 @@ export function App() {
             deletingNoteId={deletingNoteId}
             noteSettingsOpen={noteSettingsOpen}
             todos={todos}
+            todosTotal={todosTotal}
+            todosPage={todosPage}
             selectedTodo={selectedTodo}
             todosLoading={todosLoading}
             todosError={todosError}
@@ -2089,6 +2111,8 @@ export function App() {
             availableNoteTags={availableNoteTags}
             onNoteSearchChange={setNoteSearchQuery}
             onNoteFilterTagsChange={setNoteFilterTags}
+            onNotesPageChange={setNotesPage}
+            onTodosPageChange={setTodosPage}
           />
         )}
       </main>
@@ -2312,7 +2336,10 @@ function HomeWorkspace({
   globalNoteFilterTags = [],
   availableGlobalNoteTags = [],
   onGlobalNoteSearchChange,
-  onGlobalNoteFilterTagsChange
+  onGlobalNoteFilterTagsChange,
+  globalNotesTotal = 0,
+  globalNotesPage = 1,
+  onGlobalNotesPageChange
 }: {
   activeMode: HomeMode;
   activeModeInfo: { label: string; description: string };
@@ -2379,6 +2406,9 @@ function HomeWorkspace({
   availableGlobalNoteTags?: string[];
   onGlobalNoteSearchChange?: (query: string) => void;
   onGlobalNoteFilterTagsChange?: (tags: string[]) => void;
+  globalNotesTotal?: number;
+  globalNotesPage?: number;
+  onGlobalNotesPageChange?: (page: number) => void;
 }) {
   return (
     <div className={activeMode === "chat" ? "flex h-full w-full flex-col" : "mx-auto flex w-full max-w-7xl flex-col gap-5"}>
@@ -2451,6 +2481,9 @@ function HomeWorkspace({
           availableGlobalNoteTags={availableGlobalNoteTags}
           onGlobalNoteSearchChange={onGlobalNoteSearchChange}
           onGlobalNoteFilterTagsChange={onGlobalNoteFilterTagsChange}
+          globalNotesTotal={globalNotesTotal}
+          globalNotesPage={globalNotesPage}
+          onGlobalNotesPageChange={onGlobalNotesPageChange}
         />
       )}
     </div>
@@ -2911,7 +2944,10 @@ function HomeOverviewWorkspace({
   globalNoteFilterTags = [],
   availableGlobalNoteTags = [],
   onGlobalNoteSearchChange,
-  onGlobalNoteFilterTagsChange
+  onGlobalNoteFilterTagsChange,
+  globalNotesTotal = 0,
+  globalNotesPage = 1,
+  onGlobalNotesPageChange
 }: {
   apiConnected: boolean;
   apiError: string | null;
@@ -2952,6 +2988,9 @@ function HomeOverviewWorkspace({
   availableGlobalNoteTags?: string[];
   onGlobalNoteSearchChange?: (query: string) => void;
   onGlobalNoteFilterTagsChange?: (tags: string[]) => void;
+  globalNotesTotal?: number;
+  globalNotesPage?: number;
+  onGlobalNotesPageChange?: (page: number) => void;
 }) {
   const [activeTab, setActiveTab] = useState<WorkbenchTab>("notes");
 
@@ -3022,6 +3061,9 @@ function HomeOverviewWorkspace({
           searchQuery={globalNoteSearchQuery}
           filterTags={globalNoteFilterTags}
           availableTags={availableGlobalNoteTags}
+          total={globalNotesTotal}
+          page={globalNotesPage}
+          onPageChange={onGlobalNotesPageChange}
           onCreate={onCreateNote}
           onSelect={onSelectNote}
           onDraftChange={onNoteDraftChange}
@@ -3169,6 +3211,8 @@ function ProjectWorkspacePage({
   projectError,
   worktreeError,
   notes,
+  notesTotal = 0,
+  notesPage = 1,
   selectedNote,
   notesLoading,
   notesError,
@@ -3177,6 +3221,8 @@ function ProjectWorkspacePage({
   deletingNoteId,
   noteSettingsOpen,
   todos,
+  todosTotal = 0,
+  todosPage = 1,
   selectedTodo,
   todosLoading,
   todosError,
@@ -3223,7 +3269,9 @@ function ProjectWorkspacePage({
   noteFilterTags = [],
   availableNoteTags = [],
   onNoteSearchChange,
-  onNoteFilterTagsChange
+  onNoteFilterTagsChange,
+  onNotesPageChange,
+  onTodosPageChange
 }: {
   activeTab: ProjectTab;
   onTabChange: (tab: ProjectTab) => void;
@@ -3238,6 +3286,8 @@ function ProjectWorkspacePage({
   projectError: string | null;
   worktreeError: string | null;
   notes: NoteSummary[];
+  notesTotal?: number;
+  notesPage?: number;
   selectedNote: NoteSummary | null;
   notesLoading: boolean;
   notesError: string | null;
@@ -3246,6 +3296,8 @@ function ProjectWorkspacePage({
   deletingNoteId: string | null;
   noteSettingsOpen: boolean;
   todos: TodoSummary[];
+  todosTotal?: number;
+  todosPage?: number;
   selectedTodo: TodoSummary | null;
   todosLoading: boolean;
   todosError: string | null;
@@ -3293,6 +3345,8 @@ function ProjectWorkspacePage({
   availableNoteTags?: string[];
   onNoteSearchChange?: (query: string) => void;
   onNoteFilterTagsChange?: (tags: string[]) => void;
+  onNotesPageChange?: (page: number) => void;
+  onTodosPageChange?: (page: number) => void;
 }) {
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
@@ -3331,6 +3385,8 @@ function ProjectWorkspacePage({
         projectError={projectError}
         worktreeError={worktreeError}
         notes={notes}
+        notesTotal={notesTotal}
+        notesPage={notesPage}
         selectedNote={selectedNote}
         notesLoading={notesLoading}
         notesError={notesError}
@@ -3339,6 +3395,8 @@ function ProjectWorkspacePage({
         deletingNoteId={deletingNoteId}
         noteSettingsOpen={noteSettingsOpen}
         todos={todos}
+        todosTotal={todosTotal}
+        todosPage={todosPage}
         selectedTodo={selectedTodo}
         todosLoading={todosLoading}
         todosError={todosError}
@@ -3374,6 +3432,8 @@ function ProjectWorkspacePage({
         onTodoDraftChange={onTodoDraftChange}
         onSaveTodo={onSaveTodo}
         onDeleteTodo={onDeleteTodo}
+        onNotesPageChange={onNotesPageChange}
+        onTodosPageChange={onTodosPageChange}
         onSelectProjectSkill={onSelectProjectSkill}
         onCreateProjectSkill={onCreateProjectSkill}
         onRenameProjectSkill={onRenameProjectSkill}
@@ -3422,6 +3482,8 @@ function ProjectTabWorkspace({
   projectError,
   worktreeError,
   notes,
+  notesTotal = 0,
+  notesPage = 1,
   selectedNote,
   notesLoading,
   notesError,
@@ -3430,6 +3492,8 @@ function ProjectTabWorkspace({
   deletingNoteId,
   noteSettingsOpen,
   todos,
+  todosTotal = 0,
+  todosPage = 1,
   selectedTodo,
   todosLoading,
   todosError,
@@ -3476,7 +3540,9 @@ function ProjectTabWorkspace({
   noteFilterTags = [],
   availableNoteTags = [],
   onNoteSearchChange,
-  onNoteFilterTagsChange
+  onNoteFilterTagsChange,
+  onNotesPageChange,
+  onTodosPageChange
 }: {
   activeTab: ProjectTab;
   projects: ProjectSummary[];
@@ -3490,6 +3556,8 @@ function ProjectTabWorkspace({
   projectError: string | null;
   worktreeError: string | null;
   notes: NoteSummary[];
+  notesTotal?: number;
+  notesPage?: number;
   selectedNote: NoteSummary | null;
   notesLoading: boolean;
   notesError: string | null;
@@ -3498,6 +3566,8 @@ function ProjectTabWorkspace({
   deletingNoteId: string | null;
   noteSettingsOpen: boolean;
   todos: TodoSummary[];
+  todosTotal?: number;
+  todosPage?: number;
   selectedTodo: TodoSummary | null;
   todosLoading: boolean;
   todosError: string | null;
@@ -3545,6 +3615,8 @@ function ProjectTabWorkspace({
   availableNoteTags?: string[];
   onNoteSearchChange?: (query: string) => void;
   onNoteFilterTagsChange?: (tags: string[]) => void;
+  onNotesPageChange?: (page: number) => void;
+  onTodosPageChange?: (page: number) => void;
 }) {
   if (activeTab === "worktrees") {
     return selectedProject ? (
@@ -3592,6 +3664,9 @@ function ProjectTabWorkspace({
         draft={todoDraft}
         saving={savingTodo}
         deletingTodoId={deletingTodoId}
+        total={todosTotal}
+        page={todosPage}
+        onPageChange={onTodosPageChange}
         onCreate={onCreateTodo}
         onSelect={onSelectTodo}
         onDraftChange={onTodoDraftChange}
@@ -3618,6 +3693,9 @@ function ProjectTabWorkspace({
         searchQuery={noteSearchQuery}
         filterTags={noteFilterTags}
         availableTags={availableNoteTags}
+        total={notesTotal}
+        page={notesPage}
+        onPageChange={onNotesPageChange}
         onCreate={onCreateNote}
         onSelect={onSelectNote}
         onDraftChange={onNoteDraftChange}
@@ -4694,6 +4772,10 @@ function NotePanel({
   filterTags = [],
   availableTags = [],
   showSearch = true,
+  total = 0,
+  page = 1,
+  pageSize = 12,
+  onPageChange,
   onCreate,
   onSelect,
   onDraftChange,
@@ -4723,6 +4805,10 @@ function NotePanel({
   filterTags?: string[];
   availableTags?: string[];
   showSearch?: boolean;
+  total?: number;
+  page?: number;
+  pageSize?: number;
+  onPageChange?: (page: number) => void;
   onCreate: () => void;
   onSelect: (note: NoteSummary) => void;
   onDraftChange: (field: keyof NoteDraft, value: string) => void;
@@ -4738,148 +4824,157 @@ function NotePanel({
     return <EmptyProjectNotice onCreateProject={() => undefined} />;
   }
 
-  const headerTitle = selectedNote ? "笔记编辑器" : "新建笔记";
+  const [formModalOpen, setFormModalOpen] = useState(false);
+  const isEditing = selectedNote !== null;
+
+  const openCreateModal = () => {
+    onCreate();
+    setFormModalOpen(true);
+  };
+
+  const openEditModal = (note: NoteSummary) => {
+    onDraftChange("title", note.title);
+    onDraftChange("content", note.content);
+    onDraftChange("tags", note.tags.join(", "));
+    onSelect(note);
+    setFormModalOpen(true);
+  };
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
-        <section className="rounded-xl border border-white/10 bg-[#151821]">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-            <div>
-              <div className="text-sm font-medium">{title}</div>
-              <div className="mt-1 text-xs text-slate-500">{description}</div>
-            </div>
-            <button onClick={onCreate} className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950">
-              新建笔记
-            </button>
+      <section className="rounded-xl border border-white/10 bg-[#151821]">
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+          <div>
+            <div className="text-sm font-medium">{title}</div>
+            <div className="mt-1 text-xs text-slate-500">{description}</div>
           </div>
+          <button onClick={openCreateModal} className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950">
+            新建笔记
+          </button>
+        </div>
 
-          {showSearch ? (
-            <div className="border-b border-white/10 px-4 py-2 space-y-2">
-              <div className="relative">
-                <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => onSearchChange?.(e.target.value)}
-                  placeholder="搜索笔记标题、内容、标签..."
-                  className="w-full rounded-md border border-white/10 bg-black/20 pl-8 pr-3 py-1.5 text-xs text-slate-100 outline-none focus:border-slate-400"
-                />
-              </div>
-              {availableTags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {availableTags.map((tag) => (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => {
-                        const next = filterTags.includes(tag)
-                          ? filterTags.filter((t) => t !== tag)
-                          : [...filterTags, tag];
-                        onFilterTagsChange?.(next);
-                      }}
-                      className={`rounded-full px-2 py-0.5 text-[11px] transition ${
-                        filterTags.includes(tag)
-                          ? "bg-blue-500/20 text-blue-300 border border-blue-400/30"
-                          : "border border-white/10 text-slate-400 hover:bg-white/5"
-                      }`}
-                    >
-                      {tag}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="text-[11px] text-slate-500">
-                {notes.length} 条结果
-                {(searchQuery || filterTags.length > 0) ? "（已筛选）" : ""}
-              </div>
+        {showSearch ? (
+          <div className="border-b border-white/10 px-4 py-2 space-y-2">
+            <div className="relative">
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => onSearchChange?.(e.target.value)}
+                placeholder="搜索笔记标题、内容、标签..."
+                className="w-full rounded-md border border-white/10 bg-black/20 pl-8 pr-3 py-1.5 text-xs text-slate-100 outline-none focus:border-slate-400"
+              />
             </div>
-          ) : null}
+            {availableTags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {availableTags.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => {
+                      const next = filterTags.includes(tag)
+                        ? filterTags.filter((t) => t !== tag)
+                        : [...filterTags, tag];
+                      onFilterTagsChange?.(next);
+                    }}
+                    className={`rounded-full px-2 py-0.5 text-[11px] transition ${
+                      filterTags.includes(tag)
+                        ? "bg-blue-500/20 text-blue-300 border border-blue-400/30"
+                        : "border border-white/10 text-slate-400 hover:bg-white/5"
+                    }`}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="text-[11px] text-slate-500">
+              {notes.length} 条结果
+              {(searchQuery || filterTags.length > 0) ? "（已筛选）" : ""}
+            </div>
+          </div>
+        ) : null}
 
-          <div className="min-h-[320px] divide-y divide-white/10">
-            {loading ? <div className="px-4 py-6 text-sm text-slate-400">{title}加载中...</div> : null}
-            {!loading && notes.length === 0 ? <div className="px-4 py-8 text-sm text-slate-500">{emptyText}</div> : null}
-            {!loading
-              ? notes.map((note) => (
-                  <div key={note.id} className={`flex items-start gap-3 px-4 py-3 ${selectedNote?.id === note.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}>
-                    <div role="button" tabIndex={0} onClick={() => onSelect(note)} onKeyDown={(e) => { if (e.key === "Enter") onSelect(note); }} className="min-w-0 flex-1 cursor-pointer text-left text-sm">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate font-medium text-slate-100">{note.title}</div>
-                          <div className="mt-1 line-clamp-2 text-xs text-slate-500">{note.content || "暂无正文"}</div>
-                        </div>
-                        <span className="shrink-0 text-xs text-slate-500">{formatDateTime(note.updatedAt)}</span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {note.tags.length > 0 ? note.tags.map((tag) => (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!onFilterTagsChange) return;
-                              const next = filterTags.includes(tag)
-                                ? filterTags.filter((t) => t !== tag)
-                                : [...filterTags, tag];
-                              onFilterTagsChange(next);
-                            }}
-                            className={`rounded-full border px-2 py-0.5 text-[11px] transition ${
-                              filterTags.includes(tag)
-                                ? "border-blue-400/30 bg-blue-500/20 text-blue-300"
-                                : "border-white/10 text-slate-300 hover:bg-white/5"
-                            }`}
-                          >
-                            {tag}
-                          </button>
-                        )) : <span className="text-xs text-slate-600">无标签</span>}
-                      </div>
-                    </div>
+        <div className="min-h-[200px] grid grid-cols-3 gap-3 p-3 items-start">
+          {loading ? <div className="col-span-3 px-4 py-6 text-sm text-slate-400">{title}加载中...</div> : null}
+          {!loading && notes.length === 0 ? <div className="col-span-3 px-4 py-8 text-sm text-slate-500">{emptyText}</div> : null}
+          {!loading
+            ? notes.map((note) => (
+                <div
+                  key={note.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openEditModal(note)}
+                  onKeyDown={(e) => { if (e.key === "Enter") openEditModal(note); }}
+                  className={`rounded-lg border p-3 text-left text-sm transition-colors cursor-pointer ${selectedNote?.id === note.id ? "border-white/20 bg-white/[0.08]" : "border-white/10 bg-[#1a1d28] hover:border-white/20 hover:bg-[#1e2130]"}`}
+                >
+                  <div className="truncate font-medium text-slate-100">{note.title}</div>
+                  <div className="mt-1 truncate text-xs text-slate-500">{note.content || "暂无正文"}</div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {note.tags.length > 0 ? note.tags.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!onFilterTagsChange) return;
+                          const next = filterTags.includes(tag)
+                            ? filterTags.filter((t) => t !== tag)
+                            : [...filterTags, tag];
+                          onFilterTagsChange(next);
+                        }}
+                        className={`rounded-full border px-2 py-0.5 text-[11px] transition ${
+                          filterTags.includes(tag)
+                            ? "border-blue-400/30 bg-blue-500/20 text-blue-300"
+                            : "border-white/10 text-slate-300 hover:bg-white/5"
+                        }`}
+                      >
+                        {tag}
+                      </button>
+                    )) : <span className="text-[11px] text-slate-600">无标签</span>}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-[11px] text-slate-500">{formatDateTime(note.updatedAt)}</span>
                     <button
                       type="button"
-                      onClick={() => {
-                        onSelect(note);
-                        onOpenSettings();
-                      }}
-                      className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/5"
+                      onClick={(e) => { e.stopPropagation(); openEditModal(note); }}
+                      className="rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5"
                     >
-                      属性
+                      编辑
                     </button>
                   </div>
-                ))
-              : null}
+                </div>
+              ))
+            : null}
+        </div>
+        <div className="flex items-center justify-between border-t border-white/10 px-4 py-2.5 text-xs text-slate-400">
+          <span>共 {total} 条，第 {page} / {Math.ceil(total / pageSize)} 页</span>
+          <div className="flex gap-1">
+            <button
+              disabled={page <= 1}
+              onClick={() => onPageChange?.(page - 1)}
+              className="rounded border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-30"
+            >
+              上一页
+            </button>
+            <button
+              disabled={page >= Math.ceil(total / pageSize)}
+              onClick={() => onPageChange?.(page + 1)}
+              className="rounded border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-30"
+            >
+              下一页
+            </button>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="font-medium text-slate-100">{headerTitle}</div>
-              <div className="mt-1 text-xs text-slate-500">自动保存开启，标题支持单独修改。</div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {selectedNote ? (
-                <button
-                  type="button"
-                  onClick={onOpenSettings}
-                  className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/5"
-                >
-                  编辑属性
-                </button>
-              ) : null}
-              {showCreateTodo && selectedNote ? (
-                <button
-                  type="button"
-                  disabled={creatingTodo}
-                  onClick={onCreateTodo}
-                  className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 disabled:opacity-50"
-                >
-                  {creatingTodo ? "创建中..." : "创建任务"}
-                </button>
-              ) : null}
-            </div>
-          </div>
-
-          <form onSubmit={onSave} className="mt-4 space-y-4">
+      {formModalOpen ? (
+        <Modal
+          title={isEditing ? "编辑笔记" : "新建笔记"}
+          description="支持 Markdown，正文首行默认作为标题，自动保存已开启。"
+          onClose={() => setFormModalOpen(false)}
+        >
+          <form onSubmit={(e) => { e.preventDefault(); onSave(e); }} className="space-y-4">
             <Field label="标题">
               <input
                 value={draft.title}
@@ -4892,30 +4987,8 @@ function NotePanel({
               <textarea
                 value={draft.content}
                 onChange={(event) => onDraftChange("content", event.target.value)}
-                className="min-h-[420px] w-full rounded-lg border border-white/10 bg-black/20 px-3 py-3 font-mono text-sm leading-6 text-slate-100 outline-none focus:border-slate-400"
-                placeholder="# 会话入口梳理\n\n直接开始写，系统会自动保存。"
-              />
-            </Field>
-            <div className="flex items-center justify-between gap-3 text-xs text-slate-500">
-              <span>{saving ? "自动保存中..." : "已开启自动保存"}</span>
-              <button type="submit" className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/5">
-                立即保存
-              </button>
-            </div>
-            {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-          </form>
-        </section>
-      </div>
-
-      {settingsOpen && selectedNote ? (
-        <Modal title="编辑笔记属性" description="标签等次要属性放在模态框里修改。" onClose={onCloseSettings}>
-          <form onSubmit={onSave} className="space-y-4">
-            <Field label="标题">
-              <input
-                value={draft.title}
-                onChange={(event) => onDraftChange("title", event.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-                placeholder="笔记标题"
+                className="min-h-[380px] w-full rounded-lg border border-white/10 bg-black/20 px-3 py-3 font-mono text-sm leading-6 text-slate-100 outline-none focus:border-slate-400"
+                placeholder="# 会话入口梳理&#10;&#10;直接开始写，系统会自动保存。"
               />
             </Field>
             <Field label="标签">
@@ -4926,22 +4999,39 @@ function NotePanel({
                 placeholder="逗号分隔，例如：ui, session"
               />
             </Field>
+            <div className="flex items-center gap-3 text-xs text-slate-500">
+              <span>{saving ? "自动保存中..." : "已开启自动保存"}</span>
+            </div>
             {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-            <div className="flex flex-wrap justify-between gap-2">
-              <button
-                type="button"
-                disabled={deletingNoteId === selectedNote.id}
-                onClick={() => onDelete(selectedNote)}
-                className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
-              >
-                {deletingNoteId === selectedNote.id ? "删除中..." : "删除笔记"}
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex gap-2">
-                <button type="button" onClick={onCloseSettings} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+                {showCreateTodo && isEditing && selectedNote ? (
+                  <button
+                    type="button"
+                    disabled={creatingTodo}
+                    onClick={onCreateTodo}
+                    className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 disabled:opacity-50"
+                  >
+                    {creatingTodo ? "创建中..." : "创建任务"}
+                  </button>
+                ) : null}
+              </div>
+              <div className="flex gap-2">
+                {isEditing && selectedNote ? (
+                  <button
+                    type="button"
+                    disabled={deletingNoteId === selectedNote.id}
+                    onClick={() => onDelete(selectedNote)}
+                    className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
+                  >
+                    {deletingNoteId === selectedNote.id ? "删除中..." : "删除笔记"}
+                  </button>
+                ) : null}
+                <button type="button" onClick={() => setFormModalOpen(false)} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
                   关闭
                 </button>
-                <button disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
-                  {saving ? "保存中..." : "保存属性"}
+                <button type="submit" disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
+                  {saving ? "保存中..." : "保存"}
                 </button>
               </div>
             </div>
@@ -4962,6 +5052,10 @@ function TodoPanel({
   draft,
   saving,
   deletingTodoId,
+  total = 0,
+  page = 1,
+  pageSize = 12,
+  onPageChange,
   onCreate,
   onSelect,
   onDraftChange,
@@ -4978,6 +5072,10 @@ function TodoPanel({
   draft: TodoDraft;
   saving: boolean;
   deletingTodoId: string | null;
+  total?: number;
+  page?: number;
+  pageSize?: number;
+  onPageChange?: (page: number) => void;
   onCreate: () => void;
   onSelect: (todo: TodoSummary) => void;
   onDraftChange: (field: keyof TodoDraft, value: string) => void;
@@ -4989,154 +5087,225 @@ function TodoPanel({
     return <EmptyProjectNotice onCreateProject={() => undefined} />;
   }
 
+  const [formModalOpen, setFormModalOpen] = useState(false);
+  const prevSavingRef = useRef(saving);
+
+  useEffect(() => {
+    if (prevSavingRef.current && !saving && !error) {
+      setFormModalOpen(false);
+    }
+    prevSavingRef.current = saving;
+  }, [saving, error]);
+
   const noteOptions = notes.map((note) => ({ id: note.id, title: note.title }));
   const linkedNote = draft.sourceNoteId ? noteOptions.find((note) => note.id === draft.sourceNoteId) ?? null : null;
+  const isEditing = selectedTodo !== null;
+
+  const openCreateModal = () => {
+    onCreate();
+    setFormModalOpen(true);
+  };
+
+  const openEditModal = (todo: TodoSummary) => {
+    onSelect(todo);
+    setFormModalOpen(true);
+  };
+
+  const statusStyle = (status: TodoStatus) => {
+    if (status === "completed") return "border-emerald-400/40 bg-emerald-400/10 text-emerald-300";
+    if (status === "in_progress") return "border-blue-400/40 bg-blue-400/10 text-blue-300";
+    return "border-white/10 text-slate-300";
+  };
 
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.8fr)]">
+    <>
       <section className="rounded-xl border border-white/10 bg-[#151821]">
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div>
             <div className="text-sm font-medium">项目任务</div>
             <div className="mt-1 text-xs text-slate-500">任务属于具体项目，可保留状态、标签和来源笔记关联。</div>
           </div>
-          <button onClick={onCreate} className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950">
+          <button onClick={openCreateModal} className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950">
             新建任务
           </button>
         </div>
-        <div className="min-h-[320px] divide-y divide-white/10">
-          {loading ? <div className="px-4 py-6 text-sm text-slate-400">项目任务加载中...</div> : null}
-          {!loading && todos.length === 0 ? <div className="px-4 py-8 text-sm text-slate-500">当前项目还没有任务，可以手动创建或从笔记生成。</div> : null}
+        <div className="min-h-[200px] grid grid-cols-3 gap-3 p-3 items-start">
+          {loading ? <div className="col-span-3 px-4 py-6 text-sm text-slate-400">项目任务加载中...</div> : null}
+          {!loading && todos.length === 0 ? <div className="col-span-3 px-4 py-8 text-sm text-slate-500">当前项目还没有任务，可以手动创建或从笔记生成。</div> : null}
           {!loading
             ? todos.map((todo) => (
-                <button
+                <div
                   key={todo.id}
-                  onClick={() => onSelect(todo)}
-                  className={`block w-full px-4 py-3 text-left text-sm ${selectedTodo?.id === todo.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openEditModal(todo)}
+                  onKeyDown={(e) => { if (e.key === "Enter") openEditModal(todo); }}
+                  className={`rounded-lg border p-3 text-left text-sm transition-colors cursor-pointer ${selectedTodo?.id === todo.id ? "border-white/20 bg-white/[0.08]" : "border-white/10 bg-[#1a1d28] hover:border-white/20 hover:bg-[#1e2130]"}`}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate font-medium text-slate-100">{todo.title}</div>
-                      <div className="mt-1 line-clamp-2 text-xs text-slate-500">{todo.description || "暂无描述"}</div>
-                    </div>
-                    <span className="shrink-0 rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-slate-300">{formatTodoStatus(todo.status)}</span>
+                  <div className="flex items-center justify-between">
+                    <span className={`rounded-full border px-2 py-0.5 text-[11px] ${statusStyle(todo.status)}`}>
+                      {formatTodoStatus(todo.status)}
+                    </span>
+                    <span className="text-[11px] text-slate-500">{formatDateTime(todo.updatedAt)}</span>
                   </div>
-                  <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500">
-                    <span className="truncate">来源：{todo.sourceNoteId ? "关联笔记" : "无"}</span>
-                    <span>{formatDateTime(todo.updatedAt)}</span>
+                  <div className="mt-1.5 truncate font-medium text-slate-100">{todo.title}</div>
+                  <div className="mt-0.5 truncate text-xs text-slate-500">{todo.description || "暂无描述"}</div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    {todo.tags.length > 0 && todo.tags.map((tag) => (
+                      <span key={tag} className="rounded-full border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-400">{tag}</span>
+                    ))}
+                    {todo.sourceNoteId && <span className="text-[10px] text-slate-600">关联笔记</span>}
                   </div>
-                </button>
+                  <div className="mt-2 flex items-center justify-end">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); openEditModal(todo); }}
+                      className="rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5"
+                    >
+                      编辑
+                    </button>
+                  </div>
+                </div>
               ))
             : null}
         </div>
+        <div className="flex items-center justify-between border-t border-white/10 px-4 py-2.5 text-xs text-slate-400">
+          <span>共 {total} 条，第 {page} / {Math.ceil(total / pageSize)} 页</span>
+          <div className="flex gap-1">
+            <button
+              disabled={page <= 1}
+              onClick={() => onPageChange?.(page - 1)}
+              className="rounded border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-30"
+            >
+              上一页
+            </button>
+            <button
+              disabled={page >= Math.ceil(total / pageSize)}
+              onClick={() => onPageChange?.(page + 1)}
+              className="rounded border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-30"
+            >
+              下一页
+            </button>
+          </div>
+        </div>
       </section>
 
-      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
-        <div className="flex items-center justify-between gap-3">
-          <div className="font-medium text-slate-100">{selectedTodo ? "任务详情" : "新建任务"}</div>
-          {selectedTodo ? (
-            <button
-              type="button"
-              onClick={() => onOpenSession("todo", selectedTodo.id)}
-              className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200"
-            >
-              从任务创建会话
-            </button>
-          ) : null}
-        </div>
-        <form onSubmit={onSave} className="mt-4 space-y-4">
-          <Field label="标题">
-            <input
-              value={draft.title}
-              onChange={(event) => onDraftChange("title", event.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-              placeholder="例如：补完项目页 notes/todos 面板"
-            />
-          </Field>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="状态">
-              <select
-                value={draft.status}
-                onChange={(event) => onDraftChange("status", event.target.value)}
+      {formModalOpen ? (
+        <Modal
+          title={isEditing ? "编辑任务" : "新建任务"}
+          description="管理任务状态、标签和来源笔记关联。"
+          onClose={() => setFormModalOpen(false)}
+        >
+          <form onSubmit={(e) => { e.preventDefault(); onSave(e); }} className="space-y-4">
+            <Field label="标题">
+              <input
+                value={draft.title}
+                onChange={(event) => onDraftChange("title", event.target.value)}
                 className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-              >
-                {todoStatusOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+                placeholder="例如：补完项目页 notes/todos 面板"
+              />
             </Field>
-            <Field label="来源笔记">
-              <select
-                value={draft.sourceNoteId}
-                onChange={(event) => onDraftChange("sourceNoteId", event.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-              >
-                <option value="">不关联</option>
-                {noteOptions.map((note) => (
-                  <option key={note.id} value={note.id}>
-                    {note.title}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <Field label="标签">
-            <input
-              value={draft.tags}
-              onChange={(event) => onDraftChange("tags", event.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-              placeholder="逗号分隔，例如：phase2, api"
-            />
-          </Field>
-          <Field label="描述">
-            <textarea
-              value={draft.description}
-              onChange={(event) => onDraftChange("description", event.target.value)}
-              className="min-h-40 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-              placeholder="补充任务目标、验收点或限制。"
-            />
-          </Field>
-          {linkedNote ? <p className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">当前关联笔记：{linkedNote.title}</p> : null}
-          {selectedTodo?.latestSessionResult ? (
-            <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs text-emerald-50">
-              <div className="font-medium text-emerald-100">最新会话结果</div>
-              <div className="mt-2 text-emerald-100">{selectedTodo.latestSessionResult.sessionName}</div>
-              <div className="mt-1 whitespace-pre-wrap text-emerald-50/90">{selectedTodo.latestSessionResult.summary}</div>
-              <div className="mt-2 flex flex-wrap gap-3 text-emerald-100/80">
-                <span>状态：{selectedTodo.latestSessionResult.status}</span>
-                <span>退出码：{selectedTodo.latestSessionResult.exitCode ?? "无"}</span>
-                <span>更新：{formatDateTime(selectedTodo.latestSessionResult.updatedAt)}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => onOpenSession("todo", selectedTodo.id, selectedTodo.latestSessionResult?.sessionId)}
-                className="mt-3 rounded-md border border-emerald-200/20 px-2 py-1 text-xs text-emerald-50 hover:bg-white/5"
-              >
-                打开会话
-              </button>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="状态">
+                <select
+                  value={draft.status}
+                  onChange={(event) => onDraftChange("status", event.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                >
+                  {todoStatusOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="来源笔记">
+                <select
+                  value={draft.sourceNoteId}
+                  onChange={(event) => onDraftChange("sourceNoteId", event.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                >
+                  <option value="">不关联</option>
+                  {noteOptions.map((note) => (
+                    <option key={note.id} value={note.id}>
+                      {note.title}
+                    </option>
+                  ))}
+                </select>
+              </Field>
             </div>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <button disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
-              {saving ? "保存中..." : selectedTodo ? "保存修改" : "创建任务"}
-            </button>
-            {selectedTodo ? (
-              <button
-                type="button"
-                disabled={deletingTodoId === selectedTodo.id}
-                onClick={() => onDelete(selectedTodo)}
-                className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
-              >
-                {deletingTodoId === selectedTodo.id ? "删除中..." : "删除任务"}
-              </button>
+            <Field label="标签">
+              <input
+                value={draft.tags}
+                onChange={(event) => onDraftChange("tags", event.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                placeholder="逗号分隔，例如：phase2, api"
+              />
+            </Field>
+            <Field label="描述">
+              <textarea
+                value={draft.description}
+                onChange={(event) => onDraftChange("description", event.target.value)}
+                className="min-h-40 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                placeholder="补充任务目标、验收点或限制。"
+              />
+            </Field>
+            {linkedNote ? <p className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">当前关联笔记：{linkedNote.title}</p> : null}
+            {selectedTodo?.latestSessionResult ? (
+              <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs text-emerald-50">
+                <div className="font-medium text-emerald-100">最新会话结果</div>
+                <div className="mt-2 text-emerald-100">{selectedTodo.latestSessionResult.sessionName}</div>
+                <div className="mt-1 whitespace-pre-wrap text-emerald-50/90">{selectedTodo.latestSessionResult.summary}</div>
+                <div className="mt-2 flex flex-wrap gap-3 text-emerald-100/80">
+                  <span>状态：{selectedTodo.latestSessionResult.status}</span>
+                  <span>退出码：{selectedTodo.latestSessionResult.exitCode ?? "无"}</span>
+                  <span>更新：{formatDateTime(selectedTodo.latestSessionResult.updatedAt)}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onOpenSession("todo", selectedTodo.id, selectedTodo.latestSessionResult?.sessionId)}
+                  className="mt-3 rounded-md border border-emerald-200/20 px-2 py-1 text-xs text-emerald-50 hover:bg-white/5"
+                >
+                  打开会话
+                </button>
+              </div>
             ) : null}
-          </div>
-          {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-        </form>
-      </section>
-    </div>
+            {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex gap-2">
+                {isEditing && selectedTodo ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenSession("todo", selectedTodo.id)}
+                    className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200"
+                  >
+                    从任务创建会话
+                  </button>
+                ) : null}
+              </div>
+              <div className="flex gap-2">
+                {isEditing ? (
+                  <button
+                    type="button"
+                    disabled={deletingTodoId === selectedTodo?.id}
+                    onClick={() => { if (selectedTodo) onDelete(selectedTodo); }}
+                    className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
+                  >
+                    {deletingTodoId === selectedTodo?.id ? "删除中..." : "删除任务"}
+                  </button>
+                ) : null}
+                <button type="button" onClick={() => setFormModalOpen(false)} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+                  关闭
+                </button>
+                <button type="submit" disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
+                  {saving ? "保存中..." : isEditing ? "保存修改" : "创建任务"}
+                </button>
+              </div>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+    </>
   );
 }
 

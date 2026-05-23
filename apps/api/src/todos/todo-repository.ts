@@ -25,15 +25,34 @@ export type TodoWriteInput = Required<Pick<CreateTodoRequest, "title" | "status"
   sourceChatSuggestion: ChatArtifactSourceRef | null;
 };
 
-export function listTodos(db: Database, projectId: string) {
+const TODO_SELECT = `SELECT id, project_id, source_note_id, title, description, status, tags, latest_session_result, source_chat_suggestion_json, created_at, updated_at
+     FROM todos`;
+
+export function listTodos(db: Database, projectId: string, opts?: { page?: number; pageSize?: number }) {
+  const page = opts?.page ?? 1;
+  const pageSize = opts?.pageSize ?? 12;
+  const offset = (page - 1) * pageSize;
+
   return selectRows(
     db,
-    `SELECT id, project_id, source_note_id, title, description, status, tags, latest_session_result, source_chat_suggestion_json, created_at, updated_at
-     FROM todos
+    `${TODO_SELECT}
      WHERE project_id = ?
-     ORDER BY updated_at DESC, created_at DESC`,
+     ORDER BY updated_at DESC, created_at DESC
+     LIMIT ${pageSize} OFFSET ${offset}`,
     [projectId]
   );
+}
+
+export function countTodos(db: Database, projectId: string) {
+  const stmt = db.prepare("SELECT COUNT(*) as count FROM todos WHERE project_id = ?", [projectId]);
+  try {
+    if (stmt.step()) {
+      return (stmt.getAsObject() as { count: number }).count;
+    }
+    return 0;
+  } finally {
+    stmt.free();
+  }
 }
 
 export function getProjectTodo(db: Database, projectId: string, todoId: string) {

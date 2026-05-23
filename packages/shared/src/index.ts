@@ -180,6 +180,9 @@ export type NoteSummary = {
 
 export type NotesResponse = {
   notes: NoteSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
 };
 
 export type NoteResponse = {
@@ -216,6 +219,9 @@ export type TodoSummary = {
 
 export type TodosResponse = {
   todos: TodoSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
 };
 
 export type TodoResponse = {
