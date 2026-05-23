@@ -1,5 +1,22 @@
 # 开发进度
 
+## 2026-05-24：页面高度固定为视口高度
+
+### 已完成
+- `styles.css`：`html, body, #root` 统一设为 `height: 100%; overflow: hidden`，从根节点锁定页面高度，防止内容撑开视口。
+- `App.tsx` 根布局：`min-h-screen` → `h-full`，不再允许弹性撑高。
+- `<main>`：添加 `min-h-0` 防止 flex 子元素溢出；聊天模式使用 `overflow-hidden`，由内部 grid 处理滚动；概览/项目模式使用 `overflow-auto`，由 main 统一处理滚动。
+- `HomeWorkspace` 聊天模式：`min-h-[calc(100vh-104px)]` → `h-full`，不再硬编码 calc 偏移量。
+- `HomeChatWorkspace`：`h-[calc(100vh-80px)]` → `h-full`，由父级约束高度而非自行计算。
+- 卡片内容较高时通过所属滚动容器内部滚动，不撑开页面。
+
+### 验收记录
+- `npm run build`：通过。
+- 浏览器验证：通过。
+  - 聊天模式：页面固定 973px，消息区内部滚动（2554px 内容 → 760px 容器），无外层滚动条。
+  - 工作台模式：body=viewport，main 内部滚动（1299px → 906px）。
+  - 项目页面：body=viewport，main 内部滚动（1025px → 906px）。
+
 ## 2026-05-24：项目页面 UI 精简
 
 ### 已完成

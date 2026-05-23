@@ -1894,7 +1894,7 @@ export function App() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#0b0c10] text-slate-100">
+    <div className="flex h-full flex-col bg-[#0b0c10] text-slate-100">
       <header className="flex flex-wrap items-center gap-3 border-b border-white/10 bg-[#111318] px-4 py-3 sm:px-5">
         <div className="mr-1 min-w-44">
           <div className="text-sm font-semibold tracking-wide">Workhorse Station</div>
@@ -1941,7 +1941,7 @@ export function App() {
         <StatusPill connected={apiConnected} loading={apiState.loading} />
       </header>
 
-      <main className={workspaceScope === "home" && activeHomeMode === "chat" ? "flex-1 overflow-auto bg-[#0f1117]" : "flex-1 overflow-auto bg-[#0f1117] p-4 sm:p-5"}>
+      <main className={workspaceScope === "home" && activeHomeMode === "chat" ? "min-h-0 flex-1 overflow-hidden bg-[#0f1117]" : "min-h-0 flex-1 overflow-auto bg-[#0f1117] p-4 sm:p-5"}>
         {workspaceScope === "home" ? (
           <HomeWorkspace
             activeMode={activeHomeMode}
@@ -2381,7 +2381,7 @@ function HomeWorkspace({
   onGlobalNoteFilterTagsChange?: (tags: string[]) => void;
 }) {
   return (
-    <div className={activeMode === "chat" ? "flex min-h-[calc(100vh-104px)] w-full flex-col" : "mx-auto flex w-full max-w-7xl flex-col gap-5"}>
+    <div className={activeMode === "chat" ? "flex h-full w-full flex-col" : "mx-auto flex w-full max-w-7xl flex-col gap-5"}>
       {activeMode === "chat" ? (
         <HomeChatWorkspace
           selectedProject={selectedProject}
@@ -2551,7 +2551,7 @@ function HomeChatWorkspace({
   }, [editingMessageId]);
 
   return (
-    <section className="grid h-[calc(100vh-80px)] grid-cols-1 overflow-hidden bg-[#0f1117] lg:grid-cols-[260px_minmax(0,1fr)]">
+    <section className="grid h-full grid-cols-1 overflow-hidden bg-[#0f1117] lg:grid-cols-[260px_minmax(0,1fr)]">
       <aside className="flex flex-col overflow-hidden bg-[#111318] p-3">
         <div className="shrink-0">
           <div className="flex items-center justify-between gap-2">
