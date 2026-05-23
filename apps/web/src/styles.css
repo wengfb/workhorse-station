@@ -19,3 +19,12 @@ button,
 input {
   font: inherit;
 }
+
+/* 全局隐藏纵向滚动条，保留滚动能力 */
+* {
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+}

@@ -2462,24 +2462,26 @@ function HomeChatWorkspace({
   onConfirmTool: (toolCallId: string, approved: boolean) => void;
 }) {
   return (
-    <section className="grid min-h-[calc(100vh-80px)] flex-1 grid-cols-1 bg-[#0f1117] lg:grid-cols-[260px_minmax(0,1fr)]">
-      <aside className="bg-[#111318] p-3">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-medium text-slate-100">聊天会话</div>
-            <div className="mt-1 text-xs text-slate-500">不同于 Claude Code 会话</div>
+    <section className="grid h-[calc(100vh-80px)] grid-cols-1 overflow-hidden bg-[#0f1117] lg:grid-cols-[260px_minmax(0,1fr)]">
+      <aside className="flex flex-col overflow-hidden bg-[#111318] p-3">
+        <div className="shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-medium text-slate-100">聊天会话</div>
+              <div className="mt-1 text-xs text-slate-500">不同于 Claude Code 会话</div>
+            </div>
+            <button onClick={onCreate} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-white/5">
+              新建
+            </button>
           </div>
-          <button onClick={onCreate} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-white/5">
-            新建
-          </button>
         </div>
-        <div className="mt-3 flex gap-2 overflow-x-auto lg:block lg:space-y-1">
+        <div className="mt-3 flex-1 overflow-y-auto lg:space-y-1">
           {chatSessions.length === 0 ? <div className="rounded-xl border border-dashed border-white/10 p-3 text-sm text-slate-500">还没有聊天会话</div> : null}
           {chatSessions.map((session) => (
-            <div key={session.id} className={`rounded-xl p-3 text-sm ${selectedChat?.id === session.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}>
+            <div key={session.id} className={`group flex items-center rounded-xl p-3 text-sm ${selectedChat?.id === session.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}>
               <button
                 onClick={() => onSelect(session)}
-                className="w-full text-left"
+                className="min-w-0 flex-1 text-left"
               >
                 <div className="truncate font-medium text-slate-100">{session.title}</div>
                 <div className="mt-1 truncate text-xs text-slate-500">{formatDateTime(session.updatedAt)}</div>
@@ -2488,7 +2490,7 @@ function HomeChatWorkspace({
                 type="button"
                 disabled={deletingChatId === session.id}
                 onClick={() => onDelete(session)}
-                className="mt-2 rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-400 hover:bg-white/5 disabled:opacity-50"
+                className="ml-2 shrink-0 rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-400 opacity-0 hover:bg-white/5 group-hover:opacity-100 disabled:opacity-50"
               >
                 {deletingChatId === session.id ? "删除中..." : "删除"}
               </button>
@@ -2648,6 +2650,25 @@ function HomeChatWorkspace({
               <textarea
                 value={draft}
                 onChange={(event) => onDraftChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    if (!event.ctrlKey && !event.shiftKey) {
+                      event.preventDefault();
+                      const form = event.currentTarget.closest("form");
+                      if (form) form.requestSubmit();
+                    } else {
+                      event.preventDefault();
+                      const ta = event.currentTarget;
+                      const start = ta.selectionStart;
+                      const end = ta.selectionEnd;
+                      const newValue = draft.slice(0, start) + "\n" + draft.slice(end);
+                      onDraftChange(newValue);
+                      requestAnimationFrame(() => {
+                        ta.selectionStart = ta.selectionEnd = start + 1;
+                      });
+                    }
+                  }
+                }}
                 className="max-h-36 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600"
                 placeholder="输入消息。我会在需要时帮你搜索、创建笔记、任务或 Prompt。"
               />
