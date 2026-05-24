@@ -253,6 +253,40 @@ export async function registerSessionRoutes(server: FastifyInstance, database: D
     };
   });
 
+  server.get<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/ws", { websocket: true }, (socket, request) => {
+    const sessionId = request.params.sessionId;
+
+    if (!getProjectSession(database.db, request.params.projectId, sessionId)) {
+      socket.close(1008, "会话不存在");
+      return;
+    }
+
+    socket.on("message", (raw: Buffer) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "input" && typeof msg.data === "string") {
+          runtimeManager.write(sessionId, msg.data);
+        } else if (msg.type === "resize" && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
+          runtimeManager.resize(sessionId, msg.cols, msg.rows);
+        }
+      } catch {
+        // ignore malformed messages
+      }
+    });
+
+    const onEvent = (event: { sessionId: string }) => {
+      if (event.sessionId !== sessionId) return;
+      if (socket.readyState !== 1) return;
+      socket.send(JSON.stringify(event));
+    };
+
+    runtimeManager.on("event", onEvent);
+
+    socket.on("close", () => {
+      runtimeManager.off("event", onEvent);
+    });
+  });
+
   server.get<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/events", async (request, reply) => {
     assertProjectExists(database, request.params.projectId);
 

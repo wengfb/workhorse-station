@@ -524,6 +524,11 @@ export function createSessionEventSource(projectId: string, sessionId: string, o
   return source;
 }
 
+export function createSessionWebSocket(projectId: string, sessionId: string) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return new WebSocket(`${protocol}//${window.location.host}/api/projects/${projectId}/sessions/${sessionId}/ws`);
+}
+
 export function deleteSession(projectId: string, sessionId: string) {
   return fetchJson<DeleteSessionResponse>(`/api/projects/${projectId}/sessions/${sessionId}`, {
     method: "DELETE"

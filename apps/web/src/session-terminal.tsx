@@ -3,7 +3,7 @@ import type { SessionRuntimeStatus, SessionStreamEvent } from "@workhorse-statio
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { createSessionEventSource, getSessionTerminal, resizeSessionTerminal, sendSessionInput } from "./api";
+import { createSessionWebSocket, getSessionTerminal } from "./api";
 
 type SessionTerminalProps = {
   projectId: string;
@@ -129,6 +129,25 @@ export function SessionTerminal({ projectId, sessionId, runtimeStatus, onRuntime
     terminal.loadAddon(fitAddon);
     terminal.open(container);
 
+    const ws = createSessionWebSocket(projectId, sessionId);
+
+    ws.onopen = () => {
+      fitAddon.fit();
+      const cols = terminal.cols;
+      const rows = terminal.rows;
+      if (cols > 0 && rows > 0) {
+        ws.send(JSON.stringify({ type: "resize", cols, rows }));
+      }
+    };
+
+    ws.onerror = () => {
+      terminal.write("\r\n[WebSocket 连接失败]\r\n");
+    };
+
+    ws.onclose = () => {
+      terminal.write("\r\n[WebSocket 已断开]\r\n");
+    };
+
     const fitTerminal = () => {
       if (disposed || !container.isConnected || container.clientWidth === 0 || container.clientHeight === 0) {
         return;
@@ -138,8 +157,8 @@ export function SessionTerminal({ projectId, sessionId, runtimeStatus, onRuntime
         fitAddon.fit();
         const cols = terminal.cols;
         const rows = terminal.rows;
-        if (cols > 0 && rows > 0) {
-          void resizeSessionTerminal(projectId, sessionId, { cols, rows }).catch(() => {});
+        if (cols > 0 && rows > 0 && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "resize", cols, rows }));
         }
       } catch {
         // xterm can report transient layout errors while the modal is settling.
@@ -151,12 +170,23 @@ export function SessionTerminal({ projectId, sessionId, runtimeStatus, onRuntime
     };
 
     const inputDisposable = terminal.onData((data) => {
-      if (runtimeStatus !== "running" && runtimeStatus !== "starting" && runtimeStatus !== "stopping") {
+      if (ws.readyState !== WebSocket.OPEN) {
         return;
       }
-
-      void sendSessionInput(projectId, sessionId, { data }).catch(() => {});
+      ws.send(JSON.stringify({ type: "input", data }));
     });
+
+    ws.onmessage = (msg) => {
+      try {
+        const event = JSON.parse(typeof msg.data === "string" ? msg.data : String(msg.data));
+        onRuntimeEvent?.(event);
+        if (event.type === "session.output" && event.output) {
+          terminal.write(event.output);
+        }
+      } catch {
+        // ignore malformed messages
+      }
+    };
 
     const resizeObserver = new ResizeObserver(() => {
       window.requestAnimationFrame(fitTerminal);
@@ -180,23 +210,16 @@ export function SessionTerminal({ projectId, sessionId, runtimeStatus, onRuntime
       })
       .catch(() => {});
 
-    const source = createSessionEventSource(projectId, sessionId, (event) => {
-      onRuntimeEvent?.(event);
-      if (event.type === "session.output" && event.output) {
-        terminal.write(event.output);
-      }
-    });
-
     return () => {
       disposed = true;
       window.cancelAnimationFrame(initialFit);
-      source.close();
+      ws.close();
       inputDisposable.dispose();
       resizeObserver.disconnect();
       window.removeEventListener("resize", handleResize);
       terminal.dispose();
     };
-  }, [isLive, projectId, sessionId, runtimeStatus, onRuntimeEvent]);
+  }, [isLive, projectId, sessionId, onRuntimeEvent]);
 
   if (!isLive) {
     return <div ref={stoppedRef} className="h-[60vh] min-h-[320px] w-full rounded-xl border border-white/10 bg-black" />;

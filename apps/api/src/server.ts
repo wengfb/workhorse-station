@@ -1,5 +1,6 @@
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
+import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -35,6 +36,8 @@ const server = Fastify({
 await server.register(cors, {
   origin: true
 });
+
+await server.register(fastifyWebsocket);
 
 server.setErrorHandler((error, _request, reply) => {
   if (isHttpError(error)) {
