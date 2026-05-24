@@ -1060,9 +1060,9 @@ export function App() {
     }));
   }
 
-  function updateSessionDraft(field: keyof SessionEditorDraft, value: string) {
+  function updateSessionDraft(field: keyof SessionEditorDraft, value: string | boolean) {
     setSessionDraft((current) => {
-      if (field === "worktreeId") {
+      if (field === "worktreeId" && typeof value === "string") {
         return {
           ...current,
           worktreeId: value,
@@ -1070,7 +1070,7 @@ export function App() {
         };
       }
 
-      if (field === "requestedWorktreeName") {
+      if (field === "requestedWorktreeName" && typeof value === "string") {
         return {
           ...current,
           requestedWorktreeName: value,
@@ -2387,6 +2387,7 @@ export function App() {
         <CreateSessionModal
           todos={todos}
           worktrees={worktrees}
+          sessions={sessions}
           selectedProject={selectedProject}
           selectedWorktree={selectedWorktree}
           source={sessionLaunchSource}
@@ -5118,7 +5119,9 @@ function emptySessionEditorDraft(): SessionEditorDraft {
     todoId: "",
     worktreeId: "",
     requestedWorktreeName: "",
-    promptDraftId: ""
+    promptDraftId: "",
+    resumeSessionId: "",
+    forkSession: false
   };
 }
 
@@ -5156,7 +5159,9 @@ function buildSessionDraft({
     todoId: todo?.id ?? "",
     worktreeId: selectedWorktree?.id ?? "",
     requestedWorktreeName: "",
-    promptDraftId: ""
+    promptDraftId: "",
+    resumeSessionId: "",
+    forkSession: false
   };
 }
 
@@ -5168,7 +5173,9 @@ function promptDraftToSessionDraft(promptDraft: PromptDraftSummary): SessionEdit
     todoId: promptDraft.todoId ?? "",
     worktreeId: promptDraft.worktreeId ?? "",
     requestedWorktreeName: promptDraft.requestedWorktreeName ?? "",
-    promptDraftId: promptDraft.id
+    promptDraftId: promptDraft.id,
+    resumeSessionId: "",
+    forkSession: false
   };
 }
 
@@ -5182,7 +5189,9 @@ function sessionToDraft(session: SessionSummary, promptDrafts: PromptDraftSummar
     todoId: session.todoId ?? "",
     worktreeId: session.worktreeId ?? "",
     requestedWorktreeName: session.requestedWorktreeName ?? promptDraft?.requestedWorktreeName ?? "",
-    promptDraftId: session.promptDraftId ?? ""
+    promptDraftId: session.promptDraftId ?? "",
+    resumeSessionId: "",
+    forkSession: false
   };
 }
 
@@ -5207,7 +5216,9 @@ function sessionDraftToCreateSessionRequest(draft: SessionEditorDraft, source: S
     source,
     name: optionalString(draft.sessionName),
     prompt: draft.prompt,
-    status: "draft" as const
+    status: "draft" as const,
+    resumeSessionId: optionalId(draft.resumeSessionId),
+    forkSession: draft.forkSession
   };
 }
 

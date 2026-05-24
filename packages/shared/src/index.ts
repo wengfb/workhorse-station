@@ -381,6 +381,7 @@ export type SessionSummary = {
   resolvedWorktreePath: string | null;
   exitCode: number | null;
   lastActivityAt: string | null;
+  terminalBuffer: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -462,6 +463,8 @@ export type CreateSessionRequest = {
   prompt: string;
   status?: SessionStatus;
   summary?: string | null;
+  resumeSessionId?: string | null;
+  forkSession?: boolean;
 };
 
 export type UpdateSessionRequest = {
@@ -469,6 +472,26 @@ export type UpdateSessionRequest = {
   summary?: string | null;
   applyResultToTodo?: boolean;
   applyResultToProject?: boolean;
+};
+
+export type SessionHistoryMessageBlock = {
+  type: "text" | "tool_use" | "tool_result";
+  text?: string;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolResult?: string;
+};
+
+export type SessionHistoryMessage = {
+  role: "user" | "assistant";
+  content: SessionHistoryMessageBlock[];
+  timestamp: string | null;
+  isSidechain: boolean;
+};
+
+export type SessionHistoryResponse = {
+  sessionId: string;
+  messages: SessionHistoryMessage[];
 };
 
 export type ChatRole = "user" | "assistant";

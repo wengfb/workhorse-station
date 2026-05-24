@@ -12,8 +12,14 @@ type SessionTerminalProps = {
   onRuntimeEvent?: (event: SessionStreamEvent) => void;
 };
 
+const termTheme = {
+  background: "#000000",
+  foreground: "#d1fae5"
+};
+
 export function SessionTerminal({ projectId, sessionId, runtimeStatus, onRuntimeEvent }: SessionTerminalProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const stoppedRef = useRef<HTMLDivElement | null>(null);
   const [snapshotBuffer, setSnapshotBuffer] = useState("");
   const isLive = runtimeStatus === "starting" || runtimeStatus === "running" || runtimeStatus === "stopping";
 
@@ -37,6 +43,49 @@ export function SessionTerminal({ projectId, sessionId, runtimeStatus, onRuntime
     };
   }, [projectId, sessionId]);
 
+  // Readonly terminal for stopped sessions — renders ANSI buffer correctly
+  useEffect(() => {
+    if (isLive) {
+      return;
+    }
+
+    const container = stoppedRef.current;
+    if (!container) {
+      return;
+    }
+
+    const terminal = new Terminal({
+      cursorBlink: false,
+      disableStdin: true,
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontSize: 13,
+      theme: termTheme,
+      scrollback: 100_000
+    });
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.open(container);
+
+    const fit = () => {
+      try {
+        fitAddon.fit();
+      } catch {
+        // transient layout error
+      }
+    };
+
+    fit();
+    terminal.write(snapshotBuffer || "暂无终端输出");
+
+    const observer = new ResizeObserver(() => fit());
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+      terminal.dispose();
+    };
+  }, [isLive, snapshotBuffer]);
+
   useEffect(() => {
     if (!isLive) {
       return;
@@ -51,10 +100,7 @@ export function SessionTerminal({ projectId, sessionId, runtimeStatus, onRuntime
       cursorBlink: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
       fontSize: 13,
-      theme: {
-        background: "#000000",
-        foreground: "#d1fae5"
-      }
+      theme: termTheme
     });
     const fitAddon = new FitAddon();
     let disposed = false;
@@ -132,11 +178,7 @@ export function SessionTerminal({ projectId, sessionId, runtimeStatus, onRuntime
   }, [isLive, projectId, sessionId, runtimeStatus, onRuntimeEvent]);
 
   if (!isLive) {
-    return (
-      <div className="h-[60vh] min-h-[320px] w-full overflow-auto rounded-xl border border-white/10 bg-black p-4 font-mono text-xs text-slate-300">
-        <pre className="whitespace-pre-wrap break-words">{snapshotBuffer || "暂无终端输出"}</pre>
-      </div>
-    );
+    return <div ref={stoppedRef} className="h-[60vh] min-h-[320px] w-full rounded-xl border border-white/10 bg-black" />;
   }
 
   return <div ref={containerRef} className="h-[60vh] min-h-[320px] w-full rounded-xl border border-white/10 bg-black" />;

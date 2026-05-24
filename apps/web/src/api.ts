@@ -45,6 +45,7 @@ import type {
   SessionsResponse,
   SessionStreamEvent,
   SessionTerminalSnapshotResponse,
+  SessionHistoryResponse,
   SkillResponse,
   SkillsResponse,
   StoreSkillResponse,
@@ -495,6 +496,10 @@ export function stopSession(projectId: string, sessionId: string) {
 
 export function getSessionTerminal(projectId: string, sessionId: string) {
   return fetchJson<SessionTerminalSnapshotResponse>(`/api/projects/${projectId}/sessions/${sessionId}/terminal`);
+}
+
+export function getSessionHistory(projectId: string, sessionId: string) {
+  return fetchJson<SessionHistoryResponse>(`/api/projects/${projectId}/sessions/${sessionId}/history`);
 }
 
 export function sendSessionInput(projectId: string, sessionId: string, input: SessionInputRequest) {

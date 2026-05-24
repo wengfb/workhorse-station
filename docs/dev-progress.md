@@ -525,6 +525,28 @@
   - 浏览器控制台无错误。
 
 
+## 2026-05-24：终端 buffer 持久化、JSONL 历史回放与会话续接
+
+### 已完成
+- 终端 buffer 持久化：每 10 秒 + 50KB 阈值增量 flush 到 `terminal_buffer` 列，会话退出时最终保存。
+- 终端快照 API 支持 DB fallback：运行中会话从内存取 buffer，已停止会话从 DB 读取 `terminal_buffer`。
+- 新增 `GET /api/projects/:projectId/sessions/:sessionId/history`：解析 `~/.claude/projects/<cwd-slug>/<sessionId>.jsonl`，返回结构化的 user/assistant 消息列表。
+- `parseClaudeCodeHistory()` 支持 text、tool_use、tool_result 三种 block 类型，自动将 tool_result 关联到前一条 assistant 消息。
+- 前端会话模态框新增「查看历史」tab：聊天气泡渲染（用户右蓝、AI 左灰、工具调用绿底），支持 Markdown 文本、分支标记和时间戳。
+- 会话续接：创建会话时可通过 `resumeSessionId` + `forkSession` 参数从已有会话继续或分叉，CLI 参数映射为 `--resume` / `--fork-session`。
+- 创建会话时将 prompt 作为 CLI 位置参数传入 Claude Code，保证提示词注入。
+- 会话停止后终端使用只读 xterm.js（`disableStdin: true`）渲染 ANSI buffer，替代原来的 `<pre>` 标签，避免乱码。
+- `resolveClaudeBinary()` 增加 nvm 路径候选和 `which claude` 命令回退，解决 CLAUDE_BIN 未找到问题。
+- 共享类型新增 `SessionHistoryMessage`、`SessionHistoryMessageBlock`、`SessionHistoryResponse`。
+
+### 关键修复
+- 修复 `getSessionHistory` 泛型双重包装：`fetchJson<ApiResponse<SessionHistoryResponse>>` → `fetchJson<SessionHistoryResponse>`，前端 `res.ok` / `res.data.messages` → `data.messages`。根因：`fetchJson` 已解包 `ApiResponse`，再套一层导致前端取 `res.ok` 为 `undefined`，历史数据永不渲染。
+
+### 验收记录
+- `pnpm -r typecheck`：通过。
+- `pnpm -r build`：通过。
+- API 验证：`GET /api/projects/.../sessions/.../history` 返回 user/assistant 消息数组，包含 text 和 tool_use block。
+
 ## 2026-05-21：Phase 0 工程骨架首个切片
 
 ### 已完成

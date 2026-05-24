@@ -20,6 +20,8 @@ export type SessionWriteInput = {
   resolvedWorktreePath: string | null;
   exitCode: number | null;
   lastActivityAt: string | null;
+  resumeSessionId?: string | null;
+  forkSession?: boolean;
 };
 
 type SessionRow = {
@@ -40,6 +42,7 @@ type SessionRow = {
   resolved_worktree_path: string | null;
   exit_code: number | null;
   last_activity_at: string | null;
+  terminal_buffer: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -47,7 +50,7 @@ type SessionRow = {
 export function listSessions(db: Database, projectId: string) {
   return selectRows(
     db,
-    `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, created_at, updated_at
+    `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, terminal_buffer, created_at, updated_at
      FROM sessions
      WHERE project_id = ?
      ORDER BY updated_at DESC, created_at DESC`,
@@ -58,7 +61,7 @@ export function listSessions(db: Database, projectId: string) {
 export function getProjectSession(db: Database, projectId: string, sessionId: string) {
   return selectOne(
     db,
-    `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, created_at, updated_at
+    `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, terminal_buffer, created_at, updated_at
      FROM sessions
      WHERE project_id = ? AND id = ?`,
     [projectId, sessionId]
@@ -207,6 +210,20 @@ export function reconcileSessionsOnStartup(db: Database) {
   );
 }
 
+export function updateSessionTerminalBuffer(
+  db: Database,
+  projectId: string,
+  sessionId: string,
+  buffer: string
+) {
+  db.run(
+    `UPDATE sessions
+     SET terminal_buffer = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE project_id = ? AND id = ?`,
+    [buffer, projectId, sessionId]
+  );
+}
+
 export function deleteSessionRecord(db: Database, projectId: string, sessionId: string) {
   db.run(`DELETE FROM sessions WHERE project_id = ? AND id = ?`, [projectId, sessionId]);
   return db.getRowsModified() > 0;
@@ -260,6 +277,7 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     resolvedWorktreePath: row.resolved_worktree_path,
     exitCode: row.exit_code,
     lastActivityAt: row.last_activity_at,
+    terminalBuffer: row.terminal_buffer,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

@@ -1,7 +1,9 @@
-import type { FormEvent, ReactNode } from "react";
-import type { ProjectSummary, PromptDraftSummary, SessionSource, SessionStatus, SessionStreamEvent, SessionSummary, TodoSummary, WorktreeSummary } from "@workhorse-station/shared";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import type { ProjectSummary, PromptDraftSummary, SessionSource, SessionStatus, SessionStreamEvent, SessionSummary, TodoSummary, WorktreeSummary, SessionHistoryMessage, SessionHistoryMessageBlock } from "@workhorse-station/shared";
 import { SessionTerminal } from "./session-terminal";
 import { Select } from "./components/ui/Select";
+import { getSessionHistory } from "./api";
+import { MarkdownContent } from "./markdown-content";
 
 export type SessionEditorDraft = {
   sessionName: string;
@@ -11,6 +13,8 @@ export type SessionEditorDraft = {
   worktreeId: string;
   requestedWorktreeName: string;
   promptDraftId: string;
+  resumeSessionId: string;
+  forkSession: boolean;
 };
 
 type SessionView = "terminal" | "history";
@@ -108,6 +112,7 @@ export function SessionsWorkspace({
 export function CreateSessionModal({
   todos,
   worktrees,
+  sessions,
   selectedProject,
   selectedWorktree,
   source,
@@ -125,6 +130,7 @@ export function CreateSessionModal({
 }: {
   todos: TodoSummary[];
   worktrees: WorktreeSummary[];
+  sessions: SessionSummary[];
   selectedProject: ProjectSummary | null;
   selectedWorktree: WorktreeSummary | null;
   source: SessionSource;
@@ -134,7 +140,7 @@ export function CreateSessionModal({
   previewingPrompt: boolean;
   savingPromptDraft: boolean;
   creatingSession: boolean;
-  onDraftChange: (field: keyof SessionEditorDraft, value: string) => void;
+  onDraftChange: (field: keyof SessionEditorDraft, value: string | boolean) => void;
   onPreviewPrompt: () => void;
   onSavePromptDraft: () => void;
   onCreateSession: () => void;
@@ -208,6 +214,35 @@ export function CreateSessionModal({
               </Field>
             </div>
             <p className="mt-2 text-xs text-slate-500">已有 Worktree 和新 Worktree 名称二选一；填写新名称时会在启动会话时自动创建。</p>
+            {sessions.length > 0 ? (
+              <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <Field label="续接历史会话（可选）">
+                  <Select
+                    value={draft.resumeSessionId}
+                    onChange={(value) => onDraftChange("resumeSessionId", value)}
+                    options={[
+                      { value: "", label: "不续接，全新会话" },
+                      ...sessions
+                        .filter((s) => s.status === "completed" || s.status === "failed")
+                        .map((s) => ({ value: s.id, label: `${s.name} (${s.status})` }))
+                    ]}
+                  />
+                </Field>
+                {draft.resumeSessionId ? (
+                  <Field label="分叉模式">
+                    <label className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                      <input
+                        type="checkbox"
+                        checked={draft.forkSession}
+                        onChange={(event) => onDraftChange("forkSession", event.target.checked)}
+                        className="rounded border-white/10 bg-black/20"
+                      />
+                      分叉会话（保留原会话历史，在新分支中继续）
+                    </label>
+                  </Field>
+                ) : null}
+              </div>
+            ) : null}
             <div className="mt-4">
               <Field label="Prompt 正文">
                 <textarea
@@ -312,6 +347,31 @@ export function SessionModal({
   const sessionStatus = selectedSession?.status ?? "draft";
   const selectedSessionTodo = selectedSession?.todoId ? todos.find((todo) => todo.id === selectedSession.todoId) ?? null : null;
   const runtimeStatus = selectedSession?.runtimeStatus ?? null;
+
+  const [historyMessages, setHistoryMessages] = useState<SessionHistoryMessage[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    if (view !== "history" || !selectedSession || !selectedProject) {
+      return;
+    }
+
+    let cancelled = false;
+    setHistoryLoading(true);
+
+    void getSessionHistory(selectedProject.id, selectedSession.id)
+      .then((data) => {
+        if (!cancelled) {
+          setHistoryMessages(data.messages);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [view, selectedSession?.id, selectedProject?.id]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 p-0 md:p-6">
@@ -426,61 +486,75 @@ export function SessionModal({
                   <section className="rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">请先选择一个已创建会话。</section>
                 )
               ) : (
-                <section className="space-y-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-300">
-                  <div>
-                    <div className="font-medium text-slate-100">会话历史</div>
-                    <p className="mt-2 text-slate-400">这里会保留会话元数据、结果摘要和 prompt 快照；终端输出仍以实时窗口和停止后的快照为主。</p>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <DetailCard label="会话" value={selectedSession?.name || draft.sessionName || "未选择"} />
-                    <DetailCard label="来源" value={sessionSource === "todo" ? "任务" : "直接创建"} />
-                    <DetailCard label="项目" value={selectedProject?.name ?? "未选择"} />
-                    <DetailCard label="任务" value={selectedSessionTodo?.title ?? "未关联"} />
-                    <DetailCard label="Worktree" value={sessionWorktree?.name || selectedWorktree?.name || draft.requestedWorktreeName || "未选择"} />
-                    <DetailCard label="状态" value={sessionStatus} />
-                    <DetailCard label="运行态" value={runtimeStatus ?? "stopped"} />
-                    <DetailCard label="退出码" value={selectedSession?.exitCode === null || selectedSession?.exitCode === undefined ? "无" : String(selectedSession.exitCode)} />
-                    <DetailCard label="最后活动" value={selectedSession?.lastActivityAt ? formatDateTime(selectedSession.lastActivityAt) : "暂无"} />
-                    <DetailCard label="运行目录" value={selectedSession?.cwd || selectedSession?.resolvedWorktreePath || "未选择"} />
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-                    <div className="text-xs text-slate-500">会话结果</div>
-                    <textarea
-                      value={resultDraft}
-                      onChange={(event) => onResultDraftChange(event.target.value)}
-                      className="mt-2 min-h-32 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-                      placeholder="记录这次 Claude Code 会话完成了什么、产出了什么、后续建议是什么。"
-                    />
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={!selectedSession || savingResult}
-                        onClick={onSaveResult}
-                        className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {savingResult ? "保存中..." : "保存结果"}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!selectedSession || !selectedSession.todoId || savingResult || !resultDraft.trim()}
-                        onClick={onApplyResultToTodo}
-                        className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        写回任务
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!selectedSession || savingResult || !resultDraft.trim()}
-                        onClick={onApplyResultToProject}
-                        className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-sm text-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        写回项目
-                      </button>
+                <section className="space-y-4 text-sm text-slate-300">
+                  <details className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                    <summary className="cursor-pointer font-medium text-slate-100">会话信息</summary>
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <DetailCard label="会话" value={selectedSession?.name || draft.sessionName || "未选择"} />
+                      <DetailCard label="来源" value={sessionSource === "todo" ? "任务" : "直接创建"} />
+                      <DetailCard label="项目" value={selectedProject?.name ?? "未选择"} />
+                      <DetailCard label="任务" value={selectedSessionTodo?.title ?? "未关联"} />
+                      <DetailCard label="Worktree" value={sessionWorktree?.name || selectedWorktree?.name || draft.requestedWorktreeName || "未选择"} />
+                      <DetailCard label="状态" value={sessionStatus} />
+                      <DetailCard label="运行态" value={runtimeStatus ?? "stopped"} />
+                      <DetailCard label="退出码" value={selectedSession?.exitCode === null || selectedSession?.exitCode === undefined ? "无" : String(selectedSession.exitCode)} />
+                      <DetailCard label="最后活动" value={selectedSession?.lastActivityAt ? formatDateTime(selectedSession.lastActivityAt) : "暂无"} />
+                      <DetailCard label="运行目录" value={selectedSession?.cwd || selectedSession?.resolvedWorktreePath || "未选择"} />
                     </div>
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-                    <div className="text-xs text-slate-500">Prompt 快照</div>
-                    <div className="mt-2 whitespace-pre-wrap text-slate-200">{selectedSession?.prompt || draft.prompt || "暂无 prompt"}</div>
+                    <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
+                      <div className="text-xs text-slate-500">Prompt 快照</div>
+                      <div className="mt-2 whitespace-pre-wrap text-slate-200">{selectedSession?.prompt || draft.prompt || "暂无 prompt"}</div>
+                    </div>
+                    <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
+                      <div className="text-xs text-slate-500">会话结果</div>
+                      <textarea
+                        value={resultDraft}
+                        onChange={(event) => onResultDraftChange(event.target.value)}
+                        className="mt-2 min-h-24 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                        placeholder="记录这次 Claude Code 会话完成了什么..."
+                      />
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={!selectedSession || savingResult}
+                          onClick={onSaveResult}
+                          className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {savingResult ? "保存中..." : "保存结果"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!selectedSession || !selectedSession.todoId || savingResult || !resultDraft.trim()}
+                          onClick={onApplyResultToTodo}
+                          className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          写回任务
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!selectedSession || savingResult || !resultDraft.trim()}
+                          onClick={onApplyResultToProject}
+                          className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-sm text-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          写回项目
+                        </button>
+                      </div>
+                    </div>
+                  </details>
+
+                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="font-medium text-slate-100">对话记录</div>
+                    {historyLoading ? (
+                      <div className="mt-4 text-center text-slate-500">加载中...</div>
+                    ) : historyMessages.length === 0 ? (
+                      <div className="mt-4 text-slate-500">暂无对话记录{selectedSession?.status === "running" ? "（会话运行中，停止后可查看）" : ""}。</div>
+                    ) : (
+                      <div className="mt-4 space-y-4">
+                        {historyMessages.map((msg, i) => (
+                          <HistoryMessageBlock key={i} message={msg} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </section>
               )}
@@ -554,4 +628,58 @@ function DetailCard({ label, value }: { label: string; value: string }) {
 
 function formatDateTime(value: string) {
   return value.replace("T", " ").slice(0, 16);
+}
+
+function HistoryMessageBlock({ message }: { message: SessionHistoryMessage }) {
+  const isUser = message.role === "user";
+
+  return (
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div className={`max-w-[85%] rounded-xl px-4 py-3 ${isUser ? "bg-sky-500/20 border border-sky-400/20" : "bg-white/5 border border-white/10"}`}>
+        <div className="mb-1 flex items-center gap-2">
+          <span className="text-xs font-medium text-slate-400">{isUser ? "用户" : "Claude"}</span>
+          {message.isSidechain && (
+            <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-300">分支</span>
+          )}
+          {message.timestamp && (
+            <span className="text-[10px] text-slate-600">{formatDateTime(message.timestamp)}</span>
+          )}
+        </div>
+        <div className="space-y-2">
+          {message.content.map((block, j) => (
+            <HistoryBlock key={j} block={block} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HistoryBlock({ block }: { block: SessionHistoryMessageBlock }) {
+  switch (block.type) {
+    case "text":
+      return block.text ? (
+        <div className="text-sm leading-relaxed text-slate-200">
+          <MarkdownContent content={block.text} />
+        </div>
+      ) : null;
+    case "tool_use":
+      return (
+        <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 px-3 py-2 text-xs">
+          <span className="font-medium text-emerald-300">工具调用: {block.toolName}</span>
+          {block.toolInput && Object.keys(block.toolInput).length > 0 && (
+            <pre className="mt-1 whitespace-pre-wrap text-slate-400">{JSON.stringify(block.toolInput, null, 2)}</pre>
+          )}
+        </div>
+      );
+    case "tool_result":
+      return (
+        <div className="rounded-lg border border-slate-400/20 bg-slate-400/5 px-3 py-2 text-xs">
+          <div className="font-medium text-slate-400">工具结果</div>
+          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-slate-400">{block.toolResult?.slice(0, 2000) ?? ""}</pre>
+        </div>
+      );
+    default:
+      return null;
+  }
 }

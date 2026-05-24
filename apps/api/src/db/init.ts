@@ -215,6 +215,7 @@ function createTables(db: Database, fts5: boolean) {
   ensureColumn(db, "chat_messages", "tool_calls_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "chat_messages", "tool_results_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "prompt_drafts", "source_chat_suggestion_json", "TEXT");
+  ensureColumn(db, "sessions", "terminal_buffer", "TEXT");
 }
 
 function ensureColumn(db: Database, tableName: string, columnName: string, definition: string) {

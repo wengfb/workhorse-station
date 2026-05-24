@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { DatabaseState } from "../db/init.js";
-import { getProjectSession, updateSessionCompletion, updateSessionRuntime } from "./session-repository.js";
+import { getProjectSession, updateSessionCompletion, updateSessionRuntime, updateSessionTerminalBuffer } from "./session-repository.js";
 import { resolveClaudeBinary } from "./claude-cli.js";
 import { SessionPty } from "./session-pty.js";
 import { createRuntimeEvent } from "./session-events.js";
@@ -19,9 +19,13 @@ export type RuntimeSessionState = {
 type RuntimeSession = RuntimeSessionState & {
   pty: SessionPty;
   stopRequested: boolean;
+  flushTimer: ReturnType<typeof setInterval>;
+  lastFlushedLength: number;
 };
 
 const maxBufferLength = 200_000;
+const flushIntervalMs = 10_000;
+const flushThresholdBytes = 50_000;
 
 export class SessionRuntimeManager extends EventEmitter {
   private readonly sessions = new Map<string, RuntimeSession>();
@@ -54,9 +58,23 @@ export class SessionRuntimeManager extends EventEmitter {
     projectId: string;
     cwd: string;
     resolvedWorktreePath: string | null;
+    prompt: string;
+    resumeSessionId?: string;
+    forkSession?: boolean;
   }) {
     const command = await resolveClaudeBinary();
     const pty = new SessionPty();
+
+    const flushToDb = () => {
+      if (state.buffer.length > state.lastFlushedLength) {
+        state.lastFlushedLength = state.buffer.length;
+        updateSessionTerminalBuffer(this.database.db, input.projectId, input.sessionId, state.buffer);
+        this.database.persist();
+      }
+    };
+
+    const flushTimer = setInterval(flushToDb, flushIntervalMs);
+
     const state: RuntimeSession = {
       sessionId: input.sessionId,
       projectId: input.projectId,
@@ -67,7 +85,9 @@ export class SessionRuntimeManager extends EventEmitter {
       buffer: "",
       lastActivityAt: null,
       pty,
-      stopRequested: false
+      stopRequested: false,
+      flushTimer,
+      lastFlushedLength: 0
     };
 
     this.sessions.set(input.sessionId, state);
@@ -84,15 +104,26 @@ export class SessionRuntimeManager extends EventEmitter {
         lastActivityAt: state.lastActivityAt
       });
       this.database.persist();
+
+      if (state.buffer.length - state.lastFlushedLength >= flushThresholdBytes) {
+        state.lastFlushedLength = state.buffer.length;
+        updateSessionTerminalBuffer(this.database.db, input.projectId, input.sessionId, state.buffer);
+        this.database.persist();
+      }
+
       this.emit("event", createRuntimeEvent({ type: "session.output", sessionId: input.sessionId, output: data, runtimeStatus: state.runtimeStatus, cwd: state.cwd, pid: state.pid }));
     });
 
     pty.on("exit", ({ exitCode }: { exitCode: number }) => {
+      clearInterval(state.flushTimer);
       const stoppedByUser = state.stopRequested;
       const currentSession = getProjectSession(this.database.db, input.projectId, input.sessionId);
       const currentSummary = currentSession?.summary ?? null;
       state.runtimeStatus = stoppedByUser || exitCode === 0 ? "stopped" : "failed";
       state.lastActivityAt = new Date().toISOString();
+
+      updateSessionTerminalBuffer(this.database.db, input.projectId, input.sessionId, state.buffer);
+
       updateSessionCompletion(this.database.db, input.projectId, input.sessionId, {
         status: stoppedByUser || exitCode === 0 ? "completed" : "failed",
         runtimeStatus: state.runtimeStatus,
@@ -116,9 +147,11 @@ export class SessionRuntimeManager extends EventEmitter {
       this.sessions.delete(input.sessionId);
     });
 
+    const cliArgs = buildClaudeArgs(input.sessionId, input.prompt, input.resumeSessionId, input.forkSession);
+
     const pid = pty.start({
       command,
-      args: ["--dangerously-skip-permissions"],
+      args: cliArgs,
       cwd: input.cwd,
       env: {
         ...process.env,
@@ -188,4 +221,23 @@ export class SessionRuntimeManager extends EventEmitter {
     session.pty.stop();
     return true;
   }
+}
+
+function buildClaudeArgs(sessionId: string, prompt: string, resumeSessionId?: string, forkSession?: boolean): string[] {
+  const args = ["--dangerously-skip-permissions"];
+
+  if (resumeSessionId) {
+    args.push("--resume", resumeSessionId);
+    if (forkSession) {
+      args.push("--fork-session");
+    }
+  } else {
+    args.push("--session-id", sessionId);
+  }
+
+  if (prompt.trim()) {
+    args.push(prompt);
+  }
+
+  return args;
 }

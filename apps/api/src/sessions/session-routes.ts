@@ -15,7 +15,10 @@ import type {
   SessionSummary,
   SessionTerminalSnapshotResponse,
   StopSessionResponse,
-  UpdateSessionRequest
+  UpdateSessionRequest,
+  SessionHistoryResponse,
+  SessionHistoryMessage,
+  SessionHistoryMessageBlock
 } from "@workhorse-station/shared";
 import type { DatabaseState } from "../db/init.js";
 import { getProject, updateProjectLatestSessionResult } from "../projects/project-repository.js";
@@ -36,6 +39,11 @@ import {
 } from "./session-repository.js";
 import { resolveSessionWorktree } from "./resolve-session-worktree.js";
 import { SessionRuntimeManager } from "./session-runtime-manager.js";
+import { readFileSync, existsSync } from "node:fs";
+import { createInterface } from "node:readline";
+import { createReadStream } from "node:fs";
+import path from "node:path";
+import os from "node:os";
 
  type ProjectParams = {
   projectId: string;
@@ -88,7 +96,10 @@ export async function registerSessionRoutes(server: FastifyInstance, database: D
         sessionId: session.id,
         projectId: request.params.projectId,
         cwd: resolvedWorktree.cwd,
-        resolvedWorktreePath: resolvedWorktree.resolvedWorktreePath
+        resolvedWorktreePath: resolvedWorktree.resolvedWorktreePath,
+        prompt: input.prompt,
+        resumeSessionId: input.resumeSessionId ?? undefined,
+        forkSession: input.forkSession ?? false
       });
 
       const launchedSession = updateSessionLaunch(database.db, request.params.projectId, session.id, {
@@ -191,7 +202,7 @@ export async function registerSessionRoutes(server: FastifyInstance, database: D
       ok: true,
       data: snapshot ?? {
         sessionId: currentSession.id,
-        buffer: "",
+        buffer: currentSession.terminalBuffer ?? "",
         runtimeStatus: currentSession.runtimeStatus,
         cwd: currentSession.cwd
       }
@@ -272,6 +283,25 @@ export async function registerSessionRoutes(server: FastifyInstance, database: D
     });
   });
 
+  server.get<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/history", async (request): Promise<ApiResponse<SessionHistoryResponse>> => {
+    assertProjectExists(database, request.params.projectId);
+    const session = getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+
+    if (!session) {
+      throw new HttpError(404, "session_not_found", "会话不存在");
+    }
+
+    const messages = await parseClaudeCodeHistory(session.cwd ?? undefined, request.params.sessionId);
+
+    return {
+      ok: true,
+      data: {
+        sessionId: request.params.sessionId,
+        messages
+      }
+    };
+  });
+
   server.delete<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId", async (request): Promise<ApiResponse<DeleteSessionResponse>> => {
     assertProjectExists(database, request.params.projectId);
     const stoppedRuntime = runtimeManager.stopSession(request.params.projectId, request.params.sessionId);
@@ -328,6 +358,8 @@ function buildSessionInput(database: DatabaseState, projectId: string, body: Cre
 
   const prompt = normalizePrompt(body.prompt);
   const source = normalizeSource(body.source);
+  const resumeSessionId = normalizeOptionalId(body.resumeSessionId, "续接会话 ID 不合法");
+  const forkSession = normalizeBoolean(body.forkSession, "分叉标记不合法");
 
   return {
     projectId,
@@ -345,7 +377,9 @@ function buildSessionInput(database: DatabaseState, projectId: string, body: Cre
     cwd: null,
     resolvedWorktreePath: null,
     exitCode: null,
-    lastActivityAt: null
+    lastActivityAt: null,
+    resumeSessionId,
+    forkSession
   };
 }
 
@@ -529,4 +563,116 @@ function normalizeOptionalId(value: unknown, message: string) {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function projectCwdToClaudeSlug(cwd: string): string {
+  return cwd.replace(/\//g, "-");
+}
+
+type JsonlAssistantContent = {
+  type: string;
+  text?: string;
+  name?: string;
+  input?: Record<string, unknown>;
+};
+
+type JsonlUserMessage = {
+  role: string;
+  content: string | Array<{ type: string; tool_use_id?: string; content?: unknown }>;
+};
+
+type JsonlRecord = {
+  type: string;
+  message?: JsonlUserMessage | { content: JsonlAssistantContent[] };
+  isSidechain?: boolean;
+  timestamp?: string;
+};
+
+async function parseClaudeCodeHistory(cwd: string | undefined, sessionId: string): Promise<SessionHistoryMessage[]> {
+  if (!cwd) {
+    return [];
+  }
+
+  const slug = projectCwdToClaudeSlug(cwd);
+  const jsonlPath = path.join(os.homedir(), ".claude", "projects", slug, `${sessionId}.jsonl`);
+
+  if (!existsSync(jsonlPath)) {
+    return [];
+  }
+
+  const messages: SessionHistoryMessage[] = [];
+  let currentAssistant: SessionHistoryMessage | null = null;
+
+  const fileStream = createReadStream(jsonlPath);
+  const rl = createInterface({ input: fileStream, crlfDelay: Infinity });
+
+  for await (const line of rl) {
+    try {
+      const record: JsonlRecord = JSON.parse(line);
+
+      if (record.type === "user" && record.message) {
+        const msg = record.message as JsonlUserMessage;
+
+        if (Array.isArray(msg.content)) {
+          const hasToolResult = msg.content.some(c => c.type === "tool_result");
+          if (hasToolResult) {
+            const blocks: SessionHistoryMessageBlock[] = msg.content
+              .filter(c => c.type === "tool_result")
+              .map(c => ({
+                type: "tool_result" as const,
+                toolResult: typeof c.content === "string" ? c.content : JSON.stringify(c.content)
+              }));
+            if (currentAssistant) {
+              currentAssistant.content.push(...blocks);
+            }
+          } else {
+            messages.push({
+              role: "user",
+              content: [{ type: "text", text: JSON.stringify(msg.content) }],
+              timestamp: record.timestamp ?? null,
+              isSidechain: record.isSidechain ?? false
+            });
+          }
+        } else if (typeof msg.content === "string" && msg.content.trim()) {
+          messages.push({
+            role: "user",
+            content: [{ type: "text", text: msg.content }],
+            timestamp: record.timestamp ?? null,
+            isSidechain: record.isSidechain ?? false
+          });
+        }
+      } else if (record.type === "assistant" && record.message) {
+        const msg = record.message as { content: JsonlAssistantContent[] };
+        const blocks: SessionHistoryMessageBlock[] = [];
+
+        if (Array.isArray(msg.content)) {
+          for (const c of msg.content) {
+            if (c.type === "text" && c.text) {
+              blocks.push({ type: "text", text: c.text });
+            } else if (c.type === "tool_use") {
+              blocks.push({
+                type: "tool_use",
+                toolName: c.name ?? "unknown",
+                toolInput: c.input ?? {}
+              });
+            }
+          }
+        }
+
+        if (blocks.length > 0) {
+          currentAssistant = {
+            role: "assistant",
+            content: blocks,
+            timestamp: record.timestamp ?? null,
+            isSidechain: record.isSidechain ?? false
+          };
+          messages.push(currentAssistant);
+        }
+      }
+    } catch {
+      // skip malformed lines
+    }
+  }
+
+  return messages;
 }
