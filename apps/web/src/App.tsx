@@ -227,6 +227,9 @@ export function App() {
   const [todosError, setTodosError] = useState<string | null>(null);
   const [savingTodo, setSavingTodo] = useState(false);
   const [deletingTodoId, setDeletingTodoId] = useState<string | null>(null);
+  const [todoSearchQuery, setTodoSearchQuery] = useState("");
+  const [todoFilterTags, setTodoFilterTags] = useState<string[]>([]);
+  const todoSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [promptDrafts, setPromptDrafts] = useState<PromptDraftSummary[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -270,6 +273,16 @@ export function App() {
     const tagSet = new Set<string>();
     for (const note of globalNotes) {
       for (const tag of note.tags) {
+        tagSet.add(tag);
+      }
+    }
+    return Array.from(tagSet).sort();
+  })();
+
+  const availableTodoTags = (() => {
+    const tagSet = new Set<string>();
+    for (const todo of todos) {
+      for (const tag of todo.tags) {
         tagSet.add(tag);
       }
     }
@@ -582,6 +595,16 @@ export function App() {
   }, [globalNoteSearchQuery, globalNoteFilterTags]);
 
   useEffect(() => {
+    if (!selectedProjectId) return;
+    setTodosPage(1);
+    if (todoSearchTimerRef.current) clearTimeout(todoSearchTimerRef.current);
+    todoSearchTimerRef.current = setTimeout(() => {
+      reloadTodos(selectedProjectId, null);
+    }, 300);
+    return () => { if (todoSearchTimerRef.current) clearTimeout(todoSearchTimerRef.current); };
+  }, [todoSearchQuery, todoFilterTags]);
+
+  useEffect(() => {
     if (selectedTodo) {
       setTodoDraft(todoToDraft(selectedTodo));
       return;
@@ -787,7 +810,7 @@ export function App() {
     setTodosLoading(true);
 
     try {
-      const data = await getTodos(projectId, { page: todosPage, pageSize: 12 });
+      const data = await getTodos(projectId, { search: todoSearchQuery || undefined, tags: todoFilterTags.length ? todoFilterTags : undefined, page: todosPage, pageSize: 12 });
       const nextTodo =
         (preferredTodoId ? data.todos.find((todo) => todo.id === preferredTodoId) : null) ?? data.todos.find((todo) => todo.id === selectedTodoId) ?? data.todos[0] ?? null;
 
@@ -1450,6 +1473,19 @@ export function App() {
       setTodosError(formatError(error, "项目任务删除失败"));
     } finally {
       setDeletingTodoId(null);
+    }
+  }
+
+  async function handleTodoStatusChange(todo: TodoSummary, newStatus: TodoStatus) {
+    if (!selectedProject || todo.status === newStatus) return;
+
+    setTodosError(null);
+
+    try {
+      await updateTodo(selectedProject.id, todo.id, { status: newStatus });
+      await reloadTodos(selectedProject.id, todo.id);
+    } catch (error) {
+      setTodosError(formatError(error, "任务状态更新失败"));
     }
   }
 
@@ -2117,6 +2153,12 @@ export function App() {
             onNoteFilterTagsChange={setNoteFilterTags}
             onNotesPageChange={setNotesPage}
             onTodosPageChange={setTodosPage}
+            todoSearchQuery={todoSearchQuery}
+            todoFilterTags={todoFilterTags}
+            availableTodoTags={availableTodoTags}
+            onTodoSearchChange={setTodoSearchQuery}
+            onTodoFilterTagsChange={setTodoFilterTags}
+            onTodoStatusChange={handleTodoStatusChange}
           />
         )}
       </main>
@@ -3275,7 +3317,13 @@ function ProjectWorkspacePage({
   onNoteSearchChange,
   onNoteFilterTagsChange,
   onNotesPageChange,
-  onTodosPageChange
+  onTodosPageChange,
+  todoSearchQuery = "",
+  todoFilterTags = [],
+  availableTodoTags = [],
+  onTodoSearchChange,
+  onTodoFilterTagsChange,
+  onTodoStatusChange
 }: {
   activeTab: ProjectTab;
   onTabChange: (tab: ProjectTab) => void;
@@ -3351,6 +3399,12 @@ function ProjectWorkspacePage({
   onNoteFilterTagsChange?: (tags: string[]) => void;
   onNotesPageChange?: (page: number) => void;
   onTodosPageChange?: (page: number) => void;
+  todoSearchQuery?: string;
+  todoFilterTags?: string[];
+  availableTodoTags?: string[];
+  onTodoSearchChange?: (query: string) => void;
+  onTodoFilterTagsChange?: (tags: string[]) => void;
+  onTodoStatusChange?: (todo: TodoSummary, newStatus: TodoStatus) => void;
 }) {
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
@@ -3450,6 +3504,12 @@ function ProjectWorkspacePage({
         availableNoteTags={availableNoteTags}
         onNoteSearchChange={onNoteSearchChange}
         onNoteFilterTagsChange={onNoteFilterTagsChange}
+        todoSearchQuery={todoSearchQuery}
+        todoFilterTags={todoFilterTags}
+        availableTodoTags={availableTodoTags}
+        onTodoSearchChange={onTodoSearchChange}
+        onTodoFilterTagsChange={onTodoFilterTagsChange}
+        onTodoStatusChange={onTodoStatusChange}
       />
     </div>
   );
@@ -3546,7 +3606,13 @@ function ProjectTabWorkspace({
   onNoteSearchChange,
   onNoteFilterTagsChange,
   onNotesPageChange,
-  onTodosPageChange
+  onTodosPageChange,
+  todoSearchQuery = "",
+  todoFilterTags = [],
+  availableTodoTags = [],
+  onTodoSearchChange,
+  onTodoFilterTagsChange,
+  onTodoStatusChange
 }: {
   activeTab: ProjectTab;
   projects: ProjectSummary[];
@@ -3621,6 +3687,12 @@ function ProjectTabWorkspace({
   onNoteFilterTagsChange?: (tags: string[]) => void;
   onNotesPageChange?: (page: number) => void;
   onTodosPageChange?: (page: number) => void;
+  todoSearchQuery?: string;
+  todoFilterTags?: string[];
+  availableTodoTags?: string[];
+  onTodoSearchChange?: (query: string) => void;
+  onTodoFilterTagsChange?: (tags: string[]) => void;
+  onTodoStatusChange?: (todo: TodoSummary, newStatus: TodoStatus) => void;
 }) {
   if (activeTab === "worktrees") {
     return selectedProject ? (
@@ -3677,6 +3749,12 @@ function ProjectTabWorkspace({
         onSave={onSaveTodo}
         onDelete={onDeleteTodo}
         onOpenSession={onOpenSession}
+        searchQuery={todoSearchQuery}
+        filterTags={todoFilterTags}
+        availableTags={availableTodoTags}
+        onSearchChange={onTodoSearchChange}
+        onFilterTagsChange={onTodoFilterTagsChange}
+        onStatusChange={onTodoStatusChange}
       />
     );
   }
@@ -5065,7 +5143,13 @@ function TodoPanel({
   onDraftChange,
   onSave,
   onDelete,
-  onOpenSession
+  onOpenSession,
+  searchQuery = "",
+  filterTags = [],
+  availableTags = [],
+  onSearchChange,
+  onFilterTagsChange,
+  onStatusChange
 }: {
   project: ProjectSummary | null;
   notes: NoteSummary[];
@@ -5086,6 +5170,12 @@ function TodoPanel({
   onSave: (event: FormEvent<HTMLFormElement>) => void;
   onDelete: (todo: TodoSummary) => void;
   onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
+  searchQuery?: string;
+  filterTags?: string[];
+  availableTags?: string[];
+  onSearchChange?: (query: string) => void;
+  onFilterTagsChange?: (tags: string[]) => void;
+  onStatusChange?: (todo: TodoSummary, newStatus: TodoStatus) => void;
 }) {
   if (!project) {
     return <EmptyProjectNotice onCreateProject={() => undefined} />;
@@ -5133,6 +5223,42 @@ function TodoPanel({
             新建任务
           </button>
         </div>
+        <div className="border-b border-white/10 px-4 py-2.5 space-y-2">
+          <div className="flex items-center gap-2">
+            <svg className="h-3.5 w-3.5 shrink-0 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <input
+              value={searchQuery}
+              onChange={(e) => onSearchChange?.(e.target.value)}
+              className="flex-1 bg-transparent text-xs text-slate-200 outline-none placeholder:text-slate-600"
+              placeholder="搜索任务标题、描述或标签..."
+            />
+          </div>
+          {availableTags.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              {availableTags.map((tag) => {
+                const active = filterTags.includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => {
+                      const next = active ? filterTags.filter((t) => t !== tag) : [...filterTags, tag];
+                      onFilterTagsChange?.(next);
+                    }}
+                    className={`rounded-full border px-2 py-0.5 text-[10px] transition-colors ${
+                      active ? "border-blue-400/40 bg-blue-400/10 text-blue-300" : "border-white/10 text-slate-400 hover:border-white/20 hover:text-slate-300"
+                    }`}
+                  >
+                    {tag}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="text-[11px] text-slate-500">
+            {todos.length} 条结果{(searchQuery || filterTags.length > 0) ? "（已筛选）" : ""}
+          </div>
+        </div>
         <div className="min-h-[200px] grid grid-cols-3 gap-3 p-3 items-start">
           {loading ? <div className="col-span-3 px-4 py-6 text-sm text-slate-400">项目任务加载中...</div> : null}
           {!loading && todos.length === 0 ? <div className="col-span-3 px-4 py-8 text-sm text-slate-500">当前项目还没有任务，可以手动创建或从笔记生成。</div> : null}
@@ -5140,23 +5266,51 @@ function TodoPanel({
             ? todos.map((todo) => (
                 <div
                   key={todo.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openEditModal(todo)}
-                  onKeyDown={(e) => { if (e.key === "Enter") openEditModal(todo); }}
-                  className={`rounded-lg border p-3 text-left text-sm transition-colors cursor-pointer ${selectedTodo?.id === todo.id ? "border-white/20 bg-white/[0.08]" : "border-white/10 bg-[#1a1d28] hover:border-white/20 hover:bg-[#1e2130]"}`}
+                  className={`rounded-lg border p-3 text-left text-sm transition-colors ${selectedTodo?.id === todo.id ? "border-white/20 bg-white/[0.08]" : "border-white/10 bg-[#1a1d28] hover:border-white/20 hover:bg-[#1e2130]"}`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className={`rounded-full border px-2 py-0.5 text-[11px] ${statusStyle(todo.status)}`}>
-                      {formatTodoStatus(todo.status)}
-                    </span>
+                    <select
+                      value={todo.status}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        onStatusChange?.(todo, e.target.value as TodoStatus);
+                      }}
+                      className={`rounded-full border px-2 py-0.5 text-[11px] cursor-pointer appearance-none bg-transparent outline-none ${statusStyle(todo.status)}`}
+                    >
+                      {todoStatusOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value} className="bg-[#1a1d28] text-slate-200">{opt.label}</option>
+                      ))}
+                    </select>
                     <span className="text-[11px] text-slate-500">{formatDateTime(todo.updatedAt)}</span>
                   </div>
-                  <div className="mt-1.5 truncate font-medium text-slate-100">{todo.title}</div>
-                  <div className="mt-0.5 truncate text-xs text-slate-500">{todo.description || "暂无描述"}</div>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openEditModal(todo)}
+                    onKeyDown={(e) => { if (e.key === "Enter") openEditModal(todo); }}
+                    className="mt-1.5 cursor-pointer"
+                  >
+                    <div className="truncate font-medium text-slate-100">{todo.title}</div>
+                    <div className="mt-0.5 truncate text-xs text-slate-500">{todo.description || "暂无描述"}</div>
+                  </div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     {todo.tags.length > 0 && todo.tags.map((tag) => (
-                      <span key={tag} className="rounded-full border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-400">{tag}</span>
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const active = filterTags.includes(tag);
+                          const next = active ? filterTags.filter((t) => t !== tag) : [...filterTags, tag];
+                          onFilterTagsChange?.(next);
+                        }}
+                        className={`rounded-full border px-1.5 py-0.5 text-[10px] transition-colors cursor-pointer ${
+                          filterTags.includes(tag) ? "border-blue-400/40 bg-blue-400/10 text-blue-300" : "border-white/10 text-slate-400 hover:border-white/20 hover:text-slate-300"
+                        }`}
+                      >
+                        {tag}
+                      </button>
                     ))}
                     {todo.sourceNoteId && <span className="text-[10px] text-slate-600">关联笔记</span>}
                   </div>

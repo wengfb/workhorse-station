@@ -361,8 +361,10 @@ export function deleteNote(projectId: string, noteId: string) {
   });
 }
 
-export function getTodos(projectId: string, opts?: { page?: number; pageSize?: number }) {
+export function getTodos(projectId: string, opts?: { search?: string; tags?: string[]; page?: number; pageSize?: number }) {
   const params = new URLSearchParams();
+  if (opts?.search) params.set("search", opts.search);
+  if (opts?.tags?.length) params.set("tags", opts.tags.join(","));
   if (opts?.page) params.set("page", String(opts.page));
   if (opts?.pageSize) params.set("pageSize", String(opts.pageSize));
   const qs = params.toString();

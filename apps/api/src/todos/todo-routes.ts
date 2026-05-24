@@ -25,25 +25,38 @@ type ProjectTodoParams = ProjectParams & {
 const todoStatuses: TodoStatus[] = ["draft", "pending", "in_progress", "completed"];
 
 export async function registerTodoRoutes(server: FastifyInstance, database: DatabaseState) {
-  server.get<{ Params: ProjectParams; Querystring: { page?: string; pageSize?: string } }>("/api/projects/:projectId/todos", async (request): Promise<ApiResponse<TodosResponse>> => {
-    assertProjectExists(database, request.params.projectId);
-    const page = request.query.page ? parseInt(request.query.page, 10) : undefined;
-    const pageSize = request.query.pageSize ? parseInt(request.query.pageSize, 10) : undefined;
-    const opts = {
-      page: page && page > 0 ? page : undefined,
-      pageSize: pageSize && pageSize > 0 && pageSize <= 100 ? pageSize : undefined
-    };
+  server.get<{ Params: ProjectParams; Querystring: { page?: string; pageSize?: string; search?: string; tags?: string } }>(
+    "/api/projects/:projectId/todos",
+    async (request): Promise<ApiResponse<TodosResponse>> => {
+      assertProjectExists(database, request.params.projectId);
+      const page = request.query.page ? parseInt(request.query.page, 10) : undefined;
+      const pageSize = request.query.pageSize ? parseInt(request.query.pageSize, 10) : undefined;
+      const search = request.query.search?.trim() || undefined;
+      const tags = request.query.tags
+        ? request.query.tags
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean)
+        : undefined;
 
-    return {
-      ok: true,
-      data: {
-        todos: listTodos(database.db, request.params.projectId, opts),
-        total: countTodos(database.db, request.params.projectId),
-        page: opts.page ?? 1,
-        pageSize: opts.pageSize ?? 12
-      }
-    };
-  });
+      const opts = {
+        page: page && page > 0 ? page : undefined,
+        pageSize: pageSize && pageSize > 0 && pageSize <= 100 ? pageSize : undefined,
+        search,
+        tags: tags?.length ? tags : undefined
+      };
+
+      return {
+        ok: true,
+        data: {
+          todos: listTodos(database.db, request.params.projectId, opts),
+          total: countTodos(database.db, request.params.projectId, { search, tags: tags?.length ? tags : undefined }),
+          page: opts.page ?? 1,
+          pageSize: opts.pageSize ?? 12
+        }
+      };
+    }
+  );
 
   server.post<{ Params: ProjectParams; Body: CreateTodoRequest }>(
     "/api/projects/:projectId/todos",

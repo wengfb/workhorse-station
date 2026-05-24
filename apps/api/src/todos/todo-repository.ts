@@ -28,23 +28,27 @@ export type TodoWriteInput = Required<Pick<CreateTodoRequest, "title" | "status"
 const TODO_SELECT = `SELECT id, project_id, source_note_id, title, description, status, tags, latest_session_result, source_chat_suggestion_json, created_at, updated_at
      FROM todos`;
 
-export function listTodos(db: Database, projectId: string, opts?: { page?: number; pageSize?: number }) {
+export function listTodos(db: Database, projectId: string, opts?: { page?: number; pageSize?: number; search?: string; tags?: string[] }) {
   const page = opts?.page ?? 1;
   const pageSize = opts?.pageSize ?? 12;
   const offset = (page - 1) * pageSize;
 
+  const { where, params } = buildWhere(projectId, opts);
+
   return selectRows(
     db,
     `${TODO_SELECT}
-     WHERE project_id = ?
+     ${where}
      ORDER BY updated_at DESC, created_at DESC
      LIMIT ${pageSize} OFFSET ${offset}`,
-    [projectId]
+    params
   );
 }
 
-export function countTodos(db: Database, projectId: string) {
-  const stmt = db.prepare("SELECT COUNT(*) as count FROM todos WHERE project_id = ?", [projectId]);
+export function countTodos(db: Database, projectId: string, opts?: { search?: string; tags?: string[] }) {
+  const { where, params } = buildWhere(projectId, opts);
+  const sql = `SELECT COUNT(*) as count FROM todos ${where}`;
+  const stmt = db.prepare(sql, params);
   try {
     if (stmt.step()) {
       return (stmt.getAsObject() as { count: number }).count;
@@ -53,6 +57,26 @@ export function countTodos(db: Database, projectId: string) {
   } finally {
     stmt.free();
   }
+}
+
+function buildWhere(projectId: string, opts?: { search?: string; tags?: string[] }): { where: string; params: string[] } {
+  const clauses: string[] = ["project_id = ?"];
+  const params: string[] = [projectId];
+
+  if (opts?.search) {
+    const pattern = `%${opts.search}%`;
+    clauses.push("(title LIKE ? OR description LIKE ? OR tags LIKE ?)");
+    params.push(pattern, pattern, pattern);
+  }
+
+  if (opts?.tags?.length) {
+    for (const tag of opts.tags) {
+      clauses.push("tags LIKE ?");
+      params.push(`%"${tag}"%`);
+    }
+  }
+
+  return { where: `WHERE ${clauses.join(" AND ")}`, params };
 }
 
 export function getProjectTodo(db: Database, projectId: string, todoId: string) {
