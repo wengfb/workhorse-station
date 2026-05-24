@@ -14,6 +14,7 @@ import type {
   ProjectSummary,
   WorktreeSummary
 } from "@workhorse-station/shared";
+import type { SkillMetadata } from "../skills/skill-loader.js";
 import { HttpError } from "../projects/http-error.js";
 import { getChatToolDefs, executeChatTool } from "./chat-tools.js";
 import type { ChatMessageWriteInput } from "./chat-repository.js";
@@ -108,7 +109,7 @@ export async function generateChatReply(input: GenerateChatReplyInput): Promise<
     const toolResultContent: unknown[] = [];
 
     for (const block of toolUseBlocks) {
-      const result = executeChatTool(input.db, block.name, (block.input ?? {}) as Record<string, unknown>);
+      const result = await executeChatTool(input.db, block.name, (block.input ?? {}) as Record<string, unknown>);
       toolResults.push({
         toolCallId: block.id,
         result: result.result,
@@ -160,8 +161,8 @@ export function getClient() {
   return client;
 }
 
-export function buildSystemPrompt(project: ProjectSummary | null, worktree: WorktreeSummary | null) {
-  return [
+export function buildSystemPrompt(project: ProjectSummary | null, worktree: WorktreeSummary | null, skills?: SkillMetadata[]) {
+  const lines = [
     "你是开发管理工作台首页聊天助手。",
     "你可以使用工具来搜索笔记、创建笔记、查看任务、创建任务和创建 Prompt 草稿。",
     "重要规则：",
@@ -174,7 +175,19 @@ export function buildSystemPrompt(project: ProjectSummary | null, worktree: Work
     `当前项目：${project ? `${project.name} (${project.path}, id=${project.id})` : "未选择项目"}`,
     `当前 worktree：${worktree ? `${worktree.name} (${worktree.branch})` : "未选择 worktree"}`,
     project ? `如果需要创建任务或 Prompt 草稿，使用 projectId="${project.id}"。` : "如果需要创建任务或 Prompt 草稿，请先让用户选择一个项目。"
-  ].join("\n");
+  ];
+
+  if (skills && skills.length > 0) {
+    const skillLines = skills.map((s) => `- ${s.name}: ${s.description}`);
+    lines.push(
+      "",
+      "可用技能（通过 Skill 工具调用）：",
+      "当用户的任务与以下技能匹配时，使用 Skill 工具加载对应技能的完整指令，然后按照技能指令执行。",
+      ...skillLines
+    );
+  }
+
+  return lines.join("\n");
 }
 
 export function toBetaMessages(history: ChatMessageSummary[]): BetaMessageParam[] {

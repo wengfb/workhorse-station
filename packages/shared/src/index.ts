@@ -167,6 +167,70 @@ export type CopySkillResponse = {
   overwritten: boolean;
 };
 
+// Skill Store types
+
+export type InstallTarget = "claude-code" | "chat" | "claude-code-project";
+
+export type StoreSkillInstallStatus = {
+  claudeCode: boolean;
+  chat: boolean;
+  claudeCodeProject: boolean;
+};
+
+export type StoreSkill = {
+  name: string;
+  description: string;
+  path: string;
+};
+
+export type StoreSkillStatus = {
+  skill: StoreSkill;
+  installed: StoreSkillInstallStatus;
+};
+
+export type StoreSkillsResponse = {
+  skills: StoreSkillStatus[];
+};
+
+export type StoreSkillResponse = {
+  skill: StoreSkillStatus;
+};
+
+export type CreateStoreSkillRequest = {
+  name: string;
+  description?: string;
+};
+
+export type RenameStoreSkillRequest = {
+  newName: string;
+};
+
+export type DeleteStoreSkillRequest = {
+  confirmName: string;
+};
+
+export type InstallStoreSkillRequest = {
+  targets: InstallTarget[];
+  projectId?: string;
+  overwrite?: boolean;
+};
+
+// Chat Skill types (skills loaded by AI Chat from ~/.workhorse/chat-skills/)
+
+export type ChatSkill = {
+  name: string;
+  description: string;
+  path: string;
+};
+
+export type ChatSkillsResponse = {
+  skills: ChatSkill[];
+};
+
+export type DeleteChatSkillRequest = {
+  confirmName: string;
+};
+
 export type NoteSummary = {
   id: string;
   projectId: string | null;

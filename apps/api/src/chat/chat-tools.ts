@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { Database } from "sql.js";
 import { listProjects } from "../projects/project-repository.js";
 import { createNote, listGlobalNotes, listNotes } from "../notes/note-repository.js";
 import { createTodo, listTodos } from "../todos/todo-repository.js";
 import { createPromptDraft, listPromptDrafts } from "../prompt-drafts/prompt-draft-repository.js";
 import { listWorktrees } from "../worktrees/worktree-repository.js";
+import { loadChatSkill, type SkillMetadata, getChatSkillsRoot } from "../skills/skill-loader.js";
 
 type JsonSchema = {
   type: "object";
@@ -12,7 +15,7 @@ type JsonSchema = {
   required?: string[];
 };
 
-type ToolDef = {
+export type ToolDef = {
   name: string;
   description: string;
   input_schema: JsonSchema;
@@ -24,8 +27,8 @@ type ToolResult = {
   isError: boolean;
 };
 
-export function getChatToolDefs(): ToolDef[] {
-  return [
+export function getChatToolDefs(skills?: SkillMetadata[]): ToolDef[] {
+  const baseTools: ToolDef[] = [
     {
       name: "search_notes",
       description: "搜索笔记。可以跨项目搜索或限定项目。用于在创建新笔记前检查是否已有相关笔记，或查找参考资料。",
@@ -131,15 +134,51 @@ export function getChatToolDefs(): ToolDef[] {
       }
     }
   ];
+
+  baseTools.push({
+    name: "bash",
+    description: "执行一个 bash 命令并返回输出。用于运行脚本、查看文件内容、检查系统状态等操作。命令执行超时 30 秒，使用当前项目目录作为工作目录。",
+    confirmation: "auto",
+    input_schema: {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "要执行的 bash 命令。例如：ls -la、cat file.txt、bash script.sh" },
+        workdir: { type: "string", description: "可选，指定命令执行的工作目录。默认为当前项目目录。" }
+      },
+      required: ["command"]
+    }
+  });
+
+  if (skills && skills.length > 0) {
+    const skillListText = skills.map((s) => `- ${s.name}: ${s.description}`).join("\n");
+    baseTools.push({
+      name: "Skill",
+      description: `调用一个可用技能来获取专业指导和流程说明。当用户的任务匹配某个技能的描述时，先调用此工具加载技能的完整指令，然后按照技能指令执行任务。\n\n可用技能列表：\n${skillListText}`,
+      confirmation: "auto",
+      input_schema: {
+        type: "object",
+        properties: {
+          skill: {
+            type: "string",
+            description: `要调用的技能名称。可用技能：${skills.map((s) => s.name).join(", ")}`
+          }
+        },
+        required: ["skill"]
+      }
+    });
+  }
+
+  return baseTools;
 }
 
 const toolDefMap = new Map(getChatToolDefs().map((t) => [t.name, t]));
 
 export function getToolConfirmation(name: string): "auto" | "confirm" {
+  if (name === "Skill" || name === "bash") return "auto";
   return toolDefMap.get(name)?.confirmation ?? "confirm";
 }
 
-export function executeChatTool(db: Database, name: string, input: Record<string, unknown>): ToolResult {
+export async function executeChatTool(db: Database, name: string, input: Record<string, unknown>): Promise<ToolResult> {
   try {
     switch (name) {
       case "search_notes": {
@@ -303,6 +342,60 @@ export function executeChatTool(db: Database, name: string, input: Record<string
         });
 
         return { result: `共 ${drafts.length} 个 Prompt 草稿：\n${lines.join("\n")}`, isError: false };
+      }
+
+      case "Skill": {
+        const skillName = String(input.skill ?? "").trim();
+        if (!skillName) return { result: "请指定要调用的技能名称", isError: true };
+
+        const loaded = await loadChatSkill(skillName);
+        if (!loaded) {
+          return {
+            result: `技能 "${skillName}" 不存在或无法加载。可用技能请查看 Skill 工具描述中的列表。`,
+            isError: true
+          };
+        }
+
+        const skillDir = `${getChatSkillsRoot()}/${skillName}`;
+        const skillList = `技能目录：${skillDir}\n在后续的 bash 命令中，引用此技能脚本时，请用技能目录路径替换 ${"${CLAUDE_SKILL_DIR}"}。\n\n${loaded.body}`;
+
+        return {
+          result: `已加载技能 "${loaded.metadata.name}" 的完整指令：\n\n${skillList}`,
+          isError: false
+        };
+      }
+
+      case "bash": {
+        const command = String(input.command ?? "").trim();
+        if (!command) return { result: "请提供要执行的命令", isError: true };
+
+        const workdir = typeof input.workdir === "string" ? input.workdir : process.cwd();
+        const exec = promisify(execFile);
+
+        try {
+          const { stdout, stderr } = await exec("/bin/bash", ["-c", command], {
+            cwd: workdir,
+            timeout: 30000,
+            maxBuffer: 1024 * 1024,
+            env: { ...process.env }
+          });
+
+          const output = [stderr ? `stderr:\n${stderr}` : "", stdout ? `stdout:\n${stdout}` : ""]
+            .filter(Boolean)
+            .join("\n");
+
+          return {
+            result: output || "(无输出)",
+            isError: false
+          };
+        } catch (err: unknown) {
+          const error = err as NodeJS.ErrnoException & { killed?: boolean; stderr?: string };
+          if (error.killed) return { result: "命令执行超时（30 秒）", isError: true };
+          return {
+            result: `命令执行失败: ${error.message}\n${(error as { stderr?: string }).stderr ?? ""}`,
+            isError: true
+          };
+        }
       }
 
       default:

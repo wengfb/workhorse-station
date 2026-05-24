@@ -1,5 +1,50 @@
 # 开发进度
 
+## 2026-05-24：技能仓库管理与 Chat Skills 管理
+
+### 已完成
+- 新增 Skill 主仓库 `~/.workhorse/skills/`，统一管理 Skill 的创建、重命名、删除。
+- 新增安装下发机制：支持将主仓库 Skill 安装到三个目标——全局 Claude Code（`~/.claude/skills/`）、AI Chat（`~/.workhorse/chat-skills/`）、项目 Claude Code（`<project>/.claude/skills/`）。
+- 新增 `InstallTarget`、`StoreSkill`、`StoreSkillStatus` 等共享类型。
+- 提取 `parseFrontmatter()` 到独立文件 `skill-frontmatter.ts`，供 store 和 loader 共用。
+- 后端新增 `skill-store.ts`（文件系统操作）和 `skill-store-routes.ts`（5 个 REST 端点）。
+- 后端新增 `chat-skill-routes.ts`：`GET /api/chat-skills` 列出 Chat Skills，`DELETE /api/chat-skills/:name` 移除。
+- 前端新增 `SkillStorePanel` 组件，包含创建 Skill 表单弹窗（名称 + 描述，替换原来两次 prompt）、安装状态徽标、安装/重命名/删除操作。
+- `SkillStorePanel` 底部新增 Chat Skills 管理区，显示 `~/.workhorse/chat-skills/` 下的 Skill 并提供移除按钮。
+- 工作台标签新增「技能仓库」选项卡（`WorkbenchTab` 扩展 `"skill-store"`）。
+- 启动时自动加载技能仓库和 Chat Skills 数据，count badge 实时显示正确数量。
+
+### 关键修复
+- 创建 Skill 从两次 `prompt()` 弹窗改为单个模态框表单（名称 + 描述），一次提交即可完成。
+- 修复技能仓库页面 count 显示 0 的问题：`reloadStoreSkills()` 加入启动 `Promise.all`。
+
+### 验收记录
+- `pnpm -r typecheck`：通过。
+- `pnpm -r build`：通过。
+- 浏览器验证：通过。
+  - 技能仓库 count 正确显示 2（etst / tset）。
+  - 新建表单弹窗单次填入名称和描述，创建成功。
+  - 安装到全局 CC 和 Chat 后按钮变为 disabled，文件正确复制到目标目录。
+  - 删除 Skill 后 UI 回到空状态，主仓库目录已清理。
+  - Chat Skills 区正确显示 todo-summary，含名称、描述、路径和移除按钮。
+
+## 2026-05-24：流式工具调用渲染时序修复
+
+### 已完成
+- 后端对所有工具（包括 auto）统一先发送 `tool_use_pending` 事件，前端在 SSE 事件到达时即可创建工具卡片占位。
+- 前端三个独立 state（`streamingContent`、`streamingToolCalls`、`streamingToolResults`）合并为 `StreamingBlock[]` 时间线数组。
+- 渲染改为 `streamingBlocks.map()` 按事件到达顺序显示，text block 用 MarkdownContent，tool block 用工具卡片，确保文本和工具按时间顺序穿插。
+- `ChatStreamWorkspace` 和 `HomeChatWorkspace` 的 props 接口统一使用 `streamingBlocks: StreamingBlock[]`。
+
+### 关键修复
+- 修复工具调用结果在所有文本输出完成后才显示的问题。
+- 修复文本在上、工具在下的渲染顺序问题。
+
+### 验收记录
+- `pnpm -r typecheck`：通过。
+- `pnpm -r build`：通过。
+- 浏览器验证：通过，工具调用卡片在文本输出中实时穿插显示。
+
 ## 2026-05-24：任务管理增强——搜索、标签过滤与内联状态切换
 
 ### 已完成

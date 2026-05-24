@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import type {
   ChatArtifactSuggestion,
   ChatAttachment,
+  ChatSkill,
   ChatMessageSummary,
   ChatSessionSummary,
   ChatStreamEvent,
@@ -19,6 +20,7 @@ import type {
   SessionStreamEvent,
   SessionSummary,
   SkillSummary,
+  StoreSkillStatus,
   TodoStatus,
   TodoSummary,
   WorktreeStatus,
@@ -30,6 +32,8 @@ import { useConfirmDialog } from "./components/DialogContext";
 import {
   copyGlobalSkillToProject,
   copyProjectSkillToGlobal,
+  deleteChatSkill,
+  getChatSkills,
   createGlobalSkill,
   createGlobalNote,
   createProjectSkill,
@@ -37,6 +41,7 @@ import {
   createProject,
   createPromptDraft,
   createSession,
+  createStoreSkill,
   createTodo,
   createWorktree,
   createChatSession,
@@ -47,6 +52,7 @@ import {
   deleteNote,
   deleteProject,
   deleteSession,
+  deleteStoreSkill,
   deleteTodo,
   deleteWorktree,
   getChatSessions,
@@ -60,11 +66,14 @@ import {
   getPromptDrafts,
   getRunningSessions,
   getSessions,
+  getStoreSkills,
   getTodos,
   getWorktrees,
   previewPromptDraft,
+  installStoreSkill,
   renameGlobalSkill,
   renameProjectSkill,
+  renameStoreSkill,
   sendChatMessage,
   streamChatMessage,
   truncateChatMessages,
@@ -123,9 +132,13 @@ type ChatFileDraft = {
 type ProjectMode = "create" | "edit";
 type WorkspaceScope = "home" | "project";
 type HomeMode = "chat" | "overview";
-type WorkbenchTab = "notes" | "skills" | "projects" | "chats" | "sessions";
+type WorkbenchTab = "notes" | "skills" | "skill-store" | "projects" | "chats" | "sessions";
 type ProjectTab = "overview" | "todos" | "notes" | "skills" | "sessions" | "worktrees";
 type SessionView = "terminal" | "history";
+
+type StreamingBlock =
+  | { type: "text"; text: string }
+  | { type: "tool"; toolCall: ChatToolCall; result?: ChatToolResult };
 
 const topModes: Array<{ id: HomeMode; label: string; description: string }> = [
   { id: "chat", label: "聊天", description: "左侧聊天会话列表，右侧简洁聊天区" },
@@ -166,9 +179,7 @@ export function App() {
   const [sendingChat, setSendingChat] = useState(false);
   const [streamingChatId, setStreamingChatId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-  const [streamingContent, setStreamingContent] = useState("");
-  const [streamingToolCalls, setStreamingToolCalls] = useState<ChatToolCall[]>([]);
-  const [streamingToolResults, setStreamingToolResults] = useState<ChatToolResult[]>([]);
+  const [streamingBlocks, setStreamingBlocks] = useState<StreamingBlock[]>([]);
   const streamAbortRef = useRef<(() => void) | null>(null);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [activeProjectTab, setActiveProjectTab] = useState<ProjectTab>("overview");
@@ -296,6 +307,14 @@ export function App() {
   const [projectSkillsError, setProjectSkillsError] = useState<string | null>(null);
   const [selectedProjectSkillName, setSelectedProjectSkillName] = useState<string | null>(null);
   const [skillOperationName, setSkillOperationName] = useState<string | null>(null);
+  const [storeSkills, setStoreSkills] = useState<StoreSkillStatus[]>([]);
+  const [storeSkillsLoading, setStoreSkillsLoading] = useState(true);
+  const [storeSkillsError, setStoreSkillsError] = useState<string | null>(null);
+  const [storeSkillOperationName, setStoreSkillOperationName] = useState<string | null>(null);
+  const [chatSkills, setChatSkills] = useState<ChatSkill[]>([]);
+  const [chatSkillsLoading, setChatSkillsLoading] = useState(true);
+  const [chatSkillsError, setChatSkillsError] = useState<string | null>(null);
+  const [deletingChatSkillName, setDeletingChatSkillName] = useState<string | null>(null);
   const { confirm, prompt } = useConfirmDialog();
 
   useEffect(() => {
@@ -303,7 +322,7 @@ export function App() {
 
     async function loadAppState() {
       try {
-        const [health, meta, projectsData, chatData, globalNotesData, globalSkillsData] = await Promise.all([getHealth(), getMeta(), getProjects(), getChatSessions(), getGlobalNotes(), getGlobalSkills()]);
+        const [health, meta, projectsData, chatData, globalNotesData, globalSkillsData, storeSkillsData, chatSkillsData] = await Promise.all([getHealth(), getMeta(), getProjects(), getChatSessions(), getGlobalNotes(), getGlobalSkills(), getStoreSkills(), getChatSkills()]);
 
         if (cancelled) {
           return;
@@ -323,6 +342,12 @@ export function App() {
         setGlobalSkills(globalSkillsData.skills);
         setGlobalSkillsLoading(false);
         setGlobalSkillsError(null);
+        setStoreSkills(storeSkillsData.skills);
+        setStoreSkillsLoading(false);
+        setStoreSkillsError(null);
+        setChatSkills(chatSkillsData.skills);
+        setChatSkillsLoading(false);
+        setChatSkillsError(null);
         setSelectedChatId(firstChat?.id ?? null);
         setChatLoading(false);
         setChatError(null);
@@ -357,6 +382,10 @@ export function App() {
           setGlobalNotesError(formatError(error, "全局笔记加载失败"));
           setGlobalSkillsLoading(false);
           setGlobalSkillsError(formatError(error, "全局 Skill 加载失败"));
+          setStoreSkillsLoading(false);
+          setStoreSkillsError(formatError(error, "技能仓库加载失败"));
+          setChatSkillsLoading(false);
+          setChatSkillsError(formatError(error, "Chat Skill 加载失败"));
         }
       }
     }
@@ -761,6 +790,55 @@ export function App() {
     }
   }
 
+  async function reloadStoreSkills() {
+    setStoreSkillsLoading(true);
+
+    try {
+      const data = await getStoreSkills(selectedProjectId ?? undefined);
+      setStoreSkills(data.skills);
+      setStoreSkillsError(null);
+    } catch (error) {
+      setStoreSkillsError(formatError(error, "技能仓库加载失败"));
+    } finally {
+      setStoreSkillsLoading(false);
+    }
+  }
+
+  async function reloadChatSkills() {
+    setChatSkillsLoading(true);
+
+    try {
+      const data = await getChatSkills();
+      setChatSkills(data.skills);
+      setChatSkillsError(null);
+    } catch (error) {
+      setChatSkillsError(formatError(error, "Chat Skill 加载失败"));
+    } finally {
+      setChatSkillsLoading(false);
+    }
+  }
+
+  async function handleDeleteChatSkill(skill: ChatSkill) {
+    const confirmedName = await prompt(`请输入 Skill 名称「${skill.name}」以确认删除`);
+
+    if (!confirmedName || confirmedName.trim() !== skill.name) {
+      return;
+    }
+
+    setDeletingChatSkillName(skill.name);
+    setChatSkillsError(null);
+
+    try {
+      await deleteChatSkill(skill.name, { confirmName: skill.name });
+      await reloadChatSkills();
+      await reloadStoreSkills();
+    } catch (error) {
+      setChatSkillsError(formatError(error, "Chat Skill 删除失败"));
+    } finally {
+      setDeletingChatSkillName(null);
+    }
+  }
+
   async function reloadProjectSkills(projectId: string, preferredName?: string | null) {
     setProjectSkillsLoading(true);
 
@@ -1116,6 +1194,91 @@ export function App() {
       setGlobalSkillsError(formatError(error, "复制全局 Skill 到项目失败"));
     } finally {
       setSkillOperationName(null);
+    }
+  }
+
+  async function handleCreateStoreSkill(name: string, description: string) {
+    const trimmedName = name.trim();
+    setStoreSkillOperationName(trimmedName);
+    setStoreSkillsError(null);
+
+    try {
+      await createStoreSkill({ name: trimmedName, description: description.trim() });
+      await reloadStoreSkills();
+    } catch (error) {
+      setStoreSkillsError(formatError(error, "Skill 创建失败"));
+    } finally {
+      setStoreSkillOperationName(null);
+    }
+  }
+
+  async function handleRenameStoreSkill(skill: StoreSkillStatus) {
+    const newName = await prompt("请输入新的 Skill 名称", { defaultValue: skill.skill.name });
+
+    if (!newName || newName.trim() === skill.skill.name) {
+      return;
+    }
+
+    setStoreSkillOperationName(skill.skill.name);
+    setStoreSkillsError(null);
+
+    try {
+      await renameStoreSkill(skill.skill.name, { newName: newName.trim() });
+      await reloadStoreSkills();
+    } catch (error) {
+      setStoreSkillsError(formatError(error, "Skill 重命名失败"));
+    } finally {
+      setStoreSkillOperationName(null);
+    }
+  }
+
+  async function handleDeleteStoreSkill(skill: StoreSkillStatus) {
+    const confirmedName = await prompt(`请输入 Skill 名称「${skill.skill.name}」以确认删除`);
+
+    if (!confirmedName || confirmedName.trim() !== skill.skill.name) {
+      return;
+    }
+
+    setStoreSkillOperationName(skill.skill.name);
+    setStoreSkillsError(null);
+
+    try {
+      await deleteStoreSkill(skill.skill.name, { confirmName: skill.skill.name });
+      await reloadStoreSkills();
+    } catch (error) {
+      setStoreSkillsError(formatError(error, "Skill 删除失败"));
+    } finally {
+      setStoreSkillOperationName(null);
+    }
+  }
+
+  async function handleInstallStoreSkill(skill: StoreSkillStatus, target: "claude-code" | "chat" | "claude-code-project") {
+    const targetLabel = target === "claude-code" ? "全局 Claude Code" : target === "chat" ? "AI Chat" : "项目 Claude Code";
+
+    if (target === "claude-code-project" && !selectedProjectId) {
+      return;
+    }
+
+    const ok = await confirm(`确认将「${skill.skill.name}」安装到 ${targetLabel}？`);
+
+    if (!ok) {
+      return;
+    }
+
+    setStoreSkillOperationName(skill.skill.name);
+    setStoreSkillsError(null);
+
+    try {
+      await installStoreSkill(skill.skill.name, {
+        targets: [target],
+        projectId: target === "claude-code-project" ? selectedProjectId ?? undefined : undefined,
+        overwrite: true
+      });
+      await reloadStoreSkills();
+    } catch (error) {
+      setStoreSkillsError(formatError(error, "Skill 安装失败"));
+    } finally {
+      setStoreSkillOperationName(null);
     }
   }
 
@@ -1604,9 +1767,7 @@ export function App() {
     setChatFile(null);
     setEditingMessageId(null);
     setStreamingChatId(targetChatId);
-    setStreamingContent("");
-    setStreamingToolCalls([]);
-    setStreamingToolResults([]);
+    setStreamingBlocks([]);
 
     streamAbortRef.current?.();
     const abort = streamChatMessage(
@@ -1620,23 +1781,39 @@ export function App() {
       (event: ChatStreamEvent) => {
         switch (event.type) {
           case "chat.text_delta":
-            setStreamingContent((prev) => prev + (event.text ?? ""));
+            setStreamingBlocks((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.type === "text") {
+                return [...prev.slice(0, -1), { ...last, text: last.text + (event.text ?? "") }];
+              }
+              return [...prev, { type: "text", text: event.text ?? "" }];
+            });
             break;
           case "chat.tool_use_pending":
             if (event.toolCall) {
-              setStreamingToolCalls((prev) => [...prev, { ...event.toolCall!, status: "pending_confirmation" }]);
+              setStreamingBlocks((prev) => [...prev, { type: "tool", toolCall: { ...event.toolCall!, status: "pending_confirmation" } }]);
             }
             break;
           case "chat.tool_call":
             if (event.toolCall) {
-              setStreamingToolCalls((prev) =>
-                prev.map((tc) => (tc.id === event.toolCall!.id ? { ...event.toolCall!, status: "executed" as const } : tc))
+              setStreamingBlocks((prev) =>
+                prev.map((block) =>
+                  block.type === "tool" && block.toolCall.id === event.toolCall!.id
+                    ? { ...block, toolCall: { ...event.toolCall!, status: "executed" as const } }
+                    : block
+                )
               );
             }
             break;
           case "chat.tool_result":
             if (event.toolResult) {
-              setStreamingToolResults((prev) => [...prev, event.toolResult!]);
+              setStreamingBlocks((prev) =>
+                prev.map((block) =>
+                  block.type === "tool" && block.toolCall.id === event.toolResult!.toolCallId
+                    ? { ...block, result: event.toolResult! }
+                    : block
+                )
+              );
             }
             break;
           case "chat.done":
@@ -1666,12 +1843,20 @@ export function App() {
     if (!streamingChatId) return;
 
     if (approved) {
-      setStreamingToolCalls((prev) =>
-        prev.map((tc) => (tc.id === toolCallId ? { ...tc, status: "approved" as const } : tc))
+      setStreamingBlocks((prev) =>
+        prev.map((block) =>
+          block.type === "tool" && block.toolCall.id === toolCallId
+            ? { ...block, toolCall: { ...block.toolCall, status: "approved" as const } }
+            : block
+        )
       );
     } else {
-      setStreamingToolCalls((prev) =>
-        prev.map((tc) => (tc.id === toolCallId ? { ...tc, status: "rejected" as const } : tc))
+      setStreamingBlocks((prev) =>
+        prev.map((block) =>
+          block.type === "tool" && block.toolCall.id === toolCallId
+            ? { ...block, toolCall: { ...block.toolCall, status: "rejected" as const } }
+            : block
+        )
       );
     }
 
@@ -2040,9 +2225,7 @@ export function App() {
             onStartEditMessage={handleStartEditMessage}
             onCancelEditMessage={handleCancelEditMessage}
             streamingChatId={streamingChatId}
-            streamingContent={streamingContent}
-            streamingToolCalls={streamingToolCalls}
-            streamingToolResults={streamingToolResults}
+            streamingBlocks={streamingBlocks}
             onCreateGlobalNote={startCreateGlobalNote}
             onSelectGlobalNote={(note) => setSelectedGlobalNoteId(note.id)}
             onGlobalNoteDraftChange={updateGlobalNoteDraft}
@@ -2054,6 +2237,19 @@ export function App() {
             onRenameGlobalSkill={handleRenameGlobalSkill}
             onDeleteGlobalSkill={handleDeleteGlobalSkill}
             onCopyGlobalSkillToProject={handleCopyGlobalSkillToProject}
+            storeSkills={storeSkills}
+            storeSkillsLoading={storeSkillsLoading}
+            storeSkillsError={storeSkillsError}
+            storeSkillOperationName={storeSkillOperationName}
+            onCreateStoreSkill={handleCreateStoreSkill}
+            onRenameStoreSkill={handleRenameStoreSkill}
+            onDeleteStoreSkill={handleDeleteStoreSkill}
+            onInstallStoreSkill={handleInstallStoreSkill}
+            chatSkills={chatSkills}
+            chatSkillsLoading={chatSkillsLoading}
+            chatSkillsError={chatSkillsError}
+            deletingChatSkillName={deletingChatSkillName}
+            onDeleteChatSkill={handleDeleteChatSkill}
             projects={projects}
             recentProjects={recentProjects}
             runningSessions={runningSessions}
@@ -2359,9 +2555,7 @@ function HomeWorkspace({
   onStartEditMessage,
   onCancelEditMessage,
   streamingChatId,
-  streamingContent,
-  streamingToolCalls,
-  streamingToolResults,
+  streamingBlocks,
   onCreateGlobalNote,
   onSelectGlobalNote,
   onGlobalNoteDraftChange,
@@ -2373,6 +2567,19 @@ function HomeWorkspace({
   onRenameGlobalSkill,
   onDeleteGlobalSkill,
   onCopyGlobalSkillToProject,
+  storeSkills,
+  storeSkillsLoading,
+  storeSkillsError,
+  storeSkillOperationName,
+  onCreateStoreSkill,
+  onRenameStoreSkill,
+  onDeleteStoreSkill,
+  onInstallStoreSkill,
+  chatSkills,
+  chatSkillsLoading,
+  chatSkillsError,
+  deletingChatSkillName,
+  onDeleteChatSkill,
   onEnterProject,
   onCreateSession,
   projects,
@@ -2428,9 +2635,7 @@ function HomeWorkspace({
   onStartEditMessage: (messageId: string, content: string) => void;
   onCancelEditMessage: () => void;
   streamingChatId: string | null;
-  streamingContent: string;
-  streamingToolCalls: ChatToolCall[];
-  streamingToolResults: ChatToolResult[];
+  streamingBlocks: StreamingBlock[];
   onCreateGlobalNote: () => void;
   onSelectGlobalNote: (note: NoteSummary) => void;
   onGlobalNoteDraftChange: (field: keyof NoteDraft, value: string) => void;
@@ -2442,6 +2647,19 @@ function HomeWorkspace({
   onRenameGlobalSkill: (skill: SkillSummary) => void;
   onDeleteGlobalSkill: (skill: SkillSummary) => void;
   onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
+  storeSkills: StoreSkillStatus[];
+  storeSkillsLoading: boolean;
+  storeSkillsError: string | null;
+  storeSkillOperationName: string | null;
+  onCreateStoreSkill: (name: string, description: string) => void;
+  onRenameStoreSkill: (skill: StoreSkillStatus) => void;
+  onDeleteStoreSkill: (skill: StoreSkillStatus) => void;
+  onInstallStoreSkill: (skill: StoreSkillStatus, target: "claude-code" | "chat" | "claude-code-project") => void;
+  chatSkills: ChatSkill[];
+  chatSkillsLoading: boolean;
+  chatSkillsError: string | null;
+  deletingChatSkillName: string | null;
+  onDeleteChatSkill: (skill: ChatSkill) => void;
   projects: ProjectSummary[];
   recentProjects: ProjectSummary[];
   runningSessions: OverviewSessionSummary[];
@@ -2472,9 +2690,7 @@ function HomeWorkspace({
           sending={sendingChat}
           deletingChatId={deletingChatId}
           streamingChatId={streamingChatId}
-          streamingContent={streamingContent}
-          streamingToolCalls={streamingToolCalls}
-          streamingToolResults={streamingToolResults}
+          streamingBlocks={streamingBlocks}
           onSelect={onChatSelect}
           onCreate={onCreateChat}
           onDraftChange={onChatDraftChange}
@@ -2522,6 +2738,19 @@ function HomeWorkspace({
           onRenameSkill={onRenameGlobalSkill}
           onDeleteSkill={onDeleteGlobalSkill}
           onCopyToProject={onCopyGlobalSkillToProject}
+          storeSkills={storeSkills}
+          storeSkillsLoading={storeSkillsLoading}
+          storeSkillsError={storeSkillsError}
+          storeSkillOperationName={storeSkillOperationName}
+          onCreateStoreSkill={onCreateStoreSkill}
+          onRenameStoreSkill={onRenameStoreSkill}
+          onDeleteStoreSkill={onDeleteStoreSkill}
+          onInstallStoreSkill={onInstallStoreSkill}
+          chatSkillsData={chatSkills}
+          chatSkillsLoadingData={chatSkillsLoading}
+          chatSkillsErrorData={chatSkillsError}
+          deletingChatSkillNameData={deletingChatSkillName}
+          onDeleteChatSkillData={onDeleteChatSkill}
           globalNoteSearchQuery={globalNoteSearchQuery}
           globalNoteFilterTags={globalNoteFilterTags}
           availableGlobalNoteTags={availableGlobalNoteTags}
@@ -2549,9 +2778,7 @@ function HomeChatWorkspace({
   sending,
   deletingChatId,
   streamingChatId,
-  streamingContent,
-  streamingToolCalls,
-  streamingToolResults,
+  streamingBlocks,
   editingMessageId,
   onSelect,
   onCreate,
@@ -2575,9 +2802,7 @@ function HomeChatWorkspace({
   sending: boolean;
   deletingChatId: string | null;
   streamingChatId: string | null;
-  streamingContent: string;
-  streamingToolCalls: ChatToolCall[];
-  streamingToolResults: ChatToolResult[];
+  streamingBlocks: StreamingBlock[];
   editingMessageId: string | null;
   onSelect: (session: ChatSessionSummary) => void;
   onCreate: () => void;
@@ -2611,7 +2836,7 @@ function HomeChatWorkspace({
   }, [selectedChat?.messages]);
 
   useEffect(() => {
-    if (!streamingContent) return;
+    if (!streamingBlocks.length) return;
     const container = scrollContainerRef.current;
     if (!container) return;
 
@@ -2621,7 +2846,7 @@ function HomeChatWorkspace({
     if (distanceFromBottom > threshold) return;
 
     container.scrollTop = container.scrollHeight;
-  }, [streamingContent]);
+  }, [streamingBlocks]);
 
   useEffect(() => {
     if (editingMessageId && textareaRef.current) {
@@ -2807,81 +3032,80 @@ function HomeChatWorkspace({
             {streamingChatId && selectedChat?.id === streamingChatId ? (
               <div className="flex justify-start">
                 <div className="w-full space-y-3 rounded-2xl px-4 py-3 text-sm text-slate-200">
-                  {streamingContent ? (
-                    <MarkdownContent content={streamingContent} />
-                  ) : (
+                  {streamingBlocks.length === 0 ? (
                     <div className="text-slate-500">...</div>
-                  )}
-                  {streamingToolCalls.length > 0 ? (
-                    <div className="space-y-2 border-t border-white/10 pt-3">
-                      {streamingToolCalls.map((tc) => {
-                        const result = streamingToolResults.find(tr => tr.toolCallId === tc.id);
-                        const isExecuted = tc.status === "executed" || tc.status === "approved";
-                        const isExpanded = expandedToolCalls.has(tc.id);
-                        const isLong = result && result.result.length > 80;
-                        const showExpanded = result && (result.isError || !isLong || isExpanded);
+                  ) : (
+                    streamingBlocks.map((block, idx) => {
+                      if (block.type === "text") {
+                        return <MarkdownContent key={`text-${idx}`} content={block.text} />;
+                      }
+                      const tc = block.toolCall;
+                      const result = block.result;
+                      const isExecuted = tc.status === "executed" || tc.status === "approved";
+                      const isExpanded = expandedToolCalls.has(tc.id);
+                      const isLong = result && result.result.length > 80;
+                      const showExpanded = result && (result.isError || !isLong || isExpanded);
 
-                        return (
-                          <div key={tc.id} className={`rounded-xl border p-3 text-xs ${tc.status === "pending_confirmation" ? "border-amber-500/30 bg-amber-500/10" : tc.status === "rejected" ? "border-red-500/20 bg-red-500/5" : "border-emerald-500/20 bg-emerald-500/5"}`}>
-                            <div className="flex items-center gap-2">
-                              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${tc.status === "pending_confirmation" ? "bg-amber-500/15 text-amber-300" : tc.status === "rejected" ? "bg-red-500/15 text-red-300" : "bg-emerald-500/15 text-emerald-300"}`}>
-                                {toolLabel(tc.name)}
-                              </span>
-                              <span className="truncate font-medium text-slate-100">
-                                {formatToolSummary(tc.name, tc.input)}
-                              </span>
-                              {tc.status === "pending_confirmation" ? (
-                                <span className="ml-auto shrink-0 text-[11px] text-amber-400">等待确认</span>
-                              ) : tc.status === "rejected" ? (
-                                <span className="ml-auto shrink-0 text-[11px] text-red-400">已拒绝</span>
-                              ) : null}
-                            </div>
+                      return (
+                        <div key={tc.id} className={`rounded-xl border p-3 text-xs ${tc.status === "pending_confirmation" ? "border-amber-500/30 bg-amber-500/10" : tc.status === "rejected" ? "border-red-500/20 bg-red-500/5" : "border-emerald-500/20 bg-emerald-500/5"}`}>
+                          <div className="flex items-center gap-2">
+                            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${tc.status === "pending_confirmation" ? "bg-amber-500/15 text-amber-300" : tc.status === "rejected" ? "bg-red-500/15 text-red-300" : "bg-emerald-500/15 text-emerald-300"}`}>
+                              {toolLabel(tc.name)}
+                            </span>
+                            <span className="truncate font-medium text-slate-100">
+                              {formatToolSummary(tc.name, tc.input)}
+                            </span>
                             {tc.status === "pending_confirmation" ? (
-                              <div className="mt-2 flex gap-2">
-                                <button
-                                  onClick={() => onConfirmTool(tc.id, true)}
-                                  className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/20"
-                                >
-                                  执行
-                                </button>
-                                <button
-                                  onClick={() => onConfirmTool(tc.id, false)}
-                                  className="rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-[11px] text-red-300 hover:bg-red-500/20"
-                                >
-                                  拒绝
-                                </button>
-                              </div>
-                            ) : null}
-                            {isExecuted && result ? (
-                              <div className={`mt-2 border-t pt-2 ${result.isError ? "border-red-500/20" : "border-emerald-500/10"}`}>
-                                {showExpanded ? (
-                                  <div className={result.isError ? "text-red-300" : "text-slate-400"}>
-                                    {result.isError ? "❌ " : "✅ "}{result.result}
-                                    {isLong && !result.isError ? (
-                                      <button onClick={() => {
-                                        setExpandedToolCalls(prev => {
-                                          const next = new Set(prev);
-                                          next.delete(tc.id);
-                                          return next;
-                                        });
-                                      }} className="ml-1 text-emerald-400 hover:text-emerald-300">收起</button>
-                                    ) : null}
-                                  </div>
-                                ) : (
-                                  <div className="text-slate-400">
-                                    {result.result.slice(0, 80)}...
-                                    <button onClick={() => {
-                                      setExpandedToolCalls(prev => new Set([...prev, tc.id]));
-                                    }} className="ml-1 text-emerald-400 hover:text-emerald-300">展开</button>
-                                  </div>
-                                )}
-                              </div>
+                              <span className="ml-auto shrink-0 text-[11px] text-amber-400">等待确认</span>
+                            ) : tc.status === "rejected" ? (
+                              <span className="ml-auto shrink-0 text-[11px] text-red-400">已拒绝</span>
                             ) : null}
                           </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
+                          {tc.status === "pending_confirmation" ? (
+                            <div className="mt-2 flex gap-2">
+                              <button
+                                onClick={() => onConfirmTool(tc.id, true)}
+                                className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/20"
+                              >
+                                执行
+                              </button>
+                              <button
+                                onClick={() => onConfirmTool(tc.id, false)}
+                                className="rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-[11px] text-red-300 hover:bg-red-500/20"
+                              >
+                                拒绝
+                              </button>
+                            </div>
+                          ) : null}
+                          {isExecuted && result ? (
+                            <div className={`mt-2 border-t pt-2 ${result.isError ? "border-red-500/20" : "border-emerald-500/10"}`}>
+                              {showExpanded ? (
+                                <div className={result.isError ? "text-red-300" : "text-slate-400"}>
+                                  {result.isError ? "❌ " : "✅ "}{result.result}
+                                  {isLong && !result.isError ? (
+                                    <button onClick={() => {
+                                      setExpandedToolCalls(prev => {
+                                        const next = new Set(prev);
+                                        next.delete(tc.id);
+                                        return next;
+                                      });
+                                    }} className="ml-1 text-emerald-400 hover:text-emerald-300">收起</button>
+                                  ) : null}
+                                </div>
+                              ) : (
+                                <div className="text-slate-400">
+                                  {result.result.slice(0, 80)}...
+                                  <button onClick={() => {
+                                    setExpandedToolCalls(prev => new Set([...prev, tc.id]));
+                                  }} className="ml-1 text-emerald-400 hover:text-emerald-300">展开</button>
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
             ) : null}
@@ -2946,6 +3170,7 @@ function HomeChatWorkspace({
 const workbenchTabs: Array<{ id: WorkbenchTab; label: string }> = [
   { id: "notes", label: "笔记" },
   { id: "skills", label: "Skill" },
+  { id: "skill-store", label: "技能仓库" },
   { id: "projects", label: "项目" },
   { id: "chats", label: "聊天" },
   { id: "sessions", label: "会话" }
@@ -2986,6 +3211,19 @@ function HomeOverviewWorkspace({
   onRenameSkill,
   onDeleteSkill,
   onCopyToProject,
+  storeSkills = [],
+  storeSkillsLoading = false,
+  storeSkillsError = null,
+  storeSkillOperationName = null,
+  onCreateStoreSkill,
+  onRenameStoreSkill,
+  onDeleteStoreSkill,
+  onInstallStoreSkill,
+  chatSkillsData = [],
+  chatSkillsLoadingData = false,
+  chatSkillsErrorData = null,
+  deletingChatSkillNameData = null,
+  onDeleteChatSkillData,
   globalNoteSearchQuery = "",
   globalNoteFilterTags = [],
   availableGlobalNoteTags = [],
@@ -3029,6 +3267,19 @@ function HomeOverviewWorkspace({
   onRenameSkill: (skill: SkillSummary) => void;
   onDeleteSkill: (skill: SkillSummary) => void;
   onCopyToProject: (skill: SkillSummary) => void;
+  storeSkills?: StoreSkillStatus[];
+  storeSkillsLoading?: boolean;
+  storeSkillsError?: string | null;
+  storeSkillOperationName?: string | null;
+  onCreateStoreSkill?: (name: string, description: string) => void;
+  onRenameStoreSkill?: (skill: StoreSkillStatus) => void;
+  onDeleteStoreSkill?: (skill: StoreSkillStatus) => void;
+  onInstallStoreSkill?: (skill: StoreSkillStatus, target: "claude-code" | "chat" | "claude-code-project") => void;
+  chatSkillsData?: ChatSkill[];
+  chatSkillsLoadingData?: boolean;
+  chatSkillsErrorData?: string | null;
+  deletingChatSkillNameData?: string | null;
+  onDeleteChatSkillData?: (skill: ChatSkill) => void;
   globalNoteSearchQuery?: string;
   globalNoteFilterTags?: string[];
   availableGlobalNoteTags?: string[];
@@ -3045,6 +3296,7 @@ function HomeOverviewWorkspace({
   const chatCount = chatSessions.length;
   const noteCount = globalNotes.length;
   const skillCount = globalSkills.length;
+  const storeSkillCount = storeSkills.length;
 
   return (
     <div className="space-y-4">
@@ -3074,7 +3326,7 @@ function HomeOverviewWorkspace({
 
       <nav className="flex rounded-lg border border-white/10 bg-black/20 p-1">
         {workbenchTabs.map((tab) => {
-          const count = tab.id === "projects" ? projectCount : tab.id === "sessions" ? runningCount : tab.id === "chats" ? chatCount : tab.id === "notes" ? noteCount : skillCount;
+          const count = tab.id === "projects" ? projectCount : tab.id === "sessions" ? runningCount : tab.id === "chats" ? chatCount : tab.id === "notes" ? noteCount : tab.id === "skill-store" ? storeSkillCount : skillCount;
           return (
             <button
               key={tab.id}
@@ -3133,6 +3385,22 @@ function HomeOverviewWorkspace({
           onRename={onRenameSkill}
           onDelete={onDeleteSkill}
           onCopyToProject={onCopyToProject}
+        />
+      ) : activeTab === "skill-store" ? (
+        <SkillStorePanel
+          skills={storeSkills}
+          loading={storeSkillsLoading}
+          error={storeSkillsError}
+          operationName={storeSkillOperationName}
+          onCreate={onCreateStoreSkill ?? (() => {})}
+          onRename={onRenameStoreSkill ?? (() => undefined)}
+          onDelete={onDeleteStoreSkill ?? (() => undefined)}
+          onInstall={onInstallStoreSkill ?? (() => undefined)}
+          chatSkills={chatSkillsData}
+          chatSkillsLoading={chatSkillsLoadingData}
+          chatSkillsError={chatSkillsErrorData}
+          deletingChatSkillName={deletingChatSkillNameData}
+          onDeleteChatSkill={onDeleteChatSkillData ?? (() => undefined)}
         />
       ) : activeTab === "projects" ? (
         <section className="rounded-xl border border-white/10 bg-[#151821]">
@@ -4100,6 +4368,213 @@ function GlobalSkillPanel({
                         {busy ? "处理中" : "删除"}
                       </button>
                     </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function SkillStorePanel({
+  skills,
+  loading,
+  error,
+  operationName,
+  onCreate,
+  onRename,
+  onDelete,
+  onInstall,
+  chatSkills,
+  chatSkillsLoading,
+  chatSkillsError,
+  deletingChatSkillName,
+  onDeleteChatSkill
+}: {
+  skills: StoreSkillStatus[];
+  loading: boolean;
+  error: string | null;
+  operationName: string | null;
+  onCreate: (name: string, description: string) => void;
+  onRename: (skill: StoreSkillStatus) => void;
+  onDelete: (skill: StoreSkillStatus) => void;
+  onInstall: (skill: StoreSkillStatus, target: "claude-code" | "chat" | "claude-code-project") => void;
+  chatSkills: ChatSkill[];
+  chatSkillsLoading: boolean;
+  chatSkillsError: string | null;
+  deletingChatSkillName: string | null;
+  onDeleteChatSkill: (skill: ChatSkill) => void;
+}) {
+  const [showCreate, setShowCreate] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createDesc, setCreateDesc] = useState("");
+
+  function handleSubmitCreate(e: FormEvent) {
+    e.preventDefault();
+    const name = createName.trim();
+    if (!name) return;
+    onCreate(name, createDesc.trim());
+    setShowCreate(false);
+    setCreateName("");
+    setCreateDesc("");
+  }
+
+  function openCreate() {
+    setCreateName("");
+    setCreateDesc("");
+    setShowCreate(true);
+  }
+
+  return (
+    <section className="rounded-xl border border-white/10 bg-[#151821]">
+      <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+        <div>
+          <div className="text-sm font-medium text-slate-100">技能仓库</div>
+          <div className="mt-1 text-xs text-slate-500">来源：~/.workhorse/skills/*，统一管理并安装到各目标。</div>
+        </div>
+        <button onClick={openCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+          新建
+        </button>
+      </div>
+      <div className="p-4">
+        {error ? <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+        {loading ? <div className="rounded-lg border border-white/10 p-3 text-xs text-slate-400">技能仓库加载中...</div> : null}
+        {!loading && skills.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-4 text-xs text-slate-500">还没有 Skill，先新建一个。</div> : null}
+        {!loading && skills.length > 0 ? (
+          <div className="space-y-2">
+            {skills.map((item) => {
+              const busy = operationName === item.skill.name;
+              return (
+                <div key={item.skill.name} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-slate-100">{item.skill.name}</span>
+                        {item.skill.description ? <span className="text-xs text-slate-500">{item.skill.description}</span> : null}
+                      </div>
+                      <div className="mt-1 break-all text-xs text-slate-600">{item.skill.path}</div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${item.installed.claudeCode ? "bg-emerald-400/10 text-emerald-300" : "bg-white/5 text-slate-600"}`}>
+                          {item.installed.claudeCode ? "全局 CC" : "全局 CC"}
+                        </span>
+                        <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${item.installed.chat ? "bg-emerald-400/10 text-emerald-300" : "bg-white/5 text-slate-600"}`}>
+                          {item.installed.chat ? "Chat" : "Chat"}
+                        </span>
+                        <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${item.installed.claudeCodeProject ? "bg-emerald-400/10 text-emerald-300" : "bg-white/5 text-slate-600"}`}>
+                          {item.installed.claudeCodeProject ? "项目 CC" : "项目 CC"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                      <button disabled={busy || item.installed.claudeCode} onClick={() => onInstall(item, "claude-code")} className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 disabled:opacity-50" title="安装到全局 Claude Code">
+                        安装到 CC
+                      </button>
+                      <button disabled={busy || item.installed.chat} onClick={() => onInstall(item, "chat")} className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 disabled:opacity-50" title="安装到 AI Chat">
+                        安装到 Chat
+                      </button>
+                      <button disabled={busy || item.installed.claudeCodeProject} onClick={() => onInstall(item, "claude-code-project")} className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 disabled:opacity-50" title="安装到项目 Claude Code">
+                        安装到项目
+                      </button>
+                      <button disabled={busy} onClick={() => onRename(item)} className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 disabled:opacity-50">
+                        重命名
+                      </button>
+                      <button disabled={busy} onClick={() => onDelete(item)} className="rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-200 disabled:opacity-50">
+                        {busy ? "处理中" : "删除"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+
+      {showCreate ? (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setShowCreate(false)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowCreate(false)}>
+            <div className="w-full max-w-sm rounded-xl border border-white/10 bg-[#1a1d28] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <form onSubmit={handleSubmitCreate}>
+                <div className="p-4 pb-0">
+                  <h3 className="text-sm font-medium text-slate-100">新建 Skill</h3>
+                  <p className="mt-1 text-xs text-slate-500">在 ~/.workhorse/skills/ 下创建新的 Skill 文件夹。</p>
+                </div>
+                <div className="space-y-3 px-4 pt-4">
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-400">名称</label>
+                    <input
+                      type="text"
+                      required
+                      autoFocus
+                      value={createName}
+                      onChange={(e) => setCreateName(e.target.value)}
+                      className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-white/20"
+                      placeholder="Skill 名称"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-400">描述（可选）</label>
+                    <input
+                      type="text"
+                      value={createDesc}
+                      onChange={(e) => setCreateDesc(e.target.value)}
+                      className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-white/20"
+                      placeholder="简要描述 Skill 用途"
+                    />
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-end gap-2 border-t border-white/5 p-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreate(false)}
+                    className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-400 transition-colors hover:border-white/15 hover:bg-white/5 hover:text-slate-200"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-200"
+                  >
+                    创建
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      <div className="border-t border-white/10 px-4 py-3">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <div className="text-sm font-medium text-slate-100">Chat Skills</div>
+            <div className="mt-0.5 text-xs text-slate-500">AI Chat 运行时加载的 Skill，来源：~/.workhorse/chat-skills/*</div>
+          </div>
+        </div>
+        {chatSkillsError ? <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{chatSkillsError}</p> : null}
+        {chatSkillsLoading ? <div className="rounded-lg border border-white/10 p-3 text-xs text-slate-400">Chat Skills 加载中...</div> : null}
+        {!chatSkillsLoading && chatSkills.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-xs text-slate-500">还没有安装 Chat Skill，可在上方仓库中安装。</div> : null}
+        {!chatSkillsLoading && chatSkills.length > 0 ? (
+          <div className="space-y-2">
+            {chatSkills.map((skill) => {
+              const busy = deletingChatSkillName === skill.name;
+              return (
+                <div key={skill.name} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-slate-100">{skill.name}</span>
+                        {skill.description ? <span className="text-xs text-slate-500">{skill.description}</span> : null}
+                      </div>
+                      <div className="mt-1 break-all text-xs text-slate-600">{skill.path}</div>
+                    </div>
+                    <button disabled={busy} onClick={() => onDeleteChatSkill(skill)} className="shrink-0 rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-200 disabled:opacity-50">
+                      {busy ? "处理中" : "移除"}
+                    </button>
                   </div>
                 </div>
               );
@@ -5535,11 +6010,15 @@ function toolLabel(name: string) {
     case "list_projects": return "查看项目";
     case "list_worktrees": return "查看 Worktree";
     case "list_prompt_drafts": return "查看 Prompt";
+    case "Skill": return "加载技能";
+    case "bash": return "执行命令";
     default: return name;
   }
 }
 
 function formatToolSummary(name: string, input: Record<string, unknown>) {
+  if (name === "Skill") return String(input.skill ?? "").slice(0, 80);
+  if (name === "bash") return String(input.command ?? "").slice(0, 80);
   const title = (input.title || input.query || "") as string;
   return title ? String(title).slice(0, 80) : name;
 }

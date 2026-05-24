@@ -47,6 +47,15 @@ import type {
   SessionTerminalSnapshotResponse,
   SkillResponse,
   SkillsResponse,
+  StoreSkillResponse,
+  StoreSkillsResponse,
+  ChatSkill,
+  ChatSkillsResponse,
+  CreateStoreSkillRequest,
+  DeleteChatSkillRequest,
+  DeleteStoreSkillRequest,
+  InstallStoreSkillRequest,
+  RenameStoreSkillRequest,
   StopSessionResponse,
   TodoResponse,
   TodosResponse,
@@ -279,6 +288,50 @@ export function deleteProjectSkill(projectId: string, name: string, input: Delet
 export function copyProjectSkillToGlobal(projectId: string, name: string, input: CopyProjectSkillRequest) {
   return fetchJson<CopySkillResponse>(`/api/projects/${projectId}/skills/${encodeURIComponent(name)}/copy`, {
     method: "POST",
+    body: input
+  });
+}
+
+export function getStoreSkills(projectId?: string) {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+  return fetchJson<StoreSkillsResponse>(`/api/skill-store${query}`);
+}
+
+export function createStoreSkill(input: CreateStoreSkillRequest) {
+  return fetchJson<StoreSkillResponse>("/api/skill-store", {
+    method: "POST",
+    body: input
+  });
+}
+
+export function renameStoreSkill(name: string, input: RenameStoreSkillRequest) {
+  return fetchJson<StoreSkillResponse>(`/api/skill-store/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    body: input
+  });
+}
+
+export function deleteStoreSkill(name: string, input: DeleteStoreSkillRequest) {
+  return fetchJson<{ deleted: true }>(`/api/skill-store/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+    body: input
+  });
+}
+
+export function installStoreSkill(name: string, input: InstallStoreSkillRequest) {
+  return fetchJson<StoreSkillResponse>(`/api/skill-store/${encodeURIComponent(name)}/install`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function getChatSkills() {
+  return fetchJson<ChatSkillsResponse>("/api/chat-skills");
+}
+
+export function deleteChatSkill(name: string, input: DeleteChatSkillRequest) {
+  return fetchJson<{ deleted: true }>(`/api/chat-skills/${encodeURIComponent(name)}`, {
+    method: "DELETE",
     body: input
   });
 }

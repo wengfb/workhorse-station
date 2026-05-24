@@ -16,6 +16,7 @@ import { getClient, buildSystemPrompt, toBetaMessages, renderMessageContent, MOD
 import { getChatToolDefs, executeChatTool, getToolConfirmation } from "./chat-tools.js";
 import { appendChatMessage, getChatSession } from "./chat-repository.js";
 import { createChatStreamEvent } from "./chat-events.js";
+import { listChatSkills } from "../skills/skill-loader.js";
 
 const CONFIRMATION_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -65,9 +66,10 @@ export class ChatStreamHandler {
       });
 
       const anthropic = getClient();
-      const toolDefs = getChatToolDefs();
+      const chatSkills = await listChatSkills();
+      const toolDefs = getChatToolDefs(chatSkills);
       const tools: BetaToolUnion[] = toolDefs as BetaToolUnion[];
-      const system = buildSystemPrompt(this.project, this.worktree);
+      const system = buildSystemPrompt(this.project, this.worktree, chatSkills);
 
       for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS && this.active; iteration++) {
         const stream = anthropic.beta.messages.stream({
@@ -179,13 +181,13 @@ export class ChatStreamHandler {
         for (const tc of chatToolCalls) {
           const confirmation = getToolConfirmation(tc.name);
 
-          if (confirmation === "confirm") {
-            this.onEvent(createChatStreamEvent({
-              type: "chat.tool_use_pending",
-              chatSessionId: this.chatSessionId,
-              toolCall: { ...tc, status: "pending_confirmation" }
-            }));
+          this.onEvent(createChatStreamEvent({
+            type: "chat.tool_use_pending",
+            chatSessionId: this.chatSessionId,
+            toolCall: { ...tc, status: "pending_confirmation" }
+          }));
 
+          if (confirmation === "confirm") {
             const approved = await this.waitForConfirmation(tc.id);
             tc.status = approved ? "approved" : "rejected";
 
@@ -204,7 +206,7 @@ export class ChatStreamHandler {
             toolCall: tc
           }));
 
-          const result = executeChatTool(this.database.db, tc.name, tc.input);
+          const result = await executeChatTool(this.database.db, tc.name, tc.input);
           toolResults.push({ toolCallId: tc.id, result: result.result, isError: result.isError });
           toolResultContent.push({ type: "tool_result", tool_use_id: tc.id, content: result.result, is_error: result.isError });
 
