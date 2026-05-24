@@ -2157,10 +2157,6 @@ export function App() {
           selectedProject={selectedProject}
           loading={projectsLoading}
           onToggle={() => setProjectMenuOpen((current) => !current)}
-          onSelect={(project) => {
-            setCurrentProject(project);
-            setProjectMenuOpen(false);
-          }}
           onEnter={(project) => selectProject(project)}
           onCreate={() => {
             setProjectMenuOpen(false);
@@ -2469,7 +2465,6 @@ function ProjectMenu({
   selectedProject,
   loading,
   onToggle,
-  onSelect,
   onEnter,
   onCreate
 }: {
@@ -2478,12 +2473,24 @@ function ProjectMenu({
   selectedProject: ProjectSummary | null;
   loading: boolean;
   onToggle: () => void;
-  onSelect: (project: ProjectSummary) => void;
   onEnter: (project: ProjectSummary) => void;
   onCreate: () => void;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        onToggle();
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open, onToggle]);
+
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button onClick={onToggle} className="min-w-44 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-slate-200 hover:bg-white/10">
         <span className="block truncate">项目：{selectedProject?.name ?? "未选择"}</span>
       </button>
@@ -2494,15 +2501,14 @@ function ProjectMenu({
             {loading ? <div className="px-3 py-3 text-sm text-slate-400">项目加载中...</div> : null}
             {!loading && projects.length === 0 ? <div className="px-3 py-3 text-sm text-slate-500">还没有项目。</div> : null}
             {projects.map((project) => (
-              <div key={project.id} className={`flex items-center gap-2 rounded-lg p-2 ${selectedProject?.id === project.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}>
-                <button onClick={() => onSelect(project)} className="min-w-0 flex-1 text-left">
-                  <div className="truncate text-sm text-slate-100">{project.name}</div>
-                  <div className="mt-1 truncate text-xs text-slate-500">{project.path}</div>
-                </button>
-                <button onClick={() => onEnter(project)} className="shrink-0 rounded-md border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/5">
-                  进入
-                </button>
-              </div>
+              <button
+                key={project.id}
+                onClick={() => onEnter(project)}
+                className={`w-full rounded-lg p-2 text-left ${selectedProject?.id === project.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}
+              >
+                <div className="truncate text-sm text-slate-100">{project.name}</div>
+                <div className="mt-1 truncate text-xs text-slate-500">{project.path}</div>
+              </button>
             ))}
           </div>
           <button onClick={onCreate} className="block w-full border-t border-white/10 px-3 py-2 text-left text-sm text-slate-200 hover:bg-white/5">
