@@ -943,8 +943,6 @@ export function App() {
   }
 
   function startCreateProject() {
-    setWorkspaceScope("project");
-    setActiveProjectTab("overview");
     setProjectMode("create");
     setProjectDraft(emptyProjectDraft());
     setProjectError(null);
@@ -2259,6 +2257,7 @@ export function App() {
               }
               setWorkspaceScope("project");
             }}
+            onCreateProject={startCreateProject}
             onCreateSession={() => openSessionModal("direct")}
             globalNoteSearchQuery={globalNoteSearchQuery}
             globalNoteFilterTags={globalNoteFilterTags}
@@ -2588,6 +2587,7 @@ function HomeWorkspace({
   deletingChatSkillName,
   onDeleteChatSkill,
   onEnterProject,
+  onCreateProject,
   onCreateSession,
   projects,
   recentProjects,
@@ -2671,6 +2671,7 @@ function HomeWorkspace({
   recentProjects: ProjectSummary[];
   runningSessions: OverviewSessionSummary[];
   onEnterProject: (projectId?: string) => void;
+  onCreateProject: () => void;
   onCreateSession: () => void;
   globalNoteSearchQuery?: string;
   globalNoteFilterTags?: string[];
@@ -2733,6 +2734,7 @@ function HomeWorkspace({
           recentProjects={recentProjects}
           runningSessions={runningSessions}
           onEnterProject={onEnterProject}
+          onCreateProject={onCreateProject}
           onSelectChat={onChatSelect}
           onCreateNote={onCreateGlobalNote}
           onSelectNote={onSelectGlobalNote}
@@ -3206,6 +3208,7 @@ function HomeOverviewWorkspace({
   recentProjects,
   runningSessions,
   onEnterProject,
+  onCreateProject,
   onSelectChat,
   onCreateNote,
   onSelectNote,
@@ -3262,6 +3265,7 @@ function HomeOverviewWorkspace({
   recentProjects: ProjectSummary[];
   runningSessions: OverviewSessionSummary[];
   onEnterProject: (projectId?: string) => void;
+  onCreateProject: () => void;
   onSelectChat: (session: ChatSessionSummary) => void;
   onCreateNote: () => void;
   onSelectNote: (note: NoteSummary) => void;
@@ -3416,7 +3420,7 @@ function HomeOverviewWorkspace({
               <div className="text-sm font-medium text-slate-100">项目管理</div>
               <p className="mt-0.5 text-xs text-slate-500">所有项目，点击进入项目工作台。</p>
             </div>
-            <button onClick={() => onEnterProject()} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+            <button onClick={onCreateProject} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
               新建项目
             </button>
           </div>
@@ -3997,7 +4001,6 @@ function ProjectTabWorkspace({
         todos={todos}
         loading={sessionsLoading}
         error={sessionsError}
-        onCreateProject={onCreateProject}
         onOpenSession={onOpenSession}
       />
     );
@@ -4135,19 +4138,13 @@ function ProjectManagementPanel({
       <section className="rounded-xl border border-white/10 bg-[#151821]">
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div className="text-sm font-medium">项目列表</div>
-          <button onClick={onCreate} className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950">
-            新建项目
-          </button>
         </div>
         <div className="min-h-[320px] divide-y divide-white/10">
           {loading ? <div className="px-4 py-6 text-sm text-slate-400">项目加载中...</div> : null}
           {!loading && projects.length === 0 ? (
             <div className="space-y-3 px-4 py-8 text-sm">
               <div className="text-base font-medium text-slate-100">还没有项目</div>
-              <p className="text-slate-400">创建第一个项目，并绑定一个本机已有 Git 仓库主工作目录。</p>
-              <button onClick={onCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
-                绑定第一个项目
-              </button>
+              <p className="text-slate-400">请在工作台页面创建项目。</p>
             </div>
           ) : null}
           {!loading

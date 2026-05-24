@@ -27,7 +27,6 @@ export function SessionsWorkspace({
   todos,
   loading,
   error,
-  onCreateProject,
   onOpenSession
 }: {
   selectedProject: ProjectSummary | null;
@@ -37,11 +36,10 @@ export function SessionsWorkspace({
   todos: TodoSummary[];
   loading: boolean;
   error: string | null;
-  onCreateProject: () => void;
   onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
 }) {
   if (!selectedProject) {
-    return <EmptyProjectNotice onCreateProject={onCreateProject} />;
+    return <EmptyProjectNotice />;
   }
 
   const firstTodo = todos[0] ?? null;
@@ -566,14 +564,11 @@ export function SessionModal({
   );
 }
 
-function EmptyProjectNotice({ onCreateProject }: { onCreateProject: () => void }) {
+function EmptyProjectNotice() {
   return (
     <section className="rounded-xl border border-dashed border-white/10 bg-[#151821] p-6 text-sm text-slate-400">
       <div className="text-base font-medium text-slate-100">还没有选择项目</div>
-      <p className="mt-2">进入项目后才能查看任务、项目笔记、项目 Skill、会话和 Worktree。</p>
-      <button onClick={onCreateProject} className="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
-        新建项目
-      </button>
+      <p className="mt-2">请在工作台页面选择或创建项目后，再查看任务、项目笔记、项目 Skill、会话和 Worktree。</p>
     </section>
   );
 }
