@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { SessionRuntimeStatus, SessionStreamEvent } from "@workhorse-station/shared";
-import { Terminal } from "xterm";
-import { FitAddon } from "xterm-addon-fit";
-import "xterm/css/xterm.css";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
 import { createSessionEventSource, getSessionTerminal, resizeSessionTerminal, sendSessionInput } from "./api";
 
 type SessionTerminalProps = {
@@ -17,9 +17,16 @@ const termTheme = {
   foreground: "#d1fae5"
 };
 
+type StoppedTerminalState = {
+  terminal: Terminal;
+  fitAddon: FitAddon;
+  observer: ResizeObserver;
+};
+
 export function SessionTerminal({ projectId, sessionId, runtimeStatus, onRuntimeEvent }: SessionTerminalProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const stoppedRef = useRef<HTMLDivElement | null>(null);
+  const stoppedStateRef = useRef<StoppedTerminalState | null>(null);
   const [snapshotBuffer, setSnapshotBuffer] = useState("");
   const isLive = runtimeStatus === "starting" || runtimeStatus === "running" || runtimeStatus === "stopping";
 
@@ -43,7 +50,7 @@ export function SessionTerminal({ projectId, sessionId, runtimeStatus, onRuntime
     };
   }, [projectId, sessionId]);
 
-  // Readonly terminal for stopped sessions — renders ANSI buffer correctly
+  // Create/dispose stopped terminal — only when isLive toggles
   useEffect(() => {
     if (isLive) {
       return;
@@ -75,15 +82,29 @@ export function SessionTerminal({ projectId, sessionId, runtimeStatus, onRuntime
     };
 
     fit();
-    terminal.write(snapshotBuffer || "暂无终端输出");
 
     const observer = new ResizeObserver(() => fit());
     observer.observe(container);
 
+    stoppedStateRef.current = { terminal, fitAddon, observer };
+
     return () => {
       observer.disconnect();
       terminal.dispose();
+      stoppedStateRef.current = null;
     };
+    // Only create/dispose when isLive changes; buffer updates are handled separately
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLive]);
+
+  // Write snapshot buffer to existing stopped terminal without recreating it
+  useEffect(() => {
+    if (isLive) return;
+    const state = stoppedStateRef.current;
+    if (!state) return;
+
+    state.terminal.reset();
+    state.terminal.write(snapshotBuffer || "暂无终端输出");
   }, [isLive, snapshotBuffer]);
 
   useEffect(() => {
