@@ -507,6 +507,12 @@ export function stopSession(projectId: string, sessionId: string) {
   });
 }
 
+export function continueSession(projectId: string, sessionId: string) {
+  return fetchJson<SessionResponse>(`/api/projects/${projectId}/sessions/${sessionId}/continue`, {
+    method: "POST"
+  });
+}
+
 export function getSessionTerminal(projectId: string, sessionId: string) {
   return fetchJson<SessionTerminalSnapshotResponse>(`/api/projects/${projectId}/sessions/${sessionId}/terminal`);
 }

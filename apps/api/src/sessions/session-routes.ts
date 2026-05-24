@@ -188,6 +188,69 @@ export async function registerSessionRoutes(server: FastifyInstance, database: D
     };
   });
 
+  server.post<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/continue", async (request): Promise<ApiResponse<SessionResponse>> => {
+    assertProjectExists(database, request.params.projectId);
+    const currentSession = getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+
+    if (!currentSession) {
+      throw new HttpError(404, "session_not_found", "会话不存在");
+    }
+
+    if (currentSession.status !== "completed" && currentSession.status !== "failed") {
+      throw new HttpError(409, "session_not_stopped", "只能继续已停止的会话");
+    }
+
+    const cwd = currentSession.cwd || currentSession.resolvedWorktreePath;
+    if (!cwd) {
+      throw new HttpError(400, "session_no_cwd", "会话缺少工作目录，无法继续");
+    }
+
+    try {
+      const runtime = await runtimeManager.startSession({
+        sessionId: currentSession.id,
+        projectId: request.params.projectId,
+        cwd,
+        resolvedWorktreePath: currentSession.resolvedWorktreePath,
+        prompt: currentSession.prompt ?? "",
+        resumeSessionId: currentSession.id,
+        forkSession: false,
+        initialBuffer: currentSession.terminalBuffer ?? ""
+      });
+
+      const launchedSession = updateSessionLaunch(database.db, request.params.projectId, currentSession.id, {
+        status: "running",
+        runtimeStatus: runtime.runtimeStatus,
+        worktreeId: currentSession.worktreeId,
+        requestedWorktreeName: currentSession.requestedWorktreeName,
+        pid: runtime.pid,
+        cwd: runtime.cwd,
+        resolvedWorktreePath: currentSession.resolvedWorktreePath,
+        lastActivityAt: runtime.lastActivityAt,
+        summary: currentSession.summary
+      });
+      database.persist();
+
+      if (!launchedSession) {
+        throw new Error("Failed to read launched session");
+      }
+
+      return {
+        ok: true,
+        data: { session: launchedSession }
+      };
+    } catch (error) {
+      updateSessionCompletion(database.db, request.params.projectId, currentSession.id, {
+        status: "failed",
+        runtimeStatus: "failed",
+        exitCode: 1,
+        lastActivityAt: new Date().toISOString(),
+        summary: error instanceof Error ? error.message : "Claude Code 启动失败"
+      });
+      database.persist();
+      throw new HttpError(500, "session_continue_failed", error instanceof Error ? error.message : "Claude Code 继续启动失败");
+    }
+  });
+
   server.get<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/terminal", async (request): Promise<ApiResponse<SessionTerminalSnapshotResponse>> => {
     assertProjectExists(database, request.params.projectId);
     const currentSession = getProjectSession(database.db, request.params.projectId, request.params.sessionId);

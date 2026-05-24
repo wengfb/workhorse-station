@@ -61,6 +61,7 @@ export class SessionRuntimeManager extends EventEmitter {
     prompt: string;
     resumeSessionId?: string;
     forkSession?: boolean;
+    initialBuffer?: string;
   }) {
     const command = await resolveClaudeBinary();
     const pty = new SessionPty();
@@ -82,7 +83,7 @@ export class SessionRuntimeManager extends EventEmitter {
       runtimeStatus: "starting",
       cwd: input.cwd,
       resolvedWorktreePath: input.resolvedWorktreePath,
-      buffer: "",
+      buffer: input.initialBuffer ?? "",
       lastActivityAt: null,
       pty,
       stopRequested: false,

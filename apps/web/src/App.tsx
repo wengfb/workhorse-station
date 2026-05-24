@@ -92,6 +92,7 @@ import {
   truncateChatMessages,
   confirmChatTool,
   stopSession,
+  continueSession,
   updateGlobalNote,
   updateNote,
   updateProject,
@@ -279,6 +280,7 @@ export function App() {
   const [creatingSession, setCreatingSession] = useState(false);
   const [updatingSessionId, setUpdatingSessionId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [continuingSessionId, setContinuingSessionId] = useState<string | null>(null);
   const [globalNotes, setGlobalNotes] = useState<NoteSummary[]>([]);
   const [globalNotesTotal, setGlobalNotesTotal] = useState(0);
   const [globalNotesPage, setGlobalNotesPage] = useState(1);
@@ -2159,6 +2161,26 @@ export function App() {
     }
   }
 
+  async function handleContinueSession(session: SessionSummary) {
+    if (!selectedProject) {
+      return;
+    }
+
+    setContinuingSessionId(session.id);
+    setSessionsError(null);
+
+    try {
+      const data = await continueSession(selectedProject.id, session.id);
+      setSelectedSessionId(data.session.id);
+      setSessionView("terminal");
+      await reloadSessions(selectedProject.id, data.session.id);
+    } catch (error) {
+      setSessionsError(formatError(error, "会话继续失败"));
+    } finally {
+      setContinuingSessionId(null);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col bg-[#0b0c10] text-slate-100">
       <header className="flex flex-wrap items-center gap-3 border-b border-white/10 bg-[#111318] px-4 py-3 sm:px-5">
@@ -2451,6 +2473,7 @@ export function App() {
           loading={sessionsLoading}
           updatingSessionId={updatingSessionId}
           deletingSessionId={deletingSessionId}
+          continuingSessionId={continuingSessionId}
           onResultDraftChange={setSessionResultDraft}
           onSaveResult={() => void handleSaveSessionResult()}
           onApplyResultToTodo={() => void handleSaveSessionResult({ applyToTodo: true })}
@@ -2459,6 +2482,7 @@ export function App() {
           onSelectSession={(session) => setSelectedSessionId(session.id)}
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
+          onContinueSession={handleContinueSession}
           onRuntimeEvent={handleSessionRuntimeEvent}
           onClose={() => setSessionModalOpen(false)}
         />

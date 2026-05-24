@@ -1,5 +1,18 @@
 # 开发进度
 
+## 2026-05-25：会话继续——已停止会话原地续接
+
+### 已完成
+- 后端新增 `POST /api/projects/:projectId/sessions/:sessionId/continue` 端点：原地续接已停止（completed/failed）的会话，使用 `--resume <id>` 不 fork，保留原有 terminal buffer。
+- `SessionRuntimeManager.startSession()` 新增 `initialBuffer` 可选参数，支持续接时预填历史终端输出。
+- 前端 `api.ts` 新增 `continueSession()` 函数。
+- `SessionModal` 新增 `onContinueSession` / `continuingSessionId` props，已停止会话卡片显示「继续」按钮（绿色）。
+- `App.tsx` 接入 `handleContinueSession`：调用 continue API 后自动切换到终端视图。
+
+### 验收记录
+- `pnpm -r typecheck`：通过。
+- `pnpm -r build`：通过。
+
 ## 2026-05-24：聊天中 Skill 调用与 bash 工具集成
 
 ### 已完成

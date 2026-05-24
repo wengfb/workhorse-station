@@ -302,6 +302,7 @@ export function SessionModal({
   loading,
   updatingSessionId,
   deletingSessionId,
+  continuingSessionId,
   onResultDraftChange,
   onSaveResult,
   onApplyResultToTodo,
@@ -310,6 +311,7 @@ export function SessionModal({
   onSelectSession,
   onStopSession,
   onDeleteSession,
+  onContinueSession,
   onRuntimeEvent,
   onClose
 }: {
@@ -329,6 +331,7 @@ export function SessionModal({
   loading: boolean;
   updatingSessionId: string | null;
   deletingSessionId: string | null;
+  continuingSessionId: string | null;
   onResultDraftChange: (value: string) => void;
   onSaveResult: () => void;
   onApplyResultToTodo: () => void;
@@ -337,6 +340,7 @@ export function SessionModal({
   onSelectSession: (session: SessionSummary) => void;
   onStopSession: (session: SessionSummary) => void;
   onDeleteSession: (session: SessionSummary) => void;
+  onContinueSession: (session: SessionSummary) => void;
   onRuntimeEvent: (event: SessionStreamEvent) => void;
   onClose: () => void;
 }) {
@@ -423,6 +427,15 @@ export function SessionModal({
                         <div className="mt-2 text-[11px] text-slate-500">{formatDateTime(session.createdAt)}</div>
                       </button>
                       <div className="flex shrink-0 gap-1">
+                        {(session.status === "completed" || session.status === "failed") && (
+                          <button
+                            disabled={continuingSessionId === session.id}
+                            onClick={() => onContinueSession(session)}
+                            className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[11px] text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {continuingSessionId === session.id ? "继续中" : "继续"}
+                          </button>
+                        )}
                         <button
                           disabled={updatingSessionId === session.id || session.runtimeStatus === "stopped" || session.runtimeStatus === "failed"}
                           onClick={() => onStopSession(session)}
