@@ -150,7 +150,7 @@
 - [x] 不解析 Skill 目录内部文件，不把 Skill 正文复制进数据库
 - [ ] 文件处理标准 Skill（Excel / Word / PDF / 图片的导入、抽取、搜索、OCR、摘要）
 - [ ] 在 prompt 生成和会话创建中注入 Skill 引用与快照
-- [ ] 在首页 AI 聊天中调用标准 Skill
+- [x] 在首页 AI 聊天中调用标准 Skill（通过 Skill 工具加载 Chat Skills 指令并执行）
 
 ### Phase 6：体验打磨
 - [ ] 全局搜索

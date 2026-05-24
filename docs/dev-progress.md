@@ -1,5 +1,20 @@
 # 开发进度
 
+## 2026-05-24：聊天中 Skill 调用与 bash 工具集成
+
+### 已完成
+- 聊天工具集中新增 `Skill` 工具：根据 `listChatSkills()` 动态生成可用 Skill 列表，Claude 可通过该工具加载指定 Chat Skill 的完整指令并按指令执行。
+- 聊天工具集中新增 `bash` 工具：支持执行 bash 命令（30 秒超时、1MB 输出限制），工作目录为当前项目目录，使 AI 能运行脚本和检查系统状态。
+- `buildSystemPrompt()` 新增 Chat Skills 列表注入：系统提示词中列出所有可用 Chat Skill 的名称和描述，引导 Claude 匹配并调用。
+- `ChatStreamHandler.processMessage()` 在每次消息处理时调用 `listChatSkills()` 刷新 Skill 列表，确保工具注册和系统提示词始终反映最新状态。
+- `loadChatSkill(skillName)` 从 `~/.workhorse/chat-skills/<name>/` 加载 SKILL.md 内容，返回 frontmatter 元数据和 body 指令文本。
+- `Skill` 工具返回结果中包含技能目录路径提示，方便后续 bash 命令引用技能脚本。
+
+### 验收记录
+- `todo-summary` Chat Skill 已注册，`SKILL.md` + `scripts/count.sh` 可用。
+- `pnpm -r typecheck`：通过。
+- `pnpm -r build`：通过。
+
 ## 2026-05-24：技能仓库管理与 Chat Skills 管理
 
 ### 已完成
