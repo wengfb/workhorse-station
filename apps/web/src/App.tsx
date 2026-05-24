@@ -2295,6 +2295,9 @@ export function App() {
             globalNotesTotal={globalNotesTotal}
             globalNotesPage={globalNotesPage}
             onGlobalNotesPageChange={setGlobalNotesPage}
+            onRefreshGlobalSkills={reloadGlobalSkills}
+            onRefreshStoreSkills={reloadStoreSkills}
+            onRefreshChatSkills={reloadChatSkills}
           />
         ) : (
           <ProjectWorkspacePage
@@ -2378,6 +2381,8 @@ export function App() {
             onTodoSearchChange={setTodoSearchQuery}
             onTodoFilterTagsChange={setTodoFilterTags}
             onTodoStatusChange={handleTodoStatusChange}
+            onRefreshWorktrees={() => selectedProject && reloadWorktrees(selectedProject.id, null)}
+            onRefreshProjectSkills={() => selectedProject && reloadProjectSkills(selectedProject.id, null)}
           />
         )}
       </main>
@@ -2627,7 +2632,10 @@ function HomeWorkspace({
   onGlobalNoteFilterTagsChange,
   globalNotesTotal = 0,
   globalNotesPage = 1,
-  onGlobalNotesPageChange
+  onGlobalNotesPageChange,
+  onRefreshGlobalSkills,
+  onRefreshStoreSkills,
+  onRefreshChatSkills
 }: {
   activeMode: HomeMode;
   activeModeInfo: { label: string; description: string };
@@ -2709,6 +2717,9 @@ function HomeWorkspace({
   globalNotesTotal?: number;
   globalNotesPage?: number;
   onGlobalNotesPageChange?: (page: number) => void;
+  onRefreshGlobalSkills?: () => void;
+  onRefreshStoreSkills?: () => void;
+  onRefreshChatSkills?: () => void;
 }) {
   return (
     <div className={activeMode === "chat" ? "flex h-full w-full flex-col" : "mx-auto flex w-full max-w-7xl flex-col gap-5"}>
@@ -2796,6 +2807,9 @@ function HomeWorkspace({
           globalNotesTotal={globalNotesTotal}
           globalNotesPage={globalNotesPage}
           onGlobalNotesPageChange={onGlobalNotesPageChange}
+          onRefreshGlobalSkills={onRefreshGlobalSkills}
+          onRefreshStoreSkills={onRefreshStoreSkills}
+          onRefreshChatSkills={onRefreshChatSkills}
         />
       )}
     </div>
@@ -3270,7 +3284,10 @@ function HomeOverviewWorkspace({
   onGlobalNoteFilterTagsChange,
   globalNotesTotal = 0,
   globalNotesPage = 1,
-  onGlobalNotesPageChange
+  onGlobalNotesPageChange,
+  onRefreshGlobalSkills,
+  onRefreshStoreSkills,
+  onRefreshChatSkills
 }: {
   apiConnected: boolean;
   apiError: string | null;
@@ -3328,6 +3345,9 @@ function HomeOverviewWorkspace({
   globalNotesTotal?: number;
   globalNotesPage?: number;
   onGlobalNotesPageChange?: (page: number) => void;
+  onRefreshGlobalSkills?: () => void;
+  onRefreshStoreSkills?: () => void;
+  onRefreshChatSkills?: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<WorkbenchTab>("notes");
 
@@ -3425,6 +3445,7 @@ function HomeOverviewWorkspace({
           onRename={onRenameSkill}
           onDelete={onDeleteSkill}
           onCopyToProject={onCopyToProject}
+          onRefresh={onRefreshGlobalSkills ?? (() => {})}
         />
       ) : activeTab === "skill-store" ? (
         <SkillStorePanel
@@ -3436,11 +3457,13 @@ function HomeOverviewWorkspace({
           onRename={onRenameStoreSkill ?? (() => undefined)}
           onDelete={onDeleteStoreSkill ?? (() => undefined)}
           onInstall={onInstallStoreSkill ?? (() => undefined)}
+          onRefreshStore={onRefreshStoreSkills ?? (() => {})}
           chatSkills={chatSkillsData}
           chatSkillsLoading={chatSkillsLoadingData}
           chatSkillsError={chatSkillsErrorData}
           deletingChatSkillName={deletingChatSkillNameData}
           onDeleteChatSkill={onDeleteChatSkillData ?? (() => undefined)}
+          onRefreshChatSkills={onRefreshChatSkills ?? (() => {})}
         />
       ) : activeTab === "projects" ? (
         <section className="rounded-xl border border-white/10 bg-[#151821]">
@@ -3633,7 +3656,9 @@ function ProjectWorkspacePage({
   availableTodoTags = [],
   onTodoSearchChange,
   onTodoFilterTagsChange,
-  onTodoStatusChange
+  onTodoStatusChange,
+  onRefreshWorktrees,
+  onRefreshProjectSkills
 }: {
   activeTab: ProjectTab;
   onTabChange: (tab: ProjectTab) => void;
@@ -3715,6 +3740,8 @@ function ProjectWorkspacePage({
   onTodoSearchChange?: (query: string) => void;
   onTodoFilterTagsChange?: (tags: string[]) => void;
   onTodoStatusChange?: (todo: TodoSummary, newStatus: TodoStatus) => void;
+  onRefreshWorktrees?: () => void;
+  onRefreshProjectSkills?: () => void;
 }) {
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
@@ -3820,6 +3847,8 @@ function ProjectWorkspacePage({
         onTodoSearchChange={onTodoSearchChange}
         onTodoFilterTagsChange={onTodoFilterTagsChange}
         onTodoStatusChange={onTodoStatusChange}
+        onRefreshWorktrees={onRefreshWorktrees}
+        onRefreshProjectSkills={onRefreshProjectSkills}
       />
     </div>
   );
@@ -3922,7 +3951,9 @@ function ProjectTabWorkspace({
   availableTodoTags = [],
   onTodoSearchChange,
   onTodoFilterTagsChange,
-  onTodoStatusChange
+  onTodoStatusChange,
+  onRefreshWorktrees,
+  onRefreshProjectSkills
 }: {
   activeTab: ProjectTab;
   projects: ProjectSummary[];
@@ -4003,6 +4034,8 @@ function ProjectTabWorkspace({
   onTodoSearchChange?: (query: string) => void;
   onTodoFilterTagsChange?: (tags: string[]) => void;
   onTodoStatusChange?: (todo: TodoSummary, newStatus: TodoStatus) => void;
+  onRefreshWorktrees?: () => void;
+  onRefreshProjectSkills?: () => void;
 }) {
   if (activeTab === "worktrees") {
     return selectedProject ? (
@@ -4016,6 +4049,7 @@ function ProjectTabWorkspace({
         onCreate={onCreateWorktree}
         onSelect={onWorktreeSelect}
         onDelete={onWorktreeDelete}
+        onRefresh={onRefreshWorktrees ?? (() => {})}
       />
     ) : (
       <EmptyProjectNotice onCreateProject={onCreateProject} />
@@ -4116,6 +4150,7 @@ function ProjectTabWorkspace({
         onDelete={onDeleteProjectSkill}
         onCopyToGlobal={onCopyProjectSkillToGlobal}
         onCopyGlobalToProject={onCopyGlobalSkillToProject}
+        onRefresh={onRefreshProjectSkills ?? (() => {})}
       />
     );
   }
@@ -4273,7 +4308,8 @@ function WorktreePanel({
   error,
   onCreate,
   onSelect,
-  onDelete
+  onDelete,
+  onRefresh
 }: {
   project: ProjectSummary;
   worktrees: WorktreeSummary[];
@@ -4284,6 +4320,7 @@ function WorktreePanel({
   onCreate: () => void;
   onSelect: (worktree: WorktreeSummary) => void;
   onDelete: (worktree: WorktreeSummary) => void;
+  onRefresh: () => void;
 }) {
   return (
     <section className="space-y-4 rounded-xl border border-white/10 bg-[#151821] p-4">
@@ -4294,6 +4331,9 @@ function WorktreePanel({
         </div>
         <div className="flex items-center gap-2">
           <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-400">{worktrees.length} 个</span>
+          <button onClick={onRefresh} className="rounded-lg border border-white/10 px-2.5 py-2 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+            ⟳
+          </button>
           <button onClick={onCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
             创建 worktree
           </button>
@@ -4353,7 +4393,8 @@ function GlobalSkillPanel({
   onCreate,
   onRename,
   onDelete,
-  onCopyToProject
+  onCopyToProject,
+  onRefresh
 }: {
   selectedProject: ProjectSummary | null;
   skills: SkillSummary[];
@@ -4365,6 +4406,7 @@ function GlobalSkillPanel({
   onRename: (skill: SkillSummary) => void;
   onDelete: (skill: SkillSummary) => void;
   onCopyToProject: (skill: SkillSummary) => void;
+  onRefresh: () => void;
 }) {
   return (
     <section className="rounded-xl border border-white/10 bg-[#151821]">
@@ -4373,9 +4415,14 @@ function GlobalSkillPanel({
           <div className="text-sm font-medium text-slate-100">全局 Skill 文件夹</div>
           <div className="mt-1 text-xs text-slate-500">来源：~/.claude/skills/*，只管理整个文件夹。</div>
         </div>
-        <button onClick={onCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
-          新建
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={onRefresh} className="rounded-lg border border-white/10 px-2.5 py-2 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+            ⟳
+          </button>
+          <button onClick={onCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+            新建
+          </button>
+        </div>
       </div>
       <div className="p-4">
         {error ? <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
@@ -4427,11 +4474,13 @@ function SkillStorePanel({
   onRename,
   onDelete,
   onInstall,
+  onRefreshStore,
   chatSkills,
   chatSkillsLoading,
   chatSkillsError,
   deletingChatSkillName,
-  onDeleteChatSkill
+  onDeleteChatSkill,
+  onRefreshChatSkills
 }: {
   skills: StoreSkillStatus[];
   loading: boolean;
@@ -4441,11 +4490,13 @@ function SkillStorePanel({
   onRename: (skill: StoreSkillStatus) => void;
   onDelete: (skill: StoreSkillStatus) => void;
   onInstall: (skill: StoreSkillStatus, target: "claude-code" | "chat" | "claude-code-project") => void;
+  onRefreshStore: () => void;
   chatSkills: ChatSkill[];
   chatSkillsLoading: boolean;
   chatSkillsError: string | null;
   deletingChatSkillName: string | null;
   onDeleteChatSkill: (skill: ChatSkill) => void;
+  onRefreshChatSkills: () => void;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [createName, setCreateName] = useState("");
@@ -4474,9 +4525,14 @@ function SkillStorePanel({
           <div className="text-sm font-medium text-slate-100">技能仓库</div>
           <div className="mt-1 text-xs text-slate-500">来源：~/.workhorse/skills/*，统一管理并安装到各目标。</div>
         </div>
-        <button onClick={openCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
-          新建
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={onRefreshStore} className="rounded-lg border border-white/10 px-2.5 py-2 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+            ⟳
+          </button>
+          <button onClick={openCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+            新建
+          </button>
+        </div>
       </div>
       <div className="p-4">
         {error ? <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
@@ -4593,6 +4649,9 @@ function SkillStorePanel({
             <div className="text-sm font-medium text-slate-100">Chat Skills</div>
             <div className="mt-0.5 text-xs text-slate-500">AI Chat 运行时加载的 Skill，来源：~/.workhorse/chat-skills/*</div>
           </div>
+          <button onClick={onRefreshChatSkills} className="rounded-lg border border-white/10 px-2.5 py-2 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+            ⟳
+          </button>
         </div>
         {chatSkillsError ? <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{chatSkillsError}</p> : null}
         {chatSkillsLoading ? <div className="rounded-lg border border-white/10 p-3 text-xs text-slate-400">Chat Skills 加载中...</div> : null}
@@ -4637,7 +4696,8 @@ function ProjectSkillPanel({
   onRename,
   onDelete,
   onCopyToGlobal,
-  onCopyGlobalToProject
+  onCopyGlobalToProject,
+  onRefresh
 }: {
   project: ProjectSummary | null;
   skills: ProjectSkillSummary[];
@@ -4651,6 +4711,7 @@ function ProjectSkillPanel({
   onDelete: (skill: ProjectSkillSummary) => void;
   onCopyToGlobal: (skill: ProjectSkillSummary) => void;
   onCopyGlobalToProject: (skill: SkillSummary) => void;
+  onRefresh: () => void;
 }) {
   if (!project) {
     return <EmptyProjectNotice onCreateProject={() => undefined} />;
@@ -4667,9 +4728,14 @@ function ProjectSkillPanel({
             <div className="text-sm font-medium text-slate-100">项目 Skill 文件夹</div>
             <div className="mt-1 break-all text-xs text-slate-500">来源：{project.path}/.claude/skills/*</div>
           </div>
-          <button onClick={onCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
-            新建
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={onRefresh} className="rounded-lg border border-white/10 px-2.5 py-2 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+              ⟳
+            </button>
+            <button onClick={onCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+              新建
+            </button>
+          </div>
         </div>
         <div className="p-4">
           {error ? <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
@@ -6200,6 +6266,9 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
             <div className="mt-1 text-xs text-slate-500">项目根目录的 CLAUDE.md 指令文件，签入代码库。</div>
           </div>
           <div className="flex gap-2">
+            <button onClick={loadClaudeMd} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+              ⟳
+            </button>
             {claudeMdEditing ? (
               <>
                 <button onClick={() => { setClaudeMdEditing(false); setClaudeMdDraft(claudeMd); }} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">取消</button>
@@ -6238,7 +6307,12 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
             <div className="text-sm font-medium text-slate-100">规则文件</div>
             <div className="mt-1 text-xs text-slate-500">来源：项目 .claude/rules/*.md，签入代码库。</div>
           </div>
-          <button onClick={openCreateRule} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950">新建</button>
+          <div className="flex items-center gap-2">
+            <button onClick={loadRules} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+              ⟳
+            </button>
+            <button onClick={openCreateRule} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950">新建</button>
+          </div>
         </div>
         <div className="p-4">
           {rulesError ? <p className="mb-2 rounded-lg border border-red-500/20 bg-red-500/5 p-2 text-xs text-red-400">{rulesError}</p> : null}
@@ -6274,7 +6348,12 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
             <div className="text-sm font-medium text-slate-100">自动记忆</div>
             <div className="mt-1 text-xs text-slate-500">来源：~/.claude/projects/&lt;project&gt;/memory/，Claude Code 自动生成。</div>
           </div>
-          <button onClick={openCreateMemory} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950">新建</button>
+          <div className="flex items-center gap-2">
+            <button onClick={loadMemories} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+              ⟳
+            </button>
+            <button onClick={openCreateMemory} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950">新建</button>
+          </div>
         </div>
         <div className="p-4">
           {memoriesError ? <p className="mb-2 rounded-lg border border-red-500/20 bg-red-500/5 p-2 text-xs text-red-400">{memoriesError}</p> : null}
@@ -6382,7 +6461,7 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
   );
 }
 
-function GlobalMemoryPanel({ selectedProject }: { selectedProject: ProjectSummary | null }) {
+function GlobalMemoryPanel({ selectedProject, onRefresh }: { selectedProject: ProjectSummary | null; onRefresh?: () => void }) {
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -6420,6 +6499,9 @@ function GlobalMemoryPanel({ selectedProject }: { selectedProject: ProjectSummar
             <div className="mt-1 text-xs text-slate-500">来源：~/.claude/CLAUDE.md，所有项目的全局指令。</div>
           </div>
           <div className="flex gap-2">
+            <button onClick={() => { if (onRefresh) onRefresh(); else loadContent(); }} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+              ⟳
+            </button>
             {editing ? (
               <>
                 <button onClick={() => { setEditing(false); setEditDraft(content); }} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">取消</button>
