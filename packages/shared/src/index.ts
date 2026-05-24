@@ -460,7 +460,7 @@ export type CreateSessionRequest = {
   requestedWorktreeName?: string | null;
   source?: SessionSource;
   name?: string;
-  prompt: string;
+  prompt?: string;
   status?: SessionStatus;
   summary?: string | null;
   resumeSessionId?: string | null;

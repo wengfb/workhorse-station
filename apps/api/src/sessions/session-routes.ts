@@ -436,15 +436,15 @@ function normalizeUpdateRequest(body: UpdateSessionRequest | undefined) {
 }
 
 function normalizePrompt(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return "";
+  }
+
   if (typeof value !== "string") {
-    throw new HttpError(400, "validation_error", "会话 Prompt 不能为空");
+    throw new HttpError(400, "validation_error", "会话 Prompt 格式不合法");
   }
 
   const prompt = value.trim();
-
-  if (!prompt) {
-    throw new HttpError(400, "validation_error", "会话 Prompt 不能为空");
-  }
 
   if (prompt.length > 40000) {
     throw new HttpError(400, "validation_error", "会话 Prompt 不能超过 40000 个字符");
