@@ -5,13 +5,16 @@ import type {
   ChatSessionResponse,
   ChatSessionsResponse,
   ChatStreamEvent,
+  ClaudeMdResponse,
   ConfirmToolRequest,
   CreateChatMessageRequest,
   CreateChatSessionRequest,
+  CreateMemoryRequest,
   CreateNoteRequest,
   CreateProjectRequest,
   CreatePromptDraftPreviewRequest,
   CreatePromptDraftRequest,
+  CreateRuleRequest,
   CopyGlobalSkillRequest,
   CopyProjectSkillRequest,
   CopySkillResponse,
@@ -20,13 +23,18 @@ import type {
   CreateTodoRequest,
   CreateWorktreeRequest,
   DeleteChatSessionResponse,
+  DeleteMemoryRequest,
   DeleteNoteResponse,
   DeleteProjectResponse,
+  DeleteRuleRequest,
   DeleteSessionResponse,
   DeleteTodoResponse,
   DeleteWorktreeRequest,
   DeleteWorktreeResponse,
   HealthResponse,
+  MemoriesResponse,
+  MemoryIndexResponse,
+  MemoryResponse,
   MetaResponse,
   NoteResponse,
   NotesResponse,
@@ -38,6 +46,8 @@ import type {
   PromptDraftResponse,
   PromptDraftsResponse,
   RecentSessionsResponse,
+  RuleResponse,
+  RulesResponse,
   RunningSessionsResponse,
   SessionInputRequest,
   SessionResizeRequest,
@@ -60,10 +70,13 @@ import type {
   StopSessionResponse,
   TodoResponse,
   TodosResponse,
+  UpdateClaudeMdRequest,
+  UpdateMemoryRequest,
   UpdateNoteRequest,
   UpdateProjectRequest,
   RenameSkillRequest,
   UpdatePromptDraftRequest,
+  UpdateRuleRequest,
   UpdateSessionRequest,
   UpdateTodoRequest,
   WorktreeResponse,
@@ -544,8 +557,105 @@ export function getRecentSessions(limit?: number) {
   return fetchJson<RecentSessionsResponse>(`/api/sessions/recent${query}`);
 }
 
+// ─── CLAUDE.md ───
+
+export function getGlobalClaudeMd() {
+  return fetchJson<ClaudeMdResponse>("/api/claude-md/global");
+}
+
+export function updateGlobalClaudeMd(input: UpdateClaudeMdRequest) {
+  return fetchJson<ClaudeMdResponse>("/api/claude-md/global", {
+    method: "PUT",
+    body: input
+  });
+}
+
+export function getProjectClaudeMd(projectId: string) {
+  return fetchJson<ClaudeMdResponse>(`/api/projects/${projectId}/claude-md`);
+}
+
+export function updateProjectClaudeMd(projectId: string, input: UpdateClaudeMdRequest) {
+  return fetchJson<ClaudeMdResponse>(`/api/projects/${projectId}/claude-md`, {
+    method: "PUT",
+    body: input
+  });
+}
+
+// ─── Rules ───
+
+export function getRules(projectId: string) {
+  return fetchJson<RulesResponse>(`/api/projects/${projectId}/rules`);
+}
+
+export function getRule(projectId: string, name: string) {
+  return fetchJson<RuleResponse>(`/api/projects/${projectId}/rules/${encodeURIComponent(name)}`);
+}
+
+export function createRule(projectId: string, input: CreateRuleRequest) {
+  return fetchJson<RuleResponse>(`/api/projects/${projectId}/rules`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function updateRule(projectId: string, name: string, input: UpdateRuleRequest) {
+  return fetchJson<RuleResponse>(`/api/projects/${projectId}/rules/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: input
+  });
+}
+
+export function deleteRule(projectId: string, name: string, input: DeleteRuleRequest) {
+  return fetchJson<{ deleted: true }>(`/api/projects/${projectId}/rules/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+    body: input
+  });
+}
+
+// ─── Auto memory ───
+
+export function getMemories(projectId: string) {
+  return fetchJson<MemoriesResponse>(`/api/projects/${projectId}/memory`);
+}
+
+export function getMemory(projectId: string, name: string) {
+  return fetchJson<MemoryResponse>(`/api/projects/${projectId}/memory/${encodeURIComponent(name)}`);
+}
+
+export function createMemory(projectId: string, input: CreateMemoryRequest) {
+  return fetchJson<MemoryResponse>(`/api/projects/${projectId}/memory`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function updateMemory(projectId: string, name: string, input: UpdateMemoryRequest) {
+  return fetchJson<MemoryResponse>(`/api/projects/${projectId}/memory/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: input
+  });
+}
+
+export function deleteMemory(projectId: string, name: string, input: DeleteMemoryRequest) {
+  return fetchJson<{ deleted: true }>(`/api/projects/${projectId}/memory/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+    body: input
+  });
+}
+
+export function getMemoryIndex(projectId: string) {
+  return fetchJson<MemoryIndexResponse>(`/api/projects/${projectId}/memory-index`);
+}
+
+export function updateMemoryIndex(projectId: string, entries: { name: string; file: string; description: string }[]) {
+  return fetchJson<MemoryIndexResponse>(`/api/projects/${projectId}/memory-index`, {
+    method: "PUT",
+    body: { entries }
+  });
+}
+
 type FetchOptions = {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
 };
 

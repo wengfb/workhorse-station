@@ -633,3 +633,105 @@ export type ConfirmToolRequest = {
   approved: boolean;
 };
 
+// CLAUDE.md types
+
+export type ClaudeMdResponse = {
+  path: string;
+  content: string;
+};
+
+export type UpdateClaudeMdRequest = {
+  content: string;
+};
+
+// Rules types
+
+export type RuleSummary = {
+  name: string;
+  path: string;
+};
+
+export type RuleDetail = {
+  name: string;
+  path: string;
+  content: string;
+  frontmatter: Record<string, unknown>;
+};
+
+export type RulesResponse = {
+  rules: RuleSummary[];
+};
+
+export type RuleResponse = {
+  rule: RuleDetail;
+};
+
+export type CreateRuleRequest = {
+  name: string;
+  content?: string;
+};
+
+export type UpdateRuleRequest = {
+  content: string;
+};
+
+export type DeleteRuleRequest = {
+  confirmName: string;
+};
+
+// Auto memory types
+
+export type MemoryType = "user" | "feedback" | "project" | "reference";
+
+export type MemorySummary = {
+  name: string;
+  type: MemoryType;
+  description: string;
+  path: string;
+};
+
+export type MemoryDetail = {
+  name: string;
+  type: MemoryType;
+  description: string;
+  content: string;
+  metadata: Record<string, unknown>;
+};
+
+export type MemoriesResponse = {
+  memories: MemorySummary[];
+  indexEntries: MemoryIndexEntry[];
+};
+
+export type MemoryResponse = {
+  memory: MemoryDetail;
+};
+
+export type MemoryIndexEntry = {
+  name: string;
+  file: string;
+  description: string;
+};
+
+export type CreateMemoryRequest = {
+  name: string;
+  type: MemoryType;
+  description: string;
+  content: string;
+};
+
+export type UpdateMemoryRequest = {
+  name?: string;
+  type?: MemoryType;
+  description?: string;
+  content: string;
+};
+
+export type DeleteMemoryRequest = {
+  confirmName: string;
+};
+
+export type MemoryIndexResponse = {
+  entries: MemoryIndexEntry[];
+};
+

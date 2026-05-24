@@ -15,6 +15,7 @@ import { registerSessionRoutes } from "./sessions/session-routes.js";
 import { registerSkillRoutes } from "./skills/skill-routes.js";
 import { registerSkillStoreRoutes } from "./skills/skill-store-routes.js";
 import { registerChatSkillRoutes } from "./skills/chat-skill-routes.js";
+import { registerMemoryRoutes } from "./memory/memory-routes.js";
 import { reconcileSessionsOnStartup } from "./sessions/session-repository.js";
 import { SessionRuntimeManager } from "./sessions/session-runtime-manager.js";
 import { registerTodoRoutes } from "./todos/todo-routes.js";
@@ -95,6 +96,7 @@ await registerSessionRoutes(server, database, sessionRuntimeManager);
 await registerSkillRoutes(server, database);
   await registerSkillStoreRoutes(server, database);
   await registerChatSkillRoutes(server);
+await registerMemoryRoutes(server, database);
 
 if (process.env.NODE_ENV === "production") {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));

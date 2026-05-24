@@ -8,14 +8,26 @@ import type {
   ChatStreamEvent,
   ChatToolCall,
   ChatToolResult,
+  CreateMemoryRequest,
+  CreateRuleRequest,
   CreateWorktreeRequest,
+  DeleteMemoryRequest,
+  DeleteRuleRequest,
   HealthResponse,
+  MemoriesResponse,
+  MemoryDetail,
+  MemoryResponse,
+  MemorySummary,
+  MemoryType,
   ProjectSkillSummary,
   MetaResponse,
   NoteSummary,
   OverviewSessionSummary,
   ProjectSummary,
   PromptDraftSummary,
+  RuleDetail,
+  RuleSummary,
+  RulesResponse,
   SessionSource,
   SessionStreamEvent,
   SessionSummary,
@@ -23,6 +35,7 @@ import type {
   StoreSkillStatus,
   TodoStatus,
   TodoSummary,
+  UpdateMemoryRequest,
   WorktreeStatus,
   WorktreeSummary
 } from "@workhorse-station/shared";
@@ -84,7 +97,21 @@ import {
   updateProject,
   updatePromptDraft,
   updateSession,
-  updateTodo
+  updateTodo,
+  getGlobalClaudeMd,
+  updateGlobalClaudeMd,
+  getProjectClaudeMd,
+  updateProjectClaudeMd,
+  getRules,
+  getRule,
+  createRule,
+  updateRule,
+  deleteRule,
+  getMemories,
+  getMemory,
+  createMemory,
+  updateMemory,
+  deleteMemory
 } from "./api";
 import { SessionModal as SessionModalPanel, CreateSessionModal, SessionsWorkspace as SessionsWorkspacePanel, type SessionEditorDraft } from "./session-ui";
 
@@ -132,8 +159,8 @@ type ChatFileDraft = {
 type ProjectMode = "create" | "edit";
 type WorkspaceScope = "home" | "project";
 type HomeMode = "chat" | "overview";
-type WorkbenchTab = "notes" | "skills" | "skill-store" | "projects" | "chats" | "sessions";
-type ProjectTab = "overview" | "todos" | "notes" | "skills" | "sessions" | "worktrees";
+type WorkbenchTab = "notes" | "skills" | "skill-store" | "projects" | "chats" | "sessions" | "memory";
+type ProjectTab = "overview" | "todos" | "notes" | "skills" | "sessions" | "worktrees" | "memory";
 type SessionView = "terminal" | "history";
 
 type StreamingBlock =
@@ -153,7 +180,8 @@ const projectTabs: Array<{ id: ProjectTab; label: string }> = [
   { id: "notes", label: "笔记" },
   { id: "skills", label: "Skill" },
   { id: "sessions", label: "会话" },
-  { id: "worktrees", label: "Worktree" }
+  { id: "worktrees", label: "Worktree" },
+  { id: "memory", label: "记忆" }
 ];
 
 const todoStatusOptions: Array<{ value: TodoStatus; label: string }> = [
@@ -3182,7 +3210,8 @@ const workbenchTabs: Array<{ id: WorkbenchTab; label: string }> = [
   { id: "skill-store", label: "技能仓库" },
   { id: "projects", label: "项目" },
   { id: "chats", label: "聊天" },
-  { id: "sessions", label: "会话" }
+  { id: "sessions", label: "会话" },
+  { id: "memory", label: "记忆" }
 ];
 
 function HomeOverviewWorkspace({
@@ -3482,6 +3511,8 @@ function HomeOverviewWorkspace({
             )}
           </div>
         </section>
+      ) : activeTab === "memory" ? (
+        <GlobalMemoryPanel selectedProject={selectedProject} />
       ) : (
         <section className="rounded-xl border border-white/10 bg-[#151821]">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
@@ -4087,6 +4118,10 @@ function ProjectTabWorkspace({
         onCopyGlobalToProject={onCopyGlobalSkillToProject}
       />
     );
+  }
+
+  if (activeTab === "memory") {
+    return selectedProject ? <ProjectMemoryPanel projectId={selectedProject.id} /> : <EmptyProjectNotice onCreateProject={onCreateProject} />;
   }
 
   return (
@@ -5940,6 +5975,489 @@ function TodoPanel({
         </Modal>
       ) : null}
     </>
+  );
+}
+
+// ─── Memory panels ───
+
+const memoryTypeLabels: Record<MemoryType, string> = {
+  user: "用户",
+  feedback: "反馈",
+  project: "项目",
+  reference: "参考"
+};
+
+const memoryTypeColors: Record<MemoryType, string> = {
+  user: "bg-blue-500/10 text-blue-300",
+  feedback: "bg-amber-500/10 text-amber-300",
+  project: "bg-emerald-500/10 text-emerald-300",
+  reference: "bg-purple-500/10 text-purple-300"
+};
+
+function ProjectMemoryPanel({ projectId }: { projectId: string }) {
+  const [claudeMd, setClaudeMd] = useState("");
+  const [claudeMdLoading, setClaudeMdLoading] = useState(true);
+  const [savingClaudeMd, setSavingClaudeMd] = useState(false);
+  const [claudeMdEditing, setClaudeMdEditing] = useState(false);
+  const [claudeMdDraft, setClaudeMdDraft] = useState("");
+
+  const [rules, setRules] = useState<RuleSummary[]>([]);
+  const [rulesLoading, setRulesLoading] = useState(true);
+  const [rulesError, setRulesError] = useState<string | null>(null);
+  const [ruleOperationName, setRuleOperationName] = useState<string | null>(null);
+
+  const [memories, setMemories] = useState<MemorySummary[]>([]);
+  const [memoriesLoading, setMemoriesLoading] = useState(true);
+  const [memoriesError, setMemoriesError] = useState<string | null>(null);
+  const [memoryOperationName, setMemoryOperationName] = useState<string | null>(null);
+
+  const [memoryFormOpen, setMemoryFormOpen] = useState(false);
+  const [editingMemory, setEditingMemory] = useState<MemoryDetail | null>(null);
+  const [memoryDraft, setMemoryDraft] = useState<{ name: string; type: MemoryType; description: string; content: string }>({
+    name: "", type: "reference", description: "", content: ""
+  });
+  const [savingMemory, setSavingMemory] = useState(false);
+
+  const [ruleFormOpen, setRuleFormOpen] = useState(false);
+  const [editingRule, setEditingRule] = useState<RuleSummary | null>(null);
+  const [ruleContentDraft, setRuleContentDraft] = useState("");
+  const [savingRule, setSavingRule] = useState(false);
+
+  const { confirm, prompt } = useConfirmDialog();
+
+  useEffect(() => {
+    loadClaudeMd();
+    loadRules();
+    loadMemories();
+  }, [projectId]);
+
+  async function loadClaudeMd() {
+    setClaudeMdLoading(true);
+    try {
+      const data = await getProjectClaudeMd(projectId);
+      setClaudeMd(data.content);
+      setClaudeMdDraft(data.content);
+    } catch { setClaudeMd(""); setClaudeMdDraft(""); }
+    finally { setClaudeMdLoading(false); }
+  }
+
+  async function loadRules() {
+    setRulesLoading(true);
+    try {
+      const data = await getRules(projectId);
+      setRules(data.rules);
+      setRulesError(null);
+    } catch (error) { setRulesError(formatError(error, "规则加载失败")); }
+    finally { setRulesLoading(false); }
+  }
+
+  async function loadMemories() {
+    setMemoriesLoading(true);
+    try {
+      const data = await getMemories(projectId);
+      setMemories(data.memories);
+      setMemoriesError(null);
+    } catch (error) { setMemoriesError(formatError(error, "记忆加载失败")); }
+    finally { setMemoriesLoading(false); }
+  }
+
+  async function handleSaveClaudeMd() {
+    setSavingClaudeMd(true);
+    try {
+      await updateProjectClaudeMd(projectId, { content: claudeMdDraft });
+      setClaudeMd(claudeMdDraft);
+      setClaudeMdEditing(false);
+    } catch (error) { setClaudeMdDraft(formatError(error, "CLAUDE.md 保存失败")); }
+    finally { setSavingClaudeMd(false); }
+  }
+
+  function startEditClaudeMd() {
+    setClaudeMdDraft(claudeMd);
+    setClaudeMdEditing(true);
+  }
+
+  // ─── Rule handlers ───
+
+  async function handleCreateRule() {
+    const name = await prompt("请输入规则文件名（不含 .md 后缀）");
+    if (!name) return;
+    const trimmedName = name.trim();
+    setRuleOperationName(trimmedName);
+    setRulesError(null);
+    try {
+      await createRule(projectId, { name: trimmedName });
+      await loadRules();
+    } catch (error) { setRulesError(formatError(error, "规则创建失败")); }
+    finally { setRuleOperationName(null); }
+  }
+
+  function openEditRule(rule: RuleSummary) {
+    setEditingRule(rule);
+    setRuleContentDraft("");
+    setRuleFormOpen(true);
+    getRule(projectId, rule.name).then((data) => {
+      setRuleContentDraft(data.rule.content);
+    }).catch(() => {});
+  }
+
+  function openCreateRule() {
+    handleCreateRule();
+  }
+
+  async function handleSaveRule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingRule) return;
+    setSavingRule(true);
+    try {
+      await updateRule(projectId, editingRule.name, { content: ruleContentDraft });
+      setRuleFormOpen(false);
+      setEditingRule(null);
+      await loadRules();
+    } catch (error) { setRulesError(formatError(error, "规则保存失败")); }
+    finally { setSavingRule(false); }
+  }
+
+  async function handleDeleteRule(rule: RuleSummary) {
+    const confirmed = await confirm(`确认删除规则「${rule.name}」？`, { danger: true });
+    if (!confirmed) return;
+    setRuleOperationName(rule.name);
+    setRulesError(null);
+    try {
+      await deleteRule(projectId, rule.name, { confirmName: rule.name });
+      await loadRules();
+    } catch (error) { setRulesError(formatError(error, "规则删除失败")); }
+    finally { setRuleOperationName(null); }
+  }
+
+  // ─── Memory handlers ───
+
+  function openCreateMemory() {
+    setEditingMemory(null);
+    setMemoryDraft({ name: "", type: "reference", description: "", content: "" });
+    setMemoryFormOpen(true);
+  }
+
+  async function openEditMemory(memory: MemorySummary) {
+    try {
+      const data = await getMemory(projectId, memory.name);
+      setEditingMemory(data.memory);
+      setMemoryDraft({
+        name: data.memory.name,
+        type: data.memory.type,
+        description: data.memory.description,
+        content: data.memory.content
+      });
+      setMemoryFormOpen(true);
+    } catch (error) { setMemoriesError(formatError(error, "记忆读取失败")); }
+  }
+
+  async function handleSaveMemory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!memoryDraft.name.trim()) return;
+    setSavingMemory(true);
+    try {
+      if (editingMemory) {
+        await updateMemory(projectId, editingMemory.name, {
+          name: memoryDraft.name.trim(),
+          type: memoryDraft.type,
+          description: memoryDraft.description.trim(),
+          content: memoryDraft.content
+        });
+      } else {
+        await createMemory(projectId, {
+          name: memoryDraft.name.trim(),
+          type: memoryDraft.type,
+          description: memoryDraft.description.trim(),
+          content: memoryDraft.content
+        });
+      }
+      setMemoryFormOpen(false);
+      setEditingMemory(null);
+      await loadMemories();
+    } catch (error) { setMemoriesError(formatError(error, "记忆保存失败")); }
+    finally { setSavingMemory(false); }
+  }
+
+  async function handleDeleteMemory(memory: MemorySummary) {
+    const confirmed = await confirm(`确认删除记忆「${memory.name}」？`, { danger: true });
+    if (!confirmed) return;
+    setMemoryOperationName(memory.name);
+    setMemoriesError(null);
+    try {
+      await deleteMemory(projectId, memory.name, { confirmName: memory.name });
+      await loadMemories();
+    } catch (error) { setMemoriesError(formatError(error, "记忆删除失败")); }
+    finally { setMemoryOperationName(null); }
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* CLAUDE.md section */}
+      <section className="rounded-xl border border-white/10 bg-[#151821]">
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <div>
+            <div className="text-sm font-medium text-slate-100">CLAUDE.md</div>
+            <div className="mt-1 text-xs text-slate-500">项目根目录的 CLAUDE.md 指令文件，签入代码库。</div>
+          </div>
+          <div className="flex gap-2">
+            {claudeMdEditing ? (
+              <>
+                <button onClick={() => { setClaudeMdEditing(false); setClaudeMdDraft(claudeMd); }} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">取消</button>
+                <button onClick={handleSaveClaudeMd} disabled={savingClaudeMd} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950 disabled:opacity-50">
+                  {savingClaudeMd ? "保存中..." : "保存"}
+                </button>
+              </>
+            ) : (
+              <button onClick={startEditClaudeMd} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">编辑</button>
+            )}
+          </div>
+        </div>
+        <div className="p-4">
+          {claudeMdLoading ? (
+            <div className="py-8 text-center text-sm text-slate-600">加载中...</div>
+          ) : claudeMdEditing ? (
+            <textarea
+              value={claudeMdDraft}
+              onChange={(e) => setClaudeMdDraft(e.target.value)}
+              rows={16}
+              className="w-full resize-y rounded-lg border border-white/10 bg-[#0b0c10] p-3 text-sm text-slate-100 font-mono outline-none focus:border-white/20"
+              placeholder="输入 CLAUDE.md 内容..."
+            />
+          ) : claudeMd ? (
+            <pre className="whitespace-pre-wrap text-sm text-slate-300 font-mono max-h-96 overflow-y-auto">{claudeMd}</pre>
+          ) : (
+            <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">还没有 CLAUDE.md 文件。</div>
+          )}
+        </div>
+      </section>
+
+      {/* Rules section */}
+      <section className="rounded-xl border border-white/10 bg-[#151821]">
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <div>
+            <div className="text-sm font-medium text-slate-100">规则文件</div>
+            <div className="mt-1 text-xs text-slate-500">来源：项目 .claude/rules/*.md，签入代码库。</div>
+          </div>
+          <button onClick={openCreateRule} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950">新建</button>
+        </div>
+        <div className="p-4">
+          {rulesError ? <p className="mb-2 rounded-lg border border-red-500/20 bg-red-500/5 p-2 text-xs text-red-400">{rulesError}</p> : null}
+          {rulesLoading ? <div className="py-8 text-center text-sm text-slate-600">规则加载中...</div> : null}
+          {!rulesLoading && rules.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">还没有规则文件。</div>
+          ) : null}
+          {!rulesLoading && rules.length > 0 ? (
+            <div className="space-y-2">
+              {rules.map((rule) => {
+                const busy = ruleOperationName === rule.name;
+                return (
+                  <div key={rule.name} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+                    <div>
+                      <span className="font-medium text-slate-100">{rule.name}</span>
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => openEditRule(rule)} disabled={busy} className="rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-50">编辑</button>
+                      <button onClick={() => handleDeleteRule(rule)} disabled={busy} className="rounded border border-white/10 px-2 py-0.5 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50">{busy ? "删除中..." : "删除"}</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      {/* Auto memory section */}
+      <section className="rounded-xl border border-white/10 bg-[#151821]">
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <div>
+            <div className="text-sm font-medium text-slate-100">自动记忆</div>
+            <div className="mt-1 text-xs text-slate-500">来源：~/.claude/projects/&lt;project&gt;/memory/，Claude Code 自动生成。</div>
+          </div>
+          <button onClick={openCreateMemory} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950">新建</button>
+        </div>
+        <div className="p-4">
+          {memoriesError ? <p className="mb-2 rounded-lg border border-red-500/20 bg-red-500/5 p-2 text-xs text-red-400">{memoriesError}</p> : null}
+          {memoriesLoading ? <div className="py-8 text-center text-sm text-slate-600">记忆加载中...</div> : null}
+          {!memoriesLoading && memories.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">还没有自动记忆文件。</div>
+          ) : null}
+          {!memoriesLoading && memories.length > 0 ? (
+            <div className="space-y-2">
+              {memories.map((memory) => {
+                const busy = memoryOperationName === memory.name;
+                return (
+                  <div key={memory.name} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-slate-100 truncate">{memory.name}</span>
+                        <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${memoryTypeColors[memory.type]}`}>
+                          {memoryTypeLabels[memory.type]}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 truncate text-xs text-slate-500">{memory.description}</div>
+                    </div>
+                    <div className="ml-3 flex shrink-0 gap-1">
+                      <button onClick={() => openEditMemory(memory)} disabled={busy} className="rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-50">编辑</button>
+                      <button onClick={() => handleDeleteMemory(memory)} disabled={busy} className="rounded border border-white/10 px-2 py-0.5 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50">{busy ? "删除中..." : "删除"}</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      {/* Rule edit modal */}
+      {ruleFormOpen ? (
+        <Modal title={`编辑规则：${editingRule?.name ?? ""}`} onClose={() => { setRuleFormOpen(false); setEditingRule(null); }}>
+          <form onSubmit={handleSaveRule} className="space-y-4">
+            <Field label="Markdown 内容">
+              <textarea
+                value={ruleContentDraft}
+                onChange={(e) => setRuleContentDraft(e.target.value)}
+                rows={16}
+                className="w-full resize-y rounded-lg border border-white/10 bg-[#0b0c10] p-3 text-sm text-slate-100 font-mono outline-none focus:border-white/20"
+              />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => { setRuleFormOpen(false); setEditingRule(null); }} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">取消</button>
+              <button type="submit" disabled={savingRule} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950 disabled:opacity-50">{savingRule ? "保存中..." : "保存"}</button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {/* Memory form modal */}
+      {memoryFormOpen ? (
+        <Modal title={editingMemory ? "编辑记忆" : "新建记忆"} description="编辑 frontmatter 字段和正文内容" onClose={() => { setMemoryFormOpen(false); setEditingMemory(null); }}>
+          <form onSubmit={handleSaveMemory} className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <Field label="文件名（不含 .md）">
+                <input
+                  value={memoryDraft.name}
+                  onChange={(e) => setMemoryDraft((d) => ({ ...d, name: e.target.value }))}
+                  className="w-full rounded-lg border border-white/10 bg-[#0b0c10] px-3 py-2 text-sm text-slate-100 outline-none focus:border-white/20"
+                  placeholder="my-memory"
+                />
+              </Field>
+              <Field label="类型">
+                <select
+                  value={memoryDraft.type}
+                  onChange={(e) => setMemoryDraft((d) => ({ ...d, type: e.target.value as MemoryType }))}
+                  className="w-full rounded-lg border border-white/10 bg-[#0b0c10] px-3 py-2 text-sm text-slate-100 outline-none"
+                >
+                  <option value="user">用户 (user)</option>
+                  <option value="feedback">反馈 (feedback)</option>
+                  <option value="project">项目 (project)</option>
+                  <option value="reference">参考 (reference)</option>
+                </select>
+              </Field>
+              <Field label="描述">
+                <input
+                  value={memoryDraft.description}
+                  onChange={(e) => setMemoryDraft((d) => ({ ...d, description: e.target.value }))}
+                  className="w-full rounded-lg border border-white/10 bg-[#0b0c10] px-3 py-2 text-sm text-slate-100 outline-none focus:border-white/20"
+                  placeholder="简要描述"
+                />
+              </Field>
+            </div>
+            <Field label="Markdown 正文">
+              <textarea
+                value={memoryDraft.content}
+                onChange={(e) => setMemoryDraft((d) => ({ ...d, content: e.target.value }))}
+                rows={14}
+                className="w-full resize-y rounded-lg border border-white/10 bg-[#0b0c10] p-3 text-sm text-slate-100 font-mono outline-none focus:border-white/20"
+              />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => { setMemoryFormOpen(false); setEditingMemory(null); }} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">取消</button>
+              <button type="submit" disabled={savingMemory} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950 disabled:opacity-50">{savingMemory ? "保存中..." : "保存"}</button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+    </div>
+  );
+}
+
+function GlobalMemoryPanel({ selectedProject }: { selectedProject: ProjectSummary | null }) {
+  const [content, setContent] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState("");
+
+  useEffect(() => { loadContent(); }, []);
+
+  async function loadContent() {
+    setLoading(true);
+    try {
+      const data = await getGlobalClaudeMd();
+      setContent(data.content);
+      setEditDraft(data.content);
+    } catch { setContent(""); setEditDraft(""); }
+    finally { setLoading(false); }
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await updateGlobalClaudeMd({ content: editDraft });
+      setContent(editDraft);
+      setEditing(false);
+    } catch { setEditDraft(formatError(new Error("保存失败"), "全局 CLAUDE.md 保存失败")); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-xl border border-white/10 bg-[#151821]">
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <div>
+            <div className="text-sm font-medium text-slate-100">全局 CLAUDE.md</div>
+            <div className="mt-1 text-xs text-slate-500">来源：~/.claude/CLAUDE.md，所有项目的全局指令。</div>
+          </div>
+          <div className="flex gap-2">
+            {editing ? (
+              <>
+                <button onClick={() => { setEditing(false); setEditDraft(content); }} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">取消</button>
+                <button onClick={handleSave} disabled={saving} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950 disabled:opacity-50">{saving ? "保存中..." : "保存"}</button>
+              </>
+            ) : (
+              <button onClick={() => { setEditDraft(content); setEditing(true); }} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">编辑</button>
+            )}
+          </div>
+        </div>
+        <div className="p-4">
+          {loading ? (
+            <div className="py-8 text-center text-sm text-slate-600">加载中...</div>
+          ) : editing ? (
+            <textarea
+              value={editDraft}
+              onChange={(e) => setEditDraft(e.target.value)}
+              rows={12}
+              className="w-full resize-y rounded-lg border border-white/10 bg-[#0b0c10] p-3 text-sm text-slate-100 font-mono outline-none focus:border-white/20"
+              placeholder="输入全局 CLAUDE.md 内容..."
+            />
+          ) : content ? (
+            <pre className="whitespace-pre-wrap text-sm text-slate-300 font-mono max-h-80 overflow-y-auto">{content}</pre>
+          ) : (
+            <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">还没有全局 CLAUDE.md 文件。</div>
+          )}
+        </div>
+      </section>
+
+      {selectedProject ? (
+        <section className="rounded-xl border border-white/10 bg-[#151821]">
+          <div className="border-b border-white/10 px-4 py-3">
+            <div className="text-sm font-medium text-slate-100">项目记忆</div>
+            <div className="mt-1 text-xs text-slate-500">进入项目「{selectedProject.name}」的记忆标签页管理 CLAUDE.md、规则和自动记忆。</div>
+          </div>
+        </section>
+      ) : null}
+    </div>
   );
 }
 
