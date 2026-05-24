@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Database } from "sql.js";
-import { listProjects } from "../projects/project-repository.js";
+import { createProject, findProjectByPath, getProject, listProjects, updateProject } from "../projects/project-repository.js";
+import { normalizeProjectPath, validateDefaultBranch } from "../projects/project-path.js";
 import { createNote, listGlobalNotes, listNotes } from "../notes/note-repository.js";
 import { createTodo, listTodos } from "../todos/todo-repository.js";
 import { createPromptDraft, listPromptDrafts } from "../prompt-drafts/prompt-draft-repository.js";
@@ -107,6 +108,37 @@ export function getChatToolDefs(skills?: SkillMetadata[]): ToolDef[] {
         type: "object",
         properties: {},
         required: []
+      }
+    },
+    {
+      name: "create_project",
+      description: "注册一个新项目。需要提供项目名称和代码目录的绝对路径，代码目录必须是已存在的 Git 仓库。",
+      confirmation: "confirm",
+      input_schema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "项目名称" },
+          path: { type: "string", description: "代码目录的绝对路径，必须是已存在的 Git 仓库" },
+          defaultBranch: { type: "string", description: "默认分支，不填则从 Git 仓库自动读取" },
+          description: { type: "string", description: "项目描述/备注" }
+        },
+        required: ["name", "path"]
+      }
+    },
+    {
+      name: "update_project",
+      description: "修改项目信息。可修改名称、代码目录、默认分支和描述，至少需要提供一个要修改的字段。",
+      confirmation: "confirm",
+      input_schema: {
+        type: "object",
+        properties: {
+          projectId: { type: "string", description: "项目 ID" },
+          name: { type: "string", description: "新的项目名称" },
+          path: { type: "string", description: "新的代码目录绝对路径" },
+          defaultBranch: { type: "string", description: "新的默认分支" },
+          description: { type: "string", description: "新的项目描述，传空字符串可清除描述" }
+        },
+        required: ["projectId"]
       }
     },
     {
@@ -310,6 +342,125 @@ export async function executeChatTool(db: Database, name: string, input: Record<
 
         const lines = projects.map((p) => `- ${p.name} (${p.path})`);
         return { result: `共 ${projects.length} 个项目：\n${lines.join("\n")}`, isError: false };
+      }
+
+      case "create_project": {
+        const name = String(input.name ?? "").trim();
+        const rawPath = String(input.path ?? "").trim();
+
+        if (!name) return { result: "项目名称不能为空", isError: true };
+        if (name.length > 80) return { result: "项目名称不能超过 80 个字符", isError: true };
+        if (!rawPath) return { result: "代码目录路径不能为空", isError: true };
+
+        let normalized;
+        try {
+          normalized = await normalizeProjectPath(rawPath, input.defaultBranch);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return { result: `路径验证失败: ${message}`, isError: true };
+        }
+
+        const existing = findProjectByPath(db, normalized.path);
+        if (existing) {
+          return { result: `该代码目录已绑定到项目"${existing.name}"`, isError: true };
+        }
+
+        const description = input.description ? String(input.description).trim() || null : null;
+        if (description && description.length > 1000) {
+          return { result: "项目描述不能超过 1000 个字符", isError: true };
+        }
+
+        const project = createProject(db, {
+          name,
+          path: normalized.path,
+          defaultBranch: normalized.defaultBranch,
+          description
+        });
+
+        return {
+          result: `已创建项目：《${project.name}》（路径: ${project.path}，默认分支: ${project.defaultBranch}）`,
+          isError: false
+        };
+      }
+
+      case "update_project": {
+        const projectId = String(input.projectId ?? "").trim();
+        if (!projectId) return { result: "请提供项目 ID", isError: true };
+
+        const current = getProject(db, projectId);
+        if (!current) return { result: "项目不存在", isError: true };
+
+        const hasName = input.name !== undefined && input.name !== null && input.name !== "";
+        const hasPath = input.path !== undefined && input.path !== null && input.path !== "";
+        const hasBranch = input.defaultBranch !== undefined && input.defaultBranch !== null && input.defaultBranch !== "";
+        const hasDesc = Object.prototype.hasOwnProperty.call(input, "description");
+
+        if (!hasName && !hasPath && !hasBranch && !hasDesc) {
+          return { result: "至少需要提供一个要更新的字段（name/path/defaultBranch/description）", isError: true };
+        }
+
+        let name = current.name;
+        if (hasName) {
+          name = String(input.name).trim();
+          if (!name) return { result: "项目名称不能为空", isError: true };
+          if (name.length > 80) return { result: "项目名称不能超过 80 个字符", isError: true };
+        }
+
+        let projectPath = current.path;
+        let defaultBranch = current.defaultBranch;
+
+        if (hasPath) {
+          const rawPath = String(input.path).trim();
+          if (!rawPath) return { result: "代码目录路径不能为空", isError: true };
+
+          try {
+            const n = await normalizeProjectPath(rawPath, hasBranch ? input.defaultBranch : current.defaultBranch);
+            projectPath = n.path;
+            defaultBranch = n.defaultBranch;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { result: `路径验证失败: ${message}`, isError: true };
+          }
+
+          const existing = findProjectByPath(db, projectPath);
+          if (existing && existing.id !== projectId) {
+            return { result: `该代码目录已绑定到项目"${existing.name}"`, isError: true };
+          }
+
+          if (projectPath !== current.path && listWorktrees(db, projectId).length > 0) {
+            return { result: "该项目已有 worktree，请先删除 worktree 后再修改代码目录", isError: true };
+          }
+        } else if (hasBranch) {
+          try {
+            defaultBranch = validateDefaultBranch(input.defaultBranch);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { result: `分支验证失败: ${message}`, isError: true };
+          }
+        }
+
+        let description = current.description;
+        if (hasDesc) {
+          if (input.description === null || input.description === "") {
+            description = null;
+          } else {
+            description = String(input.description).trim();
+            if (description.length > 1000) {
+              return { result: "项目描述不能超过 1000 个字符", isError: true };
+            }
+          }
+        }
+
+        const updated = updateProject(db, projectId, {
+          name,
+          path: projectPath,
+          defaultBranch,
+          description
+        });
+
+        if (!updated) return { result: "更新项目失败", isError: true };
+
+        return { result: `已更新项目：《${updated.name}》`, isError: false };
       }
 
       case "list_worktrees": {

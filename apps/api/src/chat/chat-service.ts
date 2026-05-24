@@ -164,7 +164,7 @@ export function getClient() {
 export function buildSystemPrompt(project: ProjectSummary | null, worktree: WorktreeSummary | null, skills?: SkillMetadata[]) {
   const lines = [
     "你是开发管理工作台首页聊天助手。",
-    "你可以使用工具来搜索笔记、创建笔记、查看任务、创建任务和创建 Prompt 草稿。",
+    "你可以使用工具来搜索笔记、创建笔记、查看任务、创建任务、创建 Prompt 草稿以及注册和修改项目。",
     "重要规则：",
     "- 在创建新笔记前，先搜索是否已有相关笔记，避免重复。",
     "- 创建笔记/任务/Prompt 草稿后，直接告诉用户结果，不要重复创建。",
@@ -172,6 +172,8 @@ export function buildSystemPrompt(project: ProjectSummary | null, worktree: Work
     "- 如果用户没指定项目，创建笔记时可以不传 projectId（创建为全局笔记）。",
     "- 创建任务和 Prompt 草稿必须指定 projectId。",
     "- 当用户想要执行开发任务（如修复bug、添加功能）时，使用 create_prompt_draft。",
+    "- 当用户想要注册新项目时，使用 create_project，需要提供项目名称和代码目录的绝对路径。",
+    "- 当用户想要修改项目信息（名称、目录、分支、描述）时，使用 update_project，需要提供项目 ID 和要修改的字段。",
     `当前项目：${project ? `${project.name} (${project.path}, id=${project.id})` : "未选择项目"}`,
     `当前 worktree：${worktree ? `${worktree.name} (${worktree.branch})` : "未选择 worktree"}`,
     project ? `如果需要创建任务或 Prompt 草稿，使用 projectId="${project.id}"。` : "如果需要创建任务或 Prompt 草稿，请先让用户选择一个项目。"
