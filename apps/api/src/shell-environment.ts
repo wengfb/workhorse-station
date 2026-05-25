@@ -4,9 +4,7 @@ import os from "node:os";
 
 const shellEnvMarker = "__WORKHORSE_SHELL_ENV_START__";
 const terminalDefaults = {
-  TERM: "xterm-256color",
-  LANG: "en_US.UTF-8",
-  LC_ALL: "en_US.UTF-8"
+  TERM: "xterm-256color"
 } as const;
 
 export type PtySpawnContext = {
