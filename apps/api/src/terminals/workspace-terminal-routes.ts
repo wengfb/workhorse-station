@@ -32,7 +32,7 @@ export async function registerWorkspaceTerminalRoutes(server: FastifyInstance, d
         })
       : { worktreeId: null, requestedWorktreeName: null, cwd: workspaceRoot };
 
-    const terminal = runtimeManager.startTerminal({
+    const terminal = await runtimeManager.startTerminal({
       projectId: input.projectId,
       worktreeId: resolved.worktreeId,
       requestedWorktreeName: resolved.requestedWorktreeName,

@@ -4,6 +4,7 @@ import { getProjectSession, updateSessionCompletion, updateSessionRuntime, updat
 import { resolveClaudeBinary } from "./claude-cli.js";
 import { SessionPty } from "./session-pty.js";
 import { createRuntimeEvent } from "./session-events.js";
+import { getPtySpawnContext } from "../shell-environment.js";
 
 export type RuntimeSessionState = {
   sessionId: string;
@@ -63,7 +64,8 @@ export class SessionRuntimeManager extends EventEmitter {
     forkSession?: boolean;
     initialBuffer?: string;
   }) {
-    const command = await resolveClaudeBinary();
+    const { env } = await getPtySpawnContext();
+    const command = await resolveClaudeBinary(env);
     const pty = new SessionPty();
 
     const flushToDb = () => {
@@ -154,12 +156,7 @@ export class SessionRuntimeManager extends EventEmitter {
       command,
       args: cliArgs,
       cwd: input.cwd,
-      env: {
-        ...process.env,
-        TERM: "xterm-256color",
-        LANG: "en_US.UTF-8",
-        LC_ALL: "en_US.UTF-8"
-      }
+      env
     });
 
     state.pid = pid;

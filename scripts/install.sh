@@ -47,7 +47,7 @@ if [ ! -f "$PROJECT_DIR/.env" ]; then
   cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"
   echo "  已从 .env.example 创建 .env 文件"
   echo ""
-  echo "  ⚠ 请编辑 .env 文件配置 Anthropic API 密钥:"
+  echo "  ⚠ 请编辑 .env 文件配置运行参数和 Anthropic API 密钥:"
   echo "    $PROJECT_DIR/.env"
   echo ""
   read -rp "  是否现在编辑 .env 文件？(y/n) " EDIT_ENV

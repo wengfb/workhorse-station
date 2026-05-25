@@ -8,6 +8,7 @@ import type {
   WorkspaceTerminalSummary
 } from "@workhorse-station/shared";
 import { SessionPty } from "../sessions/session-pty.js";
+import { getPtySpawnContext } from "../shell-environment.js";
 
 type RuntimeTerminal = WorkspaceTerminalSummary & {
   buffer: string;
@@ -50,15 +51,15 @@ export class WorkspaceTerminalRuntimeManager extends EventEmitter {
     };
   }
 
-  startTerminal(input: {
+  async startTerminal(input: {
     projectId: string | null;
     worktreeId: string | null;
     requestedWorktreeName: string | null;
     cwd: string;
   }) {
+    const { shell, env } = await getPtySpawnContext();
     const terminalId = randomUUID();
     const pty = new SessionPty();
-    const shell = resolveShellBinary();
     const now = new Date().toISOString();
 
     const terminal: RuntimeTerminal = {
@@ -122,12 +123,7 @@ export class WorkspaceTerminalRuntimeManager extends EventEmitter {
         command: shell,
         args: [],
         cwd: input.cwd,
-        env: {
-          ...process.env,
-          TERM: "xterm-256color",
-          LANG: "en_US.UTF-8",
-          LC_ALL: "en_US.UTF-8"
-        }
+        env
       });
 
       terminal.pid = pid;
@@ -259,9 +255,4 @@ function toExecutionListItem(terminal: RuntimeTerminal): ExecutionListItem {
     createdAt: terminal.createdAt,
     updatedAt: terminal.updatedAt
   };
-}
-
-function resolveShellBinary() {
-  const shell = process.env.SHELL?.trim();
-  return shell || "/bin/bash";
 }
