@@ -4052,90 +4052,119 @@ function ProjectWorkspacePage({
         <ProjectTopNav activeTab={activeTab} onTabChange={onTabChange} />
       </section>
 
-      <ProjectTabWorkspace
-        activeTab={activeTab}
-        projects={projects}
-        selectedProject={selectedProject}
-        selectedWorktree={selectedWorktree}
-        worktrees={worktrees}
-        projectsLoading={projectsLoading}
-        worktreesLoading={worktreesLoading}
-        deletingProject={deletingProject}
-        deletingWorktreeId={deletingWorktreeId}
-        projectError={projectError}
-        worktreeError={worktreeError}
-        notes={notes}
-        notesTotal={notesTotal}
-        notesPage={notesPage}
-        selectedNote={selectedNote}
-        notesLoading={notesLoading}
-        notesError={notesError}
-        noteDraft={noteDraft}
-        savingNote={savingNote}
-        deletingNoteId={deletingNoteId}
-        noteSettingsOpen={noteSettingsOpen}
-        todos={todos}
-        todosTotal={todosTotal}
-        todosPage={todosPage}
-        selectedTodo={selectedTodo}
-        todosLoading={todosLoading}
-        todosError={todosError}
-        todoDraft={todoDraft}
-        savingTodo={savingTodo}
-        deletingTodoId={deletingTodoId}
-        sessions={sessions}
-        promptDrafts={promptDrafts}
-        sessionsLoading={sessionsLoading}
-        sessionsError={sessionsError}
-        projectSkills={projectSkills}
-        selectedProjectSkillName={selectedProjectSkillName}
-        projectSkillsLoading={projectSkillsLoading}
-        projectSkillsError={projectSkillsError}
-        skillOperationName={skillOperationName}
-        onCreateProject={onCreateProject}
-        onEditProject={onEditProject}
-        onSelectProject={onSelectProject}
-        onDeleteProject={onDeleteProject}
-        onCreateWorktree={onCreateWorktree}
-        onWorktreeSelect={onWorktreeSelect}
-        onWorktreeDelete={onWorktreeDelete}
-        onCreateNote={onCreateNote}
-        onSelectNote={onSelectNote}
-        onNoteDraftChange={onNoteDraftChange}
-        onSaveNote={onSaveNote}
-        onDeleteNote={onDeleteNote}
-        onOpenNoteSettings={onOpenNoteSettings}
-        onCloseNoteSettings={onCloseNoteSettings}
-        onCreateTodoFromNote={onCreateTodoFromNote}
-        onCreateTodo={onCreateTodo}
-        onSelectTodo={onSelectTodo}
-        onTodoDraftChange={onTodoDraftChange}
-        onSaveTodo={onSaveTodo}
-        onDeleteTodo={onDeleteTodo}
-        onNotesPageChange={onNotesPageChange}
-        onTodosPageChange={onTodosPageChange}
-        onSelectProjectSkill={onSelectProjectSkill}
-        onCreateProjectSkill={onCreateProjectSkill}
-        onRenameProjectSkill={onRenameProjectSkill}
-        onDeleteProjectSkill={onDeleteProjectSkill}
-        onCopyProjectSkillToGlobal={onCopyProjectSkillToGlobal}
-        onCopyGlobalSkillToProject={onCopyGlobalSkillToProject}
-        onOpenSession={onOpenSession}
-        onOpenWorkspaceTerminal={onOpenWorkspaceTerminal}
-        noteSearchQuery={noteSearchQuery}
-        noteFilterTags={noteFilterTags}
-        availableNoteTags={availableNoteTags}
-        onNoteSearchChange={onNoteSearchChange}
-        onNoteFilterTagsChange={onNoteFilterTagsChange}
-        todoSearchQuery={todoSearchQuery}
-        todoFilterTags={todoFilterTags}
-        availableTodoTags={availableTodoTags}
-        onTodoSearchChange={onTodoSearchChange}
-        onTodoFilterTagsChange={onTodoFilterTagsChange}
-        onTodoStatusChange={onTodoStatusChange}
-        onRefreshWorktrees={onRefreshWorktrees}
-        onRefreshProjectSkills={onRefreshProjectSkills}
-      />
+      {activeTab === "worktrees" ? (
+        selectedProject ? (
+          <WorktreePanel
+            project={selectedProject}
+            worktrees={worktrees}
+            selectedWorktree={selectedWorktree}
+            loading={worktreesLoading}
+            deletingWorktreeId={deletingWorktreeId}
+            error={worktreeError}
+            onCreate={onCreateWorktree}
+            onSelect={onWorktreeSelect}
+            onDelete={onWorktreeDelete}
+            onRefresh={onRefreshWorktrees ?? (() => {})}
+          />
+        ) : (
+          <EmptyProjectNotice onCreateProject={onCreateProject} />
+        )
+      ) : null}
+
+      {activeTab === "sessions" ? (
+        <SessionsWorkspacePanel
+          selectedProject={selectedProject}
+          selectedWorktree={selectedWorktree}
+          sessions={sessions}
+          promptDrafts={promptDrafts}
+          todos={todos}
+          loading={sessionsLoading}
+          error={sessionsError}
+          onOpenSession={onOpenSession}
+        />
+      ) : null}
+
+      {activeTab === "todos" ? (
+        <TodoPanel
+          project={selectedProject}
+          notes={notes}
+          todos={todos}
+          selectedTodo={selectedTodo}
+          loading={todosLoading}
+          error={todosError}
+          draft={todoDraft}
+          saving={savingTodo}
+          deletingTodoId={deletingTodoId}
+          total={todosTotal}
+          page={todosPage}
+          onPageChange={onTodosPageChange}
+          onCreate={onCreateTodo}
+          onSelect={onSelectTodo}
+          onDraftChange={onTodoDraftChange}
+          onSave={onSaveTodo}
+          onDelete={onDeleteTodo}
+          onOpenSession={onOpenSession}
+          searchQuery={todoSearchQuery}
+          filterTags={todoFilterTags}
+          availableTags={availableTodoTags}
+          onSearchChange={onTodoSearchChange}
+          onFilterTagsChange={onTodoFilterTagsChange}
+          onStatusChange={onTodoStatusChange}
+        />
+      ) : null}
+
+      {activeTab === "notes" ? (
+        <NotePanel
+          project={selectedProject}
+          notes={notes}
+          selectedNote={selectedNote}
+          loading={notesLoading}
+          error={notesError}
+          draft={noteDraft}
+          saving={savingNote}
+          creatingTodo={savingTodo}
+          deletingNoteId={deletingNoteId}
+          settingsOpen={noteSettingsOpen}
+          searchQuery={noteSearchQuery}
+          filterTags={noteFilterTags}
+          availableTags={availableNoteTags}
+          total={notesTotal}
+          page={notesPage}
+          onPageChange={onNotesPageChange}
+          onCreate={onCreateNote}
+          onSelect={onSelectNote}
+          onDraftChange={onNoteDraftChange}
+          onSave={onSaveNote}
+          onDelete={onDeleteNote}
+          onCreateTodo={onCreateTodoFromNote}
+          onOpenSettings={onOpenNoteSettings}
+          onCloseSettings={onCloseNoteSettings}
+          onSearchChange={onNoteSearchChange}
+          onFilterTagsChange={onNoteFilterTagsChange}
+        />
+      ) : null}
+
+      {activeTab === "skills" ? (
+        <ProjectSkillPanel
+          project={selectedProject}
+          skills={projectSkills}
+          selectedSkillName={selectedProjectSkillName}
+          loading={projectSkillsLoading}
+          error={projectSkillsError}
+          operationName={skillOperationName}
+          onSelect={onSelectProjectSkill}
+          onCreate={onCreateProjectSkill}
+          onRename={onRenameProjectSkill}
+          onDelete={onDeleteProjectSkill}
+          onCopyToGlobal={onCopyProjectSkillToGlobal}
+          onCopyGlobalToProject={onCopyGlobalSkillToProject}
+          onRefresh={onRefreshProjectSkills ?? (() => {})}
+        />
+      ) : null}
+
+      {activeTab === "memory" ? (selectedProject ? <ProjectMemoryPanel projectId={selectedProject.id} /> : <EmptyProjectNotice onCreateProject={onCreateProject} />) : null}
+
+      {!projectTabs.some((tab) => tab.id === activeTab) ? <EmptyProjectNotice onCreateProject={onCreateProject} /> : null}
     </div>
   );
 }
@@ -4155,419 +4184,6 @@ function ProjectTopNav({ activeTab, onTabChange }: { activeTab: ProjectTab; onTa
         </button>
       ))}
     </nav>
-  );
-}
-
-function ProjectTabWorkspace({
-  activeTab,
-  projects,
-  selectedProject,
-  selectedWorktree,
-  worktrees,
-  projectsLoading,
-  worktreesLoading,
-  deletingProject,
-  deletingWorktreeId,
-  projectError,
-  worktreeError,
-  notes,
-  notesTotal = 0,
-  notesPage = 1,
-  selectedNote,
-  notesLoading,
-  notesError,
-  noteDraft,
-  savingNote,
-  deletingNoteId,
-  noteSettingsOpen,
-  todos,
-  todosTotal = 0,
-  todosPage = 1,
-  selectedTodo,
-  todosLoading,
-  todosError,
-  todoDraft,
-  savingTodo,
-  deletingTodoId,
-  sessions,
-  promptDrafts,
-  sessionsLoading,
-  sessionsError,
-  projectSkills,
-  selectedProjectSkillName,
-  projectSkillsLoading,
-  projectSkillsError,
-  skillOperationName,
-  onCreateProject,
-  onEditProject,
-  onSelectProject,
-  onDeleteProject,
-  onCreateWorktree,
-  onWorktreeSelect,
-  onWorktreeDelete,
-  onCreateNote,
-  onSelectNote,
-  onNoteDraftChange,
-  onSaveNote,
-  onDeleteNote,
-  onOpenNoteSettings,
-  onCloseNoteSettings,
-  onCreateTodoFromNote,
-  onCreateTodo,
-  onSelectTodo,
-  onTodoDraftChange,
-  onSaveTodo,
-  onDeleteTodo,
-  onSelectProjectSkill,
-  onCreateProjectSkill,
-  onRenameProjectSkill,
-  onDeleteProjectSkill,
-  onCopyProjectSkillToGlobal,
-  onCopyGlobalSkillToProject,
-  onOpenSession,
-  onOpenWorkspaceTerminal,
-  noteSearchQuery = "",
-  noteFilterTags = [],
-  availableNoteTags = [],
-  onNoteSearchChange,
-  onNoteFilterTagsChange,
-  onNotesPageChange,
-  onTodosPageChange,
-  todoSearchQuery = "",
-  todoFilterTags = [],
-  availableTodoTags = [],
-  onTodoSearchChange,
-  onTodoFilterTagsChange,
-  onTodoStatusChange,
-  onRefreshWorktrees,
-  onRefreshProjectSkills
-}: {
-  activeTab: ProjectTab;
-  projects: ProjectSummary[];
-  selectedProject: ProjectSummary | null;
-  selectedWorktree: WorktreeSummary | null;
-  worktrees: WorktreeSummary[];
-  projectsLoading: boolean;
-  worktreesLoading: boolean;
-  deletingProject: boolean;
-  deletingWorktreeId: string | null;
-  projectError: string | null;
-  worktreeError: string | null;
-  notes: NoteSummary[];
-  notesTotal?: number;
-  notesPage?: number;
-  selectedNote: NoteSummary | null;
-  notesLoading: boolean;
-  notesError: string | null;
-  noteDraft: NoteDraft;
-  savingNote: boolean;
-  deletingNoteId: string | null;
-  noteSettingsOpen: boolean;
-  todos: TodoSummary[];
-  todosTotal?: number;
-  todosPage?: number;
-  selectedTodo: TodoSummary | null;
-  todosLoading: boolean;
-  todosError: string | null;
-  todoDraft: TodoDraft;
-  savingTodo: boolean;
-  deletingTodoId: string | null;
-  sessions: SessionSummary[];
-  promptDrafts: PromptDraftSummary[];
-  sessionsLoading: boolean;
-  sessionsError: string | null;
-  projectSkills: ProjectSkillSummary[];
-  selectedProjectSkillName: string | null;
-  projectSkillsLoading: boolean;
-  projectSkillsError: string | null;
-  skillOperationName: string | null;
-  onCreateProject: () => void;
-  onEditProject: () => void;
-  onSelectProject: (project: ProjectSummary) => void;
-  onDeleteProject: () => void;
-  onCreateWorktree: () => void;
-  onWorktreeSelect: (worktree: WorktreeSummary) => void;
-  onWorktreeDelete: (worktree: WorktreeSummary) => void;
-  onCreateNote: () => void;
-  onSelectNote: (note: NoteSummary) => void;
-  onNoteDraftChange: (field: keyof NoteDraft, value: string) => void;
-  onSaveNote: (event: FormEvent<HTMLFormElement>) => void;
-  onDeleteNote: (note: NoteSummary) => void;
-  onOpenNoteSettings: () => void;
-  onCloseNoteSettings: () => void;
-  onCreateTodoFromNote: () => void;
-  onCreateTodo: () => void;
-  onSelectTodo: (todo: TodoSummary) => void;
-  onTodoDraftChange: (field: keyof TodoDraft, value: string) => void;
-  onSaveTodo: (event: FormEvent<HTMLFormElement>) => void;
-  onDeleteTodo: (todo: TodoSummary) => void;
-  onSelectProjectSkill: (skill: ProjectSkillSummary) => void;
-  onCreateProjectSkill: () => void;
-  onRenameProjectSkill: (skill: ProjectSkillSummary) => void;
-  onDeleteProjectSkill: (skill: ProjectSkillSummary) => void;
-  onCopyProjectSkillToGlobal: (skill: ProjectSkillSummary) => void;
-  onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
-  onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
-  onOpenWorkspaceTerminal: () => void;
-  noteSearchQuery?: string;
-  noteFilterTags?: string[];
-  availableNoteTags?: string[];
-  onNoteSearchChange?: (query: string) => void;
-  onNoteFilterTagsChange?: (tags: string[]) => void;
-  onNotesPageChange?: (page: number) => void;
-  onTodosPageChange?: (page: number) => void;
-  todoSearchQuery?: string;
-  todoFilterTags?: string[];
-  availableTodoTags?: string[];
-  onTodoSearchChange?: (query: string) => void;
-  onTodoFilterTagsChange?: (tags: string[]) => void;
-  onTodoStatusChange?: (todo: TodoSummary, newStatus: TodoStatus) => void;
-  onRefreshWorktrees?: () => void;
-  onRefreshProjectSkills?: () => void;
-}) {
-  if (activeTab === "worktrees") {
-    return selectedProject ? (
-      <WorktreePanel
-        project={selectedProject}
-        worktrees={worktrees}
-        selectedWorktree={selectedWorktree}
-        loading={worktreesLoading}
-        deletingWorktreeId={deletingWorktreeId}
-        error={worktreeError}
-        onCreate={onCreateWorktree}
-        onSelect={onWorktreeSelect}
-        onDelete={onWorktreeDelete}
-        onRefresh={onRefreshWorktrees ?? (() => {})}
-      />
-    ) : (
-      <EmptyProjectNotice onCreateProject={onCreateProject} />
-    );
-  }
-
-  if (activeTab === "sessions") {
-    return (
-      <SessionsWorkspacePanel
-        selectedProject={selectedProject}
-        selectedWorktree={selectedWorktree}
-        sessions={sessions}
-        promptDrafts={promptDrafts}
-        todos={todos}
-        loading={sessionsLoading}
-        error={sessionsError}
-        onOpenSession={onOpenSession}
-      />
-    );
-  }
-
-  if (activeTab === "todos") {
-    return (
-      <TodoPanel
-        project={selectedProject}
-        notes={notes}
-        todos={todos}
-        selectedTodo={selectedTodo}
-        loading={todosLoading}
-        error={todosError}
-        draft={todoDraft}
-        saving={savingTodo}
-        deletingTodoId={deletingTodoId}
-        total={todosTotal}
-        page={todosPage}
-        onPageChange={onTodosPageChange}
-        onCreate={onCreateTodo}
-        onSelect={onSelectTodo}
-        onDraftChange={onTodoDraftChange}
-        onSave={onSaveTodo}
-        onDelete={onDeleteTodo}
-        onOpenSession={onOpenSession}
-        searchQuery={todoSearchQuery}
-        filterTags={todoFilterTags}
-        availableTags={availableTodoTags}
-        onSearchChange={onTodoSearchChange}
-        onFilterTagsChange={onTodoFilterTagsChange}
-        onStatusChange={onTodoStatusChange}
-      />
-    );
-  }
-
-  if (activeTab === "notes") {
-    return (
-      <NotePanel
-        project={selectedProject}
-        notes={notes}
-        selectedNote={selectedNote}
-        loading={notesLoading}
-        error={notesError}
-        draft={noteDraft}
-        saving={savingNote}
-        creatingTodo={savingTodo}
-        deletingNoteId={deletingNoteId}
-        settingsOpen={noteSettingsOpen}
-        searchQuery={noteSearchQuery}
-        filterTags={noteFilterTags}
-        availableTags={availableNoteTags}
-        total={notesTotal}
-        page={notesPage}
-        onPageChange={onNotesPageChange}
-        onCreate={onCreateNote}
-        onSelect={onSelectNote}
-        onDraftChange={onNoteDraftChange}
-        onSave={onSaveNote}
-        onDelete={onDeleteNote}
-        onCreateTodo={onCreateTodoFromNote}
-        onOpenSettings={onOpenNoteSettings}
-        onCloseSettings={onCloseNoteSettings}
-        onSearchChange={onNoteSearchChange}
-        onFilterTagsChange={onNoteFilterTagsChange}
-      />
-    );
-  }
-
-  if (activeTab === "skills") {
-    return (
-      <ProjectSkillPanel
-        project={selectedProject}
-        skills={projectSkills}
-        selectedSkillName={selectedProjectSkillName}
-        loading={projectSkillsLoading}
-        error={projectSkillsError}
-        operationName={skillOperationName}
-        onSelect={onSelectProjectSkill}
-        onCreate={onCreateProjectSkill}
-        onRename={onRenameProjectSkill}
-        onDelete={onDeleteProjectSkill}
-        onCopyToGlobal={onCopyProjectSkillToGlobal}
-        onCopyGlobalToProject={onCopyGlobalSkillToProject}
-        onRefresh={onRefreshProjectSkills ?? (() => {})}
-      />
-    );
-  }
-
-  if (activeTab === "memory") {
-    return selectedProject ? <ProjectMemoryPanel projectId={selectedProject.id} /> : <EmptyProjectNotice onCreateProject={onCreateProject} />;
-  }
-
-  return <EmptyProjectNotice onCreateProject={onCreateProject} />;
-}
-
-function ProjectManagementPanel({
-  projects,
-  selectedProject,
-  selectedWorktree,
-  loading,
-  deleting,
-  error,
-  onCreate,
-  onEdit,
-  onSelect,
-  onDelete,
-  onOpenSession
-}: {
-  projects: ProjectSummary[];
-  selectedProject: ProjectSummary | null;
-  selectedWorktree: WorktreeSummary | null;
-  loading: boolean;
-  deleting: boolean;
-  error: string | null;
-  onCreate: () => void;
-  onEdit: () => void;
-  onSelect: (project: ProjectSummary) => void;
-  onDelete: () => void;
-  onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
-}) {
-  return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.75fr)]">
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-          <div className="text-sm font-medium">项目列表</div>
-        </div>
-        <div className="min-h-[320px] divide-y divide-white/10">
-          {loading ? <div className="px-4 py-6 text-sm text-slate-400">项目加载中...</div> : null}
-          {!loading && projects.length === 0 ? (
-            <div className="space-y-3 px-4 py-8 text-sm">
-              <div className="text-base font-medium text-slate-100">还没有项目</div>
-              <p className="text-slate-400">请在工作台页面创建项目。</p>
-            </div>
-          ) : null}
-          {!loading
-            ? projects.map((project) => (
-                <button
-                  key={project.id}
-                  onClick={() => onSelect(project)}
-                  className={`block w-full px-4 py-3 text-left text-sm ${
-                    selectedProject?.id === project.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate font-medium text-slate-100">{project.name}</div>
-                      <div className="mt-1 truncate text-xs text-slate-500">{project.path}</div>
-                    </div>
-                    <span className="shrink-0 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-200">
-                      已绑定目录
-                    </span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                    <span>默认分支：{project.defaultBranch}</span>
-                    <span>更新：{formatDateTime(project.updatedAt)}</span>
-                  </div>
-                </button>
-              ))
-            : null}
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-          <div className="text-sm font-medium">项目详情 / 属性</div>
-          {selectedProject ? (
-            <button onClick={onEdit} className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/5">
-              编辑
-            </button>
-          ) : null}
-        </div>
-        <div className="space-y-4 p-4 text-sm text-slate-300">
-          {selectedProject ? (
-            <>
-              <DetailRow label="名称" value={selectedProject.name} />
-              <DetailRow label="代码目录" value={selectedProject.path} />
-              <DetailRow label="默认分支" value={selectedProject.defaultBranch} />
-              <DetailRow label="当前 Worktree" value={selectedWorktree?.name ?? "未选择"} />
-              <DetailRow label="Worktree 目录" value={`${selectedProject.path}/.claude/worktree/`} />
-              <DetailRow label="创建时间" value={formatDateTime(selectedProject.createdAt)} />
-              <DetailRow label="更新时间" value={formatDateTime(selectedProject.updatedAt)} />
-              {selectedProject.latestSessionResult ? (
-                <div className="rounded-lg border border-sky-400/20 bg-sky-400/10 p-3 text-xs text-sky-50">
-                  <div className="font-medium text-sky-100">最近会话结果</div>
-                  <div className="mt-2 text-sky-100">{selectedProject.latestSessionResult.sessionName}</div>
-                  <div className="mt-1 whitespace-pre-wrap text-sky-50/90">{selectedProject.latestSessionResult.summary}</div>
-                  <div className="mt-2 text-sky-100/80">更新：{formatDateTime(selectedProject.latestSessionResult.updatedAt)}</div>
-                  <button
-                    type="button"
-                    onClick={() => onOpenSession("direct", undefined, selectedProject.latestSessionResult?.sessionId)}
-                    className="mt-3 rounded-md border border-sky-200/20 px-2 py-1 text-xs text-sky-50 hover:bg-white/5"
-                  >
-                    打开会话
-                  </button>
-                </div>
-              ) : null}
-              {selectedProject.description ? <p className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-slate-400">{selectedProject.description}</p> : null}
-              <button
-                type="button"
-                disabled={deleting}
-                onClick={onDelete}
-                className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 disabled:opacity-60"
-              >
-                {deleting ? "删除中..." : "删除项目"}
-              </button>
-            </>
-          ) : (
-            <div className="rounded-lg border border-dashed border-white/10 p-4 text-slate-500">请选择一个项目，或创建第一个项目。</div>
-          )}
-          {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-        </div>
-      </section>
-    </div>
   );
 }
 
@@ -6185,13 +5801,37 @@ function TodoPanel({
                     ))}
                     {todo.sourceNoteId && <span className="text-[10px] text-slate-600">关联笔记</span>}
                   </div>
-                  <div className="mt-2 flex items-center justify-end">
+                  <div className="mt-2 flex items-center justify-end gap-2">
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); openEditModal(todo); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenSession("todo", todo.id);
+                      }}
+                      className="rounded border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-xs text-emerald-200 hover:bg-emerald-400/15"
+                    >
+                      创建会话
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEditModal(todo);
+                      }}
                       className="rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5"
                     >
                       编辑
+                    </button>
+                    <button
+                      type="button"
+                      disabled={deletingTodoId === todo.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(todo);
+                      }}
+                      className="rounded border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-xs text-red-200 hover:bg-red-500/15 disabled:opacity-50"
+                    >
+                      {deletingTodoId === todo.id ? "删除中..." : "删除"}
                     </button>
                   </div>
                 </div>
@@ -6288,28 +5928,8 @@ function TodoPanel({
             ) : null}
             {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex gap-2" />
               <div className="flex gap-2">
-                {isEditing && selectedTodo ? (
-                  <button
-                    type="button"
-                    onClick={() => onOpenSession("todo", selectedTodo.id)}
-                    className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200"
-                  >
-                    从任务创建会话
-                  </button>
-                ) : null}
-              </div>
-              <div className="flex gap-2">
-                {isEditing ? (
-                  <button
-                    type="button"
-                    disabled={deletingTodoId === selectedTodo?.id}
-                    onClick={() => { if (selectedTodo) onDelete(selectedTodo); }}
-                    className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
-                  >
-                    {deletingTodoId === selectedTodo?.id ? "删除中..." : "删除任务"}
-                  </button>
-                ) : null}
                 <button type="button" onClick={() => setFormModalOpen(false)} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
                   关闭
                 </button>
