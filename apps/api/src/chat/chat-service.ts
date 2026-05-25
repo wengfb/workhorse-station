@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import type {
   BetaMessageParam,
@@ -25,6 +28,13 @@ export const MAX_TOKENS = 2400;
 export const MAX_TOOL_ITERATIONS = 5;
 
 let client: Anthropic | null = null;
+let clientConfigKey: string | null = null;
+
+type AnthropicEnvConfig = {
+  apiKey: string | null;
+  authToken: string | null;
+  baseURL: string | null;
+};
 
 export type GenerateChatReplyInput = {
   chatSession: ChatSessionSummary;
@@ -145,20 +155,61 @@ export async function generateChatReply(input: GenerateChatReplyInput): Promise<
 }
 
 export function getClient() {
-  const apiKey = process.env.ANTHROPIC_API_KEY ?? null;
-  const authToken = process.env.ANTHROPIC_AUTH_TOKEN ?? null;
-  const baseURL = process.env.ANTHROPIC_BASE_URL ?? null;
+  const config = resolveAnthropicEnvConfig();
 
-  if (!apiKey && !authToken) {
+  if (!config.apiKey && !config.authToken) {
     throw new HttpError(503, "anthropic_api_key_missing", "服务端未配置 ANTHROPIC_API_KEY 或 ANTHROPIC_AUTH_TOKEN");
   }
 
-  client ??= new Anthropic({
-    apiKey: apiKey ?? undefined,
-    authToken: authToken ?? undefined,
-    baseURL: baseURL ?? undefined
-  });
+  const nextConfigKey = JSON.stringify(config);
+  if (!client || clientConfigKey !== nextConfigKey) {
+    client = new Anthropic({
+      apiKey: config.apiKey ?? undefined,
+      authToken: config.authToken ?? undefined,
+      baseURL: config.baseURL ?? undefined
+    });
+    clientConfigKey = nextConfigKey;
+  }
+
   return client;
+}
+
+function resolveAnthropicEnvConfig(): AnthropicEnvConfig {
+  const runtimeConfig = readAnthropicEnv(process.env);
+  if (runtimeConfig.apiKey || runtimeConfig.authToken) {
+    return runtimeConfig;
+  }
+
+  const claudeSettings = readClaudeSettingsEnv();
+  return {
+    apiKey: claudeSettings.ANTHROPIC_API_KEY ?? null,
+    authToken: claudeSettings.ANTHROPIC_AUTH_TOKEN ?? null,
+    baseURL: runtimeConfig.baseURL ?? claudeSettings.ANTHROPIC_BASE_URL ?? null
+  };
+}
+
+function readAnthropicEnv(env: NodeJS.ProcessEnv | Record<string, unknown>): AnthropicEnvConfig {
+  const getString = (value: unknown) => (typeof value === "string" && value.trim() ? value : null);
+
+  return {
+    apiKey: getString(env.ANTHROPIC_API_KEY),
+    authToken: getString(env.ANTHROPIC_AUTH_TOKEN),
+    baseURL: getString(env.ANTHROPIC_BASE_URL)
+  };
+}
+
+function readClaudeSettingsEnv(): Record<string, string> {
+  const settingsPath = path.join(os.homedir(), ".claude", "settings.json");
+
+  try {
+    const parsed = JSON.parse(readFileSync(settingsPath, "utf8")) as { env?: Record<string, unknown> };
+    const source = parsed.env ?? {};
+    return Object.fromEntries(
+      Object.entries(source).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0)
+    );
+  } catch {
+    return {};
+  }
 }
 
 export function buildSystemPrompt(project: ProjectSummary | null, worktree: WorktreeSummary | null, skills?: SkillMetadata[]) {
