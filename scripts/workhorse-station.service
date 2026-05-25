@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=PROJECT_ROOT
-ExecStart=PROJECT_ROOT/node_modules/.bin/node PROJECT_ROOT/apps/api/dist/server.js
+ExecStart=/usr/bin/env node PROJECT_ROOT/apps/api/dist/server.js
 Environment=NODE_ENV=production
 Restart=on-failure
 RestartSec=5

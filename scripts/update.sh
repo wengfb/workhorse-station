@@ -19,7 +19,13 @@ pnpm install --frozen-lockfile
 echo "[3/4] 构建项目..."
 pnpm build
 
-echo "[4/4] 重启服务..."
+echo "[4/4] 更新并重启服务..."
+
+SERVICE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+mkdir -p "$SERVICE_DIR"
+SERVICE_FILE="$SERVICE_DIR/workhorse-station.service"
+sed "s|PROJECT_ROOT|$PROJECT_DIR|g" "$SCRIPT_DIR/workhorse-station.service" > "$SERVICE_FILE"
+systemctl --user daemon-reload
 systemctl --user restart workhorse-station
 
 sleep 2
