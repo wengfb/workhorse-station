@@ -396,6 +396,7 @@ export function SessionModal({
   const [searchQuery, setSearchQuery] = useState("");
   const [kindFilter, setKindFilter] = useState<ExecutionKindFilter>("all");
   const [statusFilter, setStatusFilter] = useState<ExecutionStatusFilter>("all");
+  const [expandedActionKey, setExpandedActionKey] = useState<string | null>(null);
 
   const filteredExecutionItems = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -478,10 +479,13 @@ export function SessionModal({
                 sessionRuntimeStatus === "starting" ||
                 sessionRuntimeStatus === "running" ||
                 sessionRuntimeStatus === "stopping";
+              const executionKey = `${execution.kind}:${execution.id}`;
+              const showCollapsedActions = expandedActionKey === executionKey && !showSessionActions;
+              const showWorkspaceActions = !isSession && (isSelected || expandedActionKey === executionKey);
 
               return (
                 <div
-                  key={`${execution.kind}:${execution.id}`}
+                  key={executionKey}
                   className={`group rounded-lg border px-3 py-2 text-left text-sm transition ${
                     isSelected ? "border-slate-300/50 bg-white/[0.08]" : "border-white/5 bg-white/[0.02] hover:border-white/10 hover:bg-white/[0.04]"
                   }`}
@@ -499,50 +503,108 @@ export function SessionModal({
                       </div>
                     </button>
                     {isSession && session ? (
-                      <div
-                        className={`mt-0.5 flex shrink-0 gap-1 transition ${
-                          showSessionActions ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
-                        }`}
-                      >
-                        {(session.status === "completed" || session.status === "failed") && (
+                      showSessionActions ? (
+                        <div className="flex min-h-6 shrink-0 items-center gap-1 self-center">
+                          {(session.status === "completed" || session.status === "failed") && (
+                            <button
+                              disabled={continuingSessionId === session.id}
+                              onClick={() => onContinueSession(session)}
+                              className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-1 text-[10px] text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {continuingSessionId === session.id ? "继续中" : "继续"}
+                            </button>
+                          )}
                           <button
-                            disabled={continuingSessionId === session.id}
-                            onClick={() => onContinueSession(session)}
-                            className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-1 text-[10px] text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={updatingSessionId === session.id || session.runtimeStatus === "stopped" || session.runtimeStatus === "failed"}
+                            onClick={() => onStopSession(session)}
+                            className="rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-1 text-[10px] text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            {continuingSessionId === session.id ? "继续中" : "继续"}
+                            {updatingSessionId === session.id ? "停止中" : "停止"}
                           </button>
-                        )}
+                          <button
+                            disabled={deletingSessionId === session.id}
+                            onClick={() => onDeleteSession(session)}
+                            className="rounded-md border border-red-400/30 bg-red-500/10 px-1.5 py-1 text-[10px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {deletingSessionId === session.id ? "删除中" : "删除"}
+                          </button>
+                        </div>
+                      ) : showCollapsedActions ? (
+                        <div className="flex min-h-6 shrink-0 items-center gap-1 self-center">
+                          {(session.status === "completed" || session.status === "failed") && (
+                            <button
+                              disabled={continuingSessionId === session.id}
+                              onClick={() => onContinueSession(session)}
+                              className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-1 text-[10px] text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {continuingSessionId === session.id ? "继续中" : "继续"}
+                            </button>
+                          )}
+                          <button
+                            disabled={updatingSessionId === session.id || session.runtimeStatus === "stopped" || session.runtimeStatus === "failed"}
+                            onClick={() => onStopSession(session)}
+                            className="rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-1 text-[10px] text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {updatingSessionId === session.id ? "停止中" : "停止"}
+                          </button>
+                          <button
+                            disabled={deletingSessionId === session.id}
+                            onClick={() => onDeleteSession(session)}
+                            className="rounded-md border border-red-400/30 bg-red-500/10 px-1.5 py-1 text-[10px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {deletingSessionId === session.id ? "删除中" : "删除"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedActionKey(null)}
+                            className="-mr-1 flex h-6 shrink-0 items-center px-1 text-[12px] leading-none text-slate-400 hover:text-slate-200"
+                            aria-label="收起操作"
+                          >
+                            ⋮
+                          </button>
+                        </div>
+                      ) : (
                         <button
-                          disabled={updatingSessionId === session.id || session.runtimeStatus === "stopped" || session.runtimeStatus === "failed"}
-                          onClick={() => onStopSession(session)}
-                          className="rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-1 text-[10px] text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          type="button"
+                          onClick={() => setExpandedActionKey(executionKey)}
+                          className="-mr-1 flex h-6 shrink-0 items-center self-center px-1 text-[12px] leading-none text-slate-400 hover:text-slate-200"
+                          aria-label="展开操作"
                         >
-                          {updatingSessionId === session.id ? "停止中" : "停止"}
+                          ⋮
                         </button>
-                        <button
-                          disabled={deletingSessionId === session.id}
-                          onClick={() => onDeleteSession(session)}
-                          className="rounded-md border border-red-400/30 bg-red-500/10 px-1.5 py-1 text-[10px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {deletingSessionId === session.id ? "删除中" : "删除"}
-                        </button>
-                      </div>
+                      )
                     ) : null}
                     {!isSession ? (
-                      <div
-                        className={`mt-0.5 flex shrink-0 gap-1 transition ${
-                          isSelected ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
-                        }`}
-                      >
+                      showWorkspaceActions ? (
+                        <div className="flex min-h-6 shrink-0 items-center gap-1 self-center">
+                          <button
+                            disabled={deletingWorkspaceTerminalId === execution.id}
+                            onClick={() => onDeleteWorkspaceTerminal(execution)}
+                            className="rounded-md border border-red-400/30 bg-red-500/10 px-1.5 py-1 text-[10px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {deletingWorkspaceTerminalId === execution.id ? "删除中" : "删除"}
+                          </button>
+                          {!isSelected ? (
+                            <button
+                              type="button"
+                              onClick={() => setExpandedActionKey(null)}
+                              className="-mr-1 flex h-6 shrink-0 items-center px-1 text-[12px] leading-none text-slate-400 hover:text-slate-200"
+                              aria-label="收起操作"
+                            >
+                              ⋮
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : (
                         <button
-                          disabled={deletingWorkspaceTerminalId === execution.id}
-                          onClick={() => onDeleteWorkspaceTerminal(execution)}
-                          className="rounded-md border border-red-400/30 bg-red-500/10 px-1.5 py-1 text-[10px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          type="button"
+                          onClick={() => setExpandedActionKey(executionKey)}
+                          className="-mr-1 flex h-6 shrink-0 items-center self-center px-1 text-[12px] leading-none text-slate-400 hover:text-slate-200"
+                          aria-label="展开操作"
                         >
-                          {deletingWorkspaceTerminalId === execution.id ? "删除中" : "删除"}
+                          ⋮
                         </button>
-                      </div>
+                      )
                     ) : null}
                   </div>
                 </div>
