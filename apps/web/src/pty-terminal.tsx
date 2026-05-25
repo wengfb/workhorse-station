@@ -9,11 +9,14 @@ type PtyTerminalProps<TEvent extends { output?: string }> = {
   loadSnapshot: () => Promise<{ buffer: string }>;
   createSocket: () => WebSocket;
   onRuntimeEvent?: (event: TEvent) => void;
+  className?: string;
 };
 
 const termTheme = {
   background: "#000000"
 };
+
+const defaultContainerClassName = "h-[60vh] min-h-[320px] w-full rounded-xl border border-white/10 bg-black";
 
 type StoppedTerminalState = {
   terminal: Terminal;
@@ -21,12 +24,13 @@ type StoppedTerminalState = {
   observer: ResizeObserver;
 };
 
-export function PtyTerminal<TEvent extends { output?: string }>({ runtimeStatus, loadSnapshot, createSocket, onRuntimeEvent }: PtyTerminalProps<TEvent>) {
+export function PtyTerminal<TEvent extends { output?: string }>({ runtimeStatus, loadSnapshot, createSocket, onRuntimeEvent, className }: PtyTerminalProps<TEvent>) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const stoppedRef = useRef<HTMLDivElement | null>(null);
   const stoppedStateRef = useRef<StoppedTerminalState | null>(null);
   const [snapshotBuffer, setSnapshotBuffer] = useState("");
   const isLive = runtimeStatus === "starting" || runtimeStatus === "running" || runtimeStatus === "stopping";
+  const containerClassName = className ?? defaultContainerClassName;
 
   useEffect(() => {
     let cancelled = false;
@@ -220,8 +224,8 @@ export function PtyTerminal<TEvent extends { output?: string }>({ runtimeStatus,
   }, [createSocket, isLive, loadSnapshot, onRuntimeEvent]);
 
   if (!isLive) {
-    return <div ref={stoppedRef} className="h-[60vh] min-h-[320px] w-full rounded-xl border border-white/10 bg-black" />;
+    return <div ref={stoppedRef} className={containerClassName} />;
   }
 
-  return <div ref={containerRef} className="h-[60vh] min-h-[320px] w-full rounded-xl border border-white/10 bg-black" />;
+  return <div ref={containerRef} className={containerClassName} />;
 }

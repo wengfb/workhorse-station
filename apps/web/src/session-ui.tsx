@@ -325,7 +325,7 @@ export function ExecutionModalFrame({
 
         <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)]">
           <aside className="min-h-0 overflow-auto border-b border-white/10 bg-[#151821] p-3 xl:border-b-0 xl:border-r">{sidebar}</aside>
-          <section className="flex min-h-0 flex-col bg-black/20">{content}</section>
+          <section className="flex min-h-0 flex-col overflow-hidden bg-black/20">{content}</section>
         </div>
       </div>
     </div>
@@ -580,7 +580,12 @@ export function SessionModal({
               </div>
             </div>
             <div className="min-h-0 flex-1 p-3">
-              <WorkspaceTerminal terminalId={workspaceTerminal.id} runtimeStatus={workspaceTerminal.runtimeStatus} onRuntimeEvent={onWorkspaceTerminalRuntimeEvent} />
+              <WorkspaceTerminal
+                terminalId={workspaceTerminal.id}
+                runtimeStatus={workspaceTerminal.runtimeStatus}
+                onRuntimeEvent={onWorkspaceTerminalRuntimeEvent}
+                className="h-full min-h-[320px] w-full rounded-xl border border-white/10 bg-black"
+              />
             </div>
           </>
         ) : (
@@ -591,7 +596,13 @@ export function SessionModal({
             </div>
             <div className="min-h-0 flex-1 p-3">
               {selectedSession && selectedProject ? (
-                <SessionTerminal projectId={selectedProject.id} sessionId={selectedSession.id} runtimeStatus={runtimeStatus} onRuntimeEvent={onRuntimeEvent} />
+                <SessionTerminal
+                  projectId={selectedProject.id}
+                  sessionId={selectedSession.id}
+                  runtimeStatus={runtimeStatus}
+                  onRuntimeEvent={onRuntimeEvent}
+                  className="h-full min-h-[320px] w-full rounded-xl border border-white/10 bg-black"
+                />
               ) : (
                 <section className="flex h-full min-h-[320px] items-center justify-center rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">
                   请先选择一个 Claude 会话。
