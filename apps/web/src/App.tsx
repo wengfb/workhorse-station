@@ -169,7 +169,7 @@ type ProjectMode = "create" | "edit";
 type WorkspaceScope = "home" | "project";
 type HomeMode = "chat" | "overview";
 type WorkbenchTab = "notes" | "skills" | "skill-store" | "projects" | "chats" | "sessions" | "memory";
-type ProjectTab = "overview" | "todos" | "notes" | "skills" | "sessions" | "worktrees" | "memory";
+type ProjectTab = "todos" | "notes" | "skills" | "sessions" | "worktrees" | "memory";
 type SessionView = "terminal" | "history";
 type ExecutionModalMode = "session" | "workspace-terminal";
 type SelectedExecution = { kind: ExecutionListItem["kind"]; id: string };
@@ -194,7 +194,6 @@ const topModes: Array<{ id: HomeMode; label: string; description: string }> = [
 const homeModes = topModes;
 
 const projectTabs: Array<{ id: ProjectTab; label: string }> = [
-  { id: "overview", label: "总览" },
   { id: "todos", label: "任务" },
   { id: "notes", label: "笔记" },
   { id: "skills", label: "Skill" },
@@ -229,7 +228,7 @@ export function App() {
   const [streamingBlocks, setStreamingBlocks] = useState<StreamingBlock[]>([]);
   const streamAbortRef = useRef<(() => void) | null>(null);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
-  const [activeProjectTab, setActiveProjectTab] = useState<ProjectTab>("overview");
+  const [activeProjectTab, setActiveProjectTab] = useState<ProjectTab>("todos");
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [worktreeDialogOpen, setWorktreeDialogOpen] = useState(false);
@@ -1060,7 +1059,7 @@ export function App() {
   function selectProject(project: ProjectSummary) {
     setCurrentProject(project);
     setWorkspaceScope("project");
-    setActiveProjectTab("overview");
+    setActiveProjectTab("todos");
     setProjectMenuOpen(false);
     void Promise.all([
       reloadWorktrees(project.id, null),
@@ -1186,7 +1185,7 @@ export function App() {
 
       setProjectDialogOpen(false);
       setWorkspaceScope("project");
-      setActiveProjectTab("overview");
+      setActiveProjectTab("todos");
     } catch (error) {
       setProjectError(formatError(error, "项目保存失败"));
     } finally {
@@ -4067,30 +4066,46 @@ function ProjectWorkspacePage({
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
       <section className="rounded-2xl border border-white/10 bg-[#151821] p-5">
-        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-          <div>
-            <div className="text-xs text-slate-500">项目工作台</div>
-            <h1 className="mt-2 text-2xl font-semibold">{selectedProject?.name ?? "选择或创建项目"}</h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-400">
-              项目内承载任务、笔记、Skill、会话和 Worktree。会话终端通过模态框打开，关闭后继续后台运行。
-            </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+            <div>
+              <div className="text-xs text-slate-500">项目工作台</div>
+              <h1 className="mt-2 text-2xl font-semibold">{selectedProject?.name ?? "选择或创建项目"}</h1>
+              <p className="mt-2 max-w-2xl text-sm text-slate-400">
+                项目内承载任务、笔记、Skill、会话和 Worktree。会话终端通过模态框打开，关闭后继续后台运行。
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                disabled={!selectedProject}
+                onClick={onOpenWorkspaceTerminal}
+                className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                打开终端
+              </button>
+              <button
+                disabled={!selectedProject}
+                onClick={() => onOpenSession("direct")}
+                className="rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                创建会话
+              </button>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              disabled={!selectedProject}
-              onClick={onOpenWorkspaceTerminal}
-              className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              打开终端
-            </button>
-            <button
-              disabled={!selectedProject}
-              onClick={() => onOpenSession("direct")}
-              className="rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              创建会话
-            </button>
-          </div>
+          {selectedProject ? (
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm text-slate-300">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <CompactMetaPill label="目录" value={selectedProject.path} wide />
+                <CompactMetaPill label="分支" value={selectedProject.defaultBranch} />
+                <CompactMetaPill label="Worktree" value={selectedWorktree?.name ?? "未选择"} />
+                <CompactMetaPill label="更新时间" value={formatDateTime(selectedProject.updatedAt)} />
+                <button onClick={onEditProject} className="shrink-0 rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/5">
+                  编辑
+                </button>
+              </div>
+              {selectedProject.description ? <p className="mt-3 line-clamp-2 text-xs text-slate-400">{selectedProject.description}</p> : null}
+            </div>
+          ) : null}
         </div>
         <ProjectTopNav activeTab={activeTab} onTabChange={onTabChange} />
       </section>
@@ -4490,23 +4505,7 @@ function ProjectTabWorkspace({
     return selectedProject ? <ProjectMemoryPanel projectId={selectedProject.id} /> : <EmptyProjectNotice onCreateProject={onCreateProject} />;
   }
 
-  return (
-    <div className="space-y-5">
-      <ProjectManagementPanel
-        projects={projects}
-        selectedProject={selectedProject}
-        selectedWorktree={selectedWorktree}
-        loading={projectsLoading}
-        deleting={deletingProject}
-        error={projectError}
-        onCreate={onCreateProject}
-        onEdit={onEditProject}
-        onSelect={onSelectProject}
-        onDelete={onDeleteProject}
-        onOpenSession={onOpenSession}
-      />
-    </div>
-  );
+  return <EmptyProjectNotice onCreateProject={onCreateProject} />;
 }
 
 function ProjectManagementPanel({
@@ -5516,6 +5515,15 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between gap-4">
       <span className="shrink-0 text-slate-500">{label}</span>
       <span className="truncate text-right text-slate-100">{value}</span>
+    </div>
+  );
+}
+
+function CompactMetaPill({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
+  return (
+    <div className={`flex min-w-0 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-2.5 py-1.5 ${wide ? "max-w-full basis-full sm:basis-auto sm:max-w-[24rem]" : ""}`}>
+      <span className="shrink-0 text-slate-500">{label}</span>
+      <span className="truncate text-slate-100">{value}</span>
     </div>
   );
 }
