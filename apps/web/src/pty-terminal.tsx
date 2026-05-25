@@ -62,7 +62,7 @@ export function PtyTerminal<TEvent extends { output?: string }>({ runtimeStatus,
       cursorBlink: false,
       disableStdin: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-      fontSize: 13,
+      fontSize: 14,
       theme: termTheme,
       scrollback: 100_000
     });
@@ -118,7 +118,7 @@ export function PtyTerminal<TEvent extends { output?: string }>({ runtimeStatus,
     const terminal = new Terminal({
       cursorBlink: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-      fontSize: 13,
+      fontSize: 14,
       theme: termTheme
     });
     const fitAddon = new FitAddon();
