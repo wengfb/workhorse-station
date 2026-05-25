@@ -13,8 +13,7 @@ type SessionTerminalProps = {
 };
 
 const termTheme = {
-  background: "#000000",
-  foreground: "#d1fae5"
+  background: "#000000"
 };
 
 type StoppedTerminalState = {
