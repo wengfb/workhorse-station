@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type {
   ExecutionListItem,
   ProjectSummary,
@@ -9,16 +9,12 @@ import type {
   SessionSummary,
   TodoSummary,
   WorktreeSummary,
-  SessionHistoryMessage,
-  SessionHistoryMessageBlock,
   WorkspaceTerminalStreamEvent,
   WorkspaceTerminalSummary
 } from "@workhorse-station/shared";
 import { SessionTerminal } from "./session-terminal";
 import { WorkspaceTerminal } from "./workspace-terminal";
 import { Select } from "./components/ui/Select";
-import { getSessionHistory } from "./api";
-import { MarkdownContent } from "./markdown-content";
 
 export type SessionEditorDraft = {
   sessionName: string;
@@ -32,7 +28,8 @@ export type SessionEditorDraft = {
   forkSession: boolean;
 };
 
-type SessionView = "terminal" | "history";
+type ExecutionKindFilter = "all" | ExecutionListItem["kind"];
+type ExecutionStatusFilter = "all" | "active" | "stopped" | "failed";
 
 export function SessionsWorkspace({
   selectedProject,
@@ -326,8 +323,8 @@ export function ExecutionModalFrame({
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[3fr_7fr]">
-          <aside className="min-h-0 overflow-auto border-b border-white/10 bg-[#151821] p-4 xl:border-b-0 xl:border-r">{sidebar}</aside>
+        <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="min-h-0 overflow-auto border-b border-white/10 bg-[#151821] p-3 xl:border-b-0 xl:border-r">{sidebar}</aside>
           <section className="flex min-h-0 flex-col bg-black/20">{content}</section>
         </div>
       </div>
@@ -341,31 +338,19 @@ export function SessionModal({
   sessions,
   selectedSession,
   selectedProject,
-  selectedWorktree,
   todos,
   worktrees,
   workspaceTerminal,
-  workspaceTerminalContext,
   workspaceTerminalError,
   openingWorkspaceTerminal,
   stoppingWorkspaceTerminal,
-  apiConnected,
-  source,
-  view,
   draft,
-  resultDraft,
-  savingResult,
   error,
   loading,
   updatingSessionId,
   deletingSessionId,
   deletingWorkspaceTerminalId,
   continuingSessionId,
-  onResultDraftChange,
-  onSaveResult,
-  onApplyResultToTodo,
-  onApplyResultToProject,
-  onViewChange,
   onSelectExecution,
   onStopSession,
   onDeleteSession,
@@ -382,34 +367,19 @@ export function SessionModal({
   sessions: SessionSummary[];
   selectedSession: SessionSummary | null;
   selectedProject: ProjectSummary | null;
-  selectedWorktree: WorktreeSummary | null;
   todos: TodoSummary[];
   worktrees: WorktreeSummary[];
   workspaceTerminal: WorkspaceTerminalSummary | null;
-  workspaceTerminalContext: {
-    projectName: string | null;
-    worktreeName: string | null;
-  } | null;
   workspaceTerminalError: string | null;
   openingWorkspaceTerminal: boolean;
   stoppingWorkspaceTerminal: boolean;
-  apiConnected: boolean;
-  source: SessionSource;
-  view: SessionView;
   draft: SessionEditorDraft;
-  resultDraft: string;
-  savingResult: boolean;
   error: string | null;
   loading: boolean;
   updatingSessionId: string | null;
   deletingSessionId: string | null;
   deletingWorkspaceTerminalId: string | null;
   continuingSessionId: string | null;
-  onResultDraftChange: (value: string) => void;
-  onSaveResult: () => void;
-  onApplyResultToTodo: () => void;
-  onApplyResultToProject: () => void;
-  onViewChange: (view: SessionView) => void;
   onSelectExecution: (execution: ExecutionListItem) => void;
   onStopSession: (session: SessionSummary) => void;
   onDeleteSession: (session: SessionSummary) => void;
@@ -421,39 +391,39 @@ export function SessionModal({
   onWorkspaceTerminalRuntimeEvent: (event: WorkspaceTerminalStreamEvent) => void;
   onClose: () => void;
 }) {
-  const sessionWorktree = selectedSession?.worktreeId ? worktrees.find((worktree) => worktree.id === selectedSession.worktreeId) ?? null : null;
-  const sessionSource = selectedSession?.source ?? source;
-  const sessionStatus = selectedSession?.status ?? "draft";
-  const selectedSessionTodo = selectedSession?.todoId ? todos.find((todo) => todo.id === selectedSession.todoId) ?? null : null;
   const runtimeStatus = selectedSession?.runtimeStatus ?? null;
   const isWorkspaceTerminalSelected = selectedExecution?.kind === "workspace-terminal";
+  const [searchQuery, setSearchQuery] = useState("");
+  const [kindFilter, setKindFilter] = useState<ExecutionKindFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<ExecutionStatusFilter>("all");
 
-  const [historyMessages, setHistoryMessages] = useState<SessionHistoryMessage[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const filteredExecutionItems = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
 
-  useEffect(() => {
-    if (view !== "history" || !selectedSession || !selectedProject || isWorkspaceTerminalSelected) {
-      return;
-    }
+    return executionItems.filter((execution) => {
+      if (kindFilter !== "all" && execution.kind !== kindFilter) {
+        return false;
+      }
 
-    let cancelled = false;
-    setHistoryLoading(true);
+      if (!matchesExecutionStatus(execution, statusFilter)) {
+        return false;
+      }
 
-    void getSessionHistory(selectedProject.id, selectedSession.id)
-      .then((data) => {
-        if (!cancelled) {
-          setHistoryMessages(data.messages);
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setHistoryLoading(false);
-      });
+      if (!normalizedQuery) {
+        return true;
+      }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [view, selectedSession?.id, selectedProject?.id, isWorkspaceTerminalSelected]);
+      const session = execution.kind === "session" ? sessions.find((item) => item.id === execution.id) ?? null : null;
+      const worktree = session?.worktreeId ? worktrees.find((item) => item.id === session.worktreeId) ?? null : null;
+      const todoTitle = session?.todoId ? todos.find((item) => item.id === session.todoId)?.title ?? null : null;
+      const haystack = [execution.name, execution.projectName, execution.requestedWorktreeName, execution.cwd, execution.summary, worktree?.name, todoTitle]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(normalizedQuery);
+    });
+  }, [executionItems, kindFilter, searchQuery, sessions, statusFilter, todos, worktrees]);
 
   return (
     <ExecutionModalFrame
@@ -462,55 +432,77 @@ export function SessionModal({
       onClose={onClose}
       sidebar={
         <>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-medium text-slate-100">执行列表</div>
-              <div className="mt-1 text-xs text-slate-500">所有项目的 Claude Code 会话与普通终端。</div>
+          <div className="space-y-2">
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-slate-400"
+              placeholder="搜索会话、终端、项目或 worktree"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <select
+                value={kindFilter}
+                onChange={(event) => setKindFilter(event.target.value as ExecutionKindFilter)}
+                className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-400"
+              >
+                <option value="all">全部类型</option>
+                <option value="session">Claude 会话</option>
+                <option value="workspace-terminal">普通终端</option>
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as ExecutionStatusFilter)}
+                className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-400"
+              >
+                <option value="all">全部状态</option>
+                <option value="active">运行中</option>
+                <option value="stopped">已停止</option>
+                <option value="failed">失败</option>
+              </select>
             </div>
-            <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-400">{executionItems.length} 个</span>
           </div>
           {error ? <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
           {workspaceTerminalError && isWorkspaceTerminalSelected ? <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{workspaceTerminalError}</p> : null}
-          {loading ? <div className="mt-4 rounded-lg border border-white/10 p-3 text-xs text-slate-400">会话加载中...</div> : null}
-          <div className="mt-4 space-y-2">
-            {executionItems.map((execution) => {
+          <div className="mt-3 space-y-1.5">
+            {filteredExecutionItems.map((execution) => {
               const isSelected = selectedExecution?.kind === execution.kind && selectedExecution.id === execution.id;
               const isSession = execution.kind === "session";
               const session = isSession ? sessions.find((item) => item.id === execution.id) ?? null : null;
-              const todo = session?.todoId ? todos.find((item) => item.id === session.todoId) ?? null : null;
               const worktree = session?.worktreeId ? worktrees.find((item) => item.id === session.worktreeId) ?? null : null;
+              const secondaryText = isSession
+                ? [execution.projectName ?? "工作台根目录", worktree?.name ?? execution.requestedWorktreeName ?? "未绑定 Worktree"].join(" · ")
+                : [execution.projectName ?? "工作台根目录", execution.cwd ?? "普通终端"].join(" · ");
 
               return (
                 <div
                   key={`${execution.kind}:${execution.id}`}
-                  className={`rounded-lg border p-3 text-left text-sm ${
-                    isSelected ? "border-slate-300/50 bg-white/[0.08]" : "border-white/10 bg-white/[0.03]"
+                  className={`group rounded-lg border px-3 py-2 text-left text-sm transition ${
+                    isSelected ? "border-slate-300/50 bg-white/[0.08]" : "border-white/5 bg-white/[0.02] hover:border-white/10 hover:bg-white/[0.04]"
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2">
                     <button onClick={() => onSelectExecution(execution)} className="min-w-0 flex-1 text-left">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0 truncate font-medium text-slate-100">{execution.name}</div>
-                        {isSession ? <SessionStatusPill status={execution.status} /> : <RuntimeStatusPill status={execution.runtimeStatus ?? "stopped"} />}
+                      <div className="flex items-center gap-2">
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${getExecutionStatusDotClass(execution)}`} />
+                        <div className="min-w-0 flex-1 truncate font-medium text-slate-100">{execution.name}</div>
+                        <span className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-slate-500">{isSession ? "Claude" : "Shell"}</span>
                       </div>
-                      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-slate-300">
-                        <MetaTag label="项目" value={execution.projectName ?? "工作台根目录"} />
-                        <MetaTag label="类型" value={isSession ? "Claude 会话" : "终端"} />
-                        <MetaTag label="运行态" value={execution.runtimeStatus ?? "stopped"} />
-                        <MetaTag label="Worktree" value={worktree?.name ?? execution.requestedWorktreeName ?? "未绑定"} />
-                        {isSession ? <MetaTag label="任务" value={todo?.title ?? "未关联"} /> : null}
+                      <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
+                        <span className="min-w-0 flex-1 truncate">{secondaryText}</span>
+                        <span className="shrink-0">{formatDateTime(execution.updatedAt)}</span>
                       </div>
-                      {isSession && execution.summary ? <div className="mt-2 line-clamp-2 text-[11px] text-slate-400">{execution.summary}</div> : null}
-                      {!isSession && execution.cwd ? <div className="mt-2 line-clamp-2 text-[11px] text-slate-400">{execution.cwd}</div> : null}
-                      <div className="mt-2 text-[11px] text-slate-500">{formatDateTime(execution.updatedAt)}</div>
                     </button>
                     {isSession && session ? (
-                      <div className="flex shrink-0 gap-1">
+                      <div
+                        className={`mt-0.5 flex shrink-0 gap-1 transition ${
+                          isSelected ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                        }`}
+                      >
                         {(session.status === "completed" || session.status === "failed") && (
                           <button
                             disabled={continuingSessionId === session.id}
                             onClick={() => onContinueSession(session)}
-                            className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[11px] text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-1 text-[10px] text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {continuingSessionId === session.id ? "继续中" : "继续"}
                           </button>
@@ -518,25 +510,29 @@ export function SessionModal({
                         <button
                           disabled={updatingSessionId === session.id || session.runtimeStatus === "stopped" || session.runtimeStatus === "failed"}
                           onClick={() => onStopSession(session)}
-                          className="rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-1 text-[10px] text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {updatingSessionId === session.id ? "停止中" : "停止"}
                         </button>
                         <button
                           disabled={deletingSessionId === session.id}
                           onClick={() => onDeleteSession(session)}
-                          className="rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-[11px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-md border border-red-400/30 bg-red-500/10 px-1.5 py-1 text-[10px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {deletingSessionId === session.id ? "删除中" : "删除"}
                         </button>
                       </div>
                     ) : null}
                     {!isSession ? (
-                      <div className="flex shrink-0 gap-1">
+                      <div
+                        className={`mt-0.5 flex shrink-0 gap-1 transition ${
+                          isSelected ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                        }`}
+                      >
                         <button
                           disabled={deletingWorkspaceTerminalId === execution.id}
                           onClick={() => onDeleteWorkspaceTerminal(execution)}
-                          className="rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-[11px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-md border border-red-400/30 bg-red-500/10 px-1.5 py-1 text-[10px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {deletingWorkspaceTerminalId === execution.id ? "删除中" : "删除"}
                         </button>
@@ -547,6 +543,7 @@ export function SessionModal({
               );
             })}
             {!loading && executionItems.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-xs text-slate-500">还没有执行项。</div> : null}
+            {!loading && executionItems.length > 0 && filteredExecutionItems.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-xs text-slate-500">没有匹配的执行项。</div> : null}
           </div>
         </>
       }
@@ -554,150 +551,44 @@ export function SessionModal({
         isWorkspaceTerminalSelected && workspaceTerminal ? (
           <>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 p-3">
-              <div className="text-sm text-slate-300">操作终端</div>
-              <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">{workspaceTerminal.runtimeStatus}</span>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto p-4">
-              <div className="space-y-3">
-                <WorkspaceTerminal terminalId={workspaceTerminal.id} runtimeStatus={workspaceTerminal.runtimeStatus} onRuntimeEvent={onWorkspaceTerminalRuntimeEvent} />
-                <div className="rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-xs text-slate-300">
-                  <div>project: {workspaceTerminalContext?.projectName ?? "none"}</div>
-                  <div className="mt-1">worktree: {workspaceTerminalContext?.worktreeName ?? workspaceTerminal.requestedWorktreeName ?? "none"}</div>
-                  <div className="mt-1">cwd: {workspaceTerminal.cwd}</div>
-                  <div className="mt-1">pid: {workspaceTerminal.pid ?? "none"}</div>
-                  <div className="mt-1">runtime: {workspaceTerminal.runtimeStatus}</div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {workspaceTerminal.runtimeStatus === "starting" || workspaceTerminal.runtimeStatus === "running" || workspaceTerminal.runtimeStatus === "stopping" ? (
-                    <button
-                      onClick={onStopWorkspaceTerminal}
-                      disabled={stoppingWorkspaceTerminal}
-                      className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {stoppingWorkspaceTerminal ? "停止中..." : "停止终端"}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={onRestartWorkspaceTerminal}
-                      disabled={openingWorkspaceTerminal}
-                      className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {openingWorkspaceTerminal ? "打开中..." : "重新打开终端"}
-                    </button>
-                  )}
-                </div>
+              <div className="text-sm text-slate-300">普通终端</div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">{workspaceTerminal.runtimeStatus}</span>
+                {workspaceTerminal.runtimeStatus === "starting" || workspaceTerminal.runtimeStatus === "running" || workspaceTerminal.runtimeStatus === "stopping" ? (
+                  <button
+                    onClick={onStopWorkspaceTerminal}
+                    disabled={stoppingWorkspaceTerminal}
+                    className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {stoppingWorkspaceTerminal ? "停止中..." : "停止终端"}
+                  </button>
+                ) : (
+                  <button
+                    onClick={onRestartWorkspaceTerminal}
+                    disabled={openingWorkspaceTerminal}
+                    className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {openingWorkspaceTerminal ? "打开中..." : "重新打开终端"}
+                  </button>
+                )}
               </div>
+            </div>
+            <div className="min-h-0 flex-1 p-3">
+              <WorkspaceTerminal terminalId={workspaceTerminal.id} runtimeStatus={workspaceTerminal.runtimeStatus} onRuntimeEvent={onWorkspaceTerminalRuntimeEvent} />
             </div>
           </>
         ) : (
           <>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 p-3">
-              <div className="flex gap-1">
-                {[
-                  { id: "terminal", label: "操作终端" },
-                  { id: "history", label: "查看历史" }
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => onViewChange(tab.id as SessionView)}
-                    className={`rounded-md px-3 py-1.5 text-sm ${view === tab.id ? "bg-white text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-slate-100"}`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+              <div className="text-sm text-slate-300">Claude Code 终端</div>
               <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">{runtimeStatus ?? "stopped"}</span>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto p-4">
-              {view === "terminal" ? (
-                selectedSession && selectedProject ? (
-                  <div className="space-y-3">
-                    <SessionTerminal projectId={selectedProject.id} sessionId={selectedSession.id} runtimeStatus={runtimeStatus} onRuntimeEvent={onRuntimeEvent} />
-                    <div className="rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-xs text-slate-300">
-                      <div>api: {apiConnected ? "connected" : "waiting"}</div>
-                      <div className="mt-1">project: {selectedProject?.name ?? "none"}</div>
-                      <div className="mt-1">todo: {selectedSessionTodo?.title ?? "none"}</div>
-                      <div className="mt-1">worktree: {sessionWorktree?.name || selectedWorktree?.name || draft.requestedWorktreeName || "none"}</div>
-                      <div className="mt-1">cwd: {selectedSession.cwd || selectedSession.resolvedWorktreePath || "none"}</div>
-                      <div className="mt-1">pid: {selectedSession.pid ?? "none"}</div>
-                      <div className="mt-1">status: {sessionStatus}</div>
-                      <div className="mt-1">runtime: {runtimeStatus ?? "stopped"}</div>
-                    </div>
-                  </div>
-                ) : (
-                  <section className="rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">请先选择一个 Claude 会话。</section>
-                )
+            <div className="min-h-0 flex-1 p-3">
+              {selectedSession && selectedProject ? (
+                <SessionTerminal projectId={selectedProject.id} sessionId={selectedSession.id} runtimeStatus={runtimeStatus} onRuntimeEvent={onRuntimeEvent} />
               ) : (
-                <section className="space-y-4 text-sm text-slate-300">
-                  <details className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-                    <summary className="cursor-pointer font-medium text-slate-100">会话信息</summary>
-                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <DetailCard label="会话" value={selectedSession?.name || draft.sessionName || "未选择"} />
-                      <DetailCard label="来源" value={sessionSource === "todo" ? "任务" : "直接创建"} />
-                      <DetailCard label="项目" value={selectedProject?.name ?? "未选择"} />
-                      <DetailCard label="任务" value={selectedSessionTodo?.title ?? "未关联"} />
-                      <DetailCard label="Worktree" value={sessionWorktree?.name || selectedWorktree?.name || draft.requestedWorktreeName || "未选择"} />
-                      <DetailCard label="状态" value={sessionStatus} />
-                      <DetailCard label="运行态" value={runtimeStatus ?? "stopped"} />
-                      <DetailCard label="退出码" value={selectedSession?.exitCode === null || selectedSession?.exitCode === undefined ? "无" : String(selectedSession.exitCode)} />
-                      <DetailCard label="最后活动" value={selectedSession?.lastActivityAt ? formatDateTime(selectedSession.lastActivityAt) : "暂无"} />
-                      <DetailCard label="运行目录" value={selectedSession?.cwd || selectedSession?.resolvedWorktreePath || "未选择"} />
-                    </div>
-                    <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
-                      <div className="text-xs text-slate-500">Prompt 快照</div>
-                      <div className="mt-2 whitespace-pre-wrap text-slate-200">{selectedSession?.prompt || draft.prompt || "暂无 prompt"}</div>
-                    </div>
-                    <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
-                      <div className="text-xs text-slate-500">会话结果</div>
-                      <textarea
-                        value={resultDraft}
-                        onChange={(event) => onResultDraftChange(event.target.value)}
-                        className="mt-2 min-h-24 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
-                        placeholder="记录这次 Claude Code 会话完成了什么..."
-                      />
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={!selectedSession || savingResult}
-                          onClick={onSaveResult}
-                          className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {savingResult ? "保存中..." : "保存结果"}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!selectedSession || !selectedSession.todoId || savingResult || !resultDraft.trim()}
-                          onClick={onApplyResultToTodo}
-                          className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          写回任务
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!selectedSession || savingResult || !resultDraft.trim()}
-                          onClick={onApplyResultToProject}
-                          className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-sm text-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          写回项目
-                        </button>
-                      </div>
-                    </div>
-                  </details>
-
-                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-                    <div className="font-medium text-slate-100">对话记录</div>
-                    {historyLoading ? (
-                      <div className="mt-4 text-center text-slate-500">加载中...</div>
-                    ) : historyMessages.length === 0 ? (
-                      <div className="mt-4 text-slate-500">暂无对话记录{selectedSession?.status === "running" ? "（会话运行中，停止后可查看）" : ""}。</div>
-                    ) : (
-                      <div className="mt-4 space-y-4">
-                        {historyMessages.map((msg, i) => (
-                          <HistoryMessageBlock key={i} message={msg} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                <section className="flex h-full min-h-[320px] items-center justify-center rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">
+                  请先选择一个 Claude 会话。
                 </section>
               )}
             </div>
@@ -843,21 +734,44 @@ function SessionStatusPill({ status }: { status: SessionStatus }) {
   return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${styles[status]}`}>{status}</span>;
 }
 
+function matchesExecutionStatus(execution: ExecutionListItem, statusFilter: ExecutionStatusFilter) {
+  if (statusFilter === "all") {
+    return true;
+  }
+
+  const runtimeStatus = execution.runtimeStatus ?? "stopped";
+
+  if (statusFilter === "active") {
+    return runtimeStatus === "starting" || runtimeStatus === "running" || runtimeStatus === "stopping";
+  }
+
+  if (statusFilter === "failed") {
+    return runtimeStatus === "failed" || execution.status === "failed";
+  }
+
+  return runtimeStatus === "stopped" || execution.status === "completed";
+}
+
+function getExecutionStatusDotClass(execution: ExecutionListItem) {
+  const runtimeStatus = execution.runtimeStatus ?? "stopped";
+
+  if (runtimeStatus === "running" || runtimeStatus === "starting" || runtimeStatus === "stopping") {
+    return "bg-emerald-400";
+  }
+
+  if (runtimeStatus === "failed" || execution.status === "failed") {
+    return "bg-red-400";
+  }
+
+  return "bg-slate-500";
+}
+
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <span className="shrink-0 text-slate-500">{label}</span>
       <span className="truncate text-right text-slate-100">{value}</span>
     </div>
-  );
-}
-
-function MetaTag({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-slate-300">
-      <span className="shrink-0 text-slate-500">{label}</span>
-      <span className="truncate text-slate-100">{value}</span>
-    </span>
   );
 }
 
@@ -872,58 +786,4 @@ function DetailCard({ label, value }: { label: string; value: string }) {
 
 function formatDateTime(value: string) {
   return value.replace("T", " ").slice(0, 16);
-}
-
-function HistoryMessageBlock({ message }: { message: SessionHistoryMessage }) {
-  const isUser = message.role === "user";
-
-  return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[85%] rounded-xl px-4 py-3 ${isUser ? "bg-sky-500/20 border border-sky-400/20" : "bg-white/5 border border-white/10"}`}>
-        <div className="mb-1 flex items-center gap-2">
-          <span className="text-xs font-medium text-slate-400">{isUser ? "用户" : "Claude"}</span>
-          {message.isSidechain && (
-            <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-300">分支</span>
-          )}
-          {message.timestamp && (
-            <span className="text-[10px] text-slate-600">{formatDateTime(message.timestamp)}</span>
-          )}
-        </div>
-        <div className="space-y-2">
-          {message.content.map((block, j) => (
-            <HistoryBlock key={j} block={block} />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function HistoryBlock({ block }: { block: SessionHistoryMessageBlock }) {
-  switch (block.type) {
-    case "text":
-      return block.text ? (
-        <div className="text-sm leading-relaxed text-slate-200">
-          <MarkdownContent content={block.text} />
-        </div>
-      ) : null;
-    case "tool_use":
-      return (
-        <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 px-3 py-2 text-xs">
-          <span className="font-medium text-emerald-300">工具调用: {block.toolName}</span>
-          {block.toolInput && Object.keys(block.toolInput).length > 0 && (
-            <pre className="mt-1 whitespace-pre-wrap text-slate-400">{JSON.stringify(block.toolInput, null, 2)}</pre>
-          )}
-        </div>
-      );
-    case "tool_result":
-      return (
-        <div className="rounded-lg border border-slate-400/20 bg-slate-400/5 px-3 py-2 text-xs">
-          <div className="font-medium text-slate-400">工具结果</div>
-          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-slate-400">{block.toolResult?.slice(0, 2000) ?? ""}</pre>
-        </div>
-      );
-    default:
-      return null;
-  }
 }

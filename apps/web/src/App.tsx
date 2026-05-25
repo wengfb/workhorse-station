@@ -105,7 +105,6 @@ import {
   updateNote,
   updateProject,
   updatePromptDraft,
-  updateSession,
   updateTodo,
   getGlobalClaudeMd,
   updateGlobalClaudeMd,
@@ -170,7 +169,6 @@ type WorkspaceScope = "home" | "project";
 type HomeMode = "chat" | "overview";
 type WorkbenchTab = "notes" | "skills" | "skill-store" | "projects" | "chats" | "sessions" | "memory";
 type ProjectTab = "todos" | "notes" | "skills" | "sessions" | "worktrees" | "memory";
-type SessionView = "terminal" | "history";
 type ExecutionModalMode = "session" | "workspace-terminal";
 type SelectedExecution = { kind: ExecutionListItem["kind"]; id: string };
 
@@ -244,10 +242,8 @@ export function App() {
   const [executionItems, setExecutionItems] = useState<ExecutionListItem[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedPromptDraftId, setSelectedPromptDraftId] = useState<string | null>(null);
-  const [sessionView, setSessionView] = useState<SessionView>("terminal");
   const [sessionLaunchSource, setSessionLaunchSource] = useState<SessionSource>("direct");
   const [sessionDraft, setSessionDraft] = useState<SessionEditorDraft>(emptySessionEditorDraft());
-  const [sessionResultDraft, setSessionResultDraft] = useState("");
   const [apiState, setApiState] = useState<ApiState>({
     health: null,
     meta: null,
@@ -478,7 +474,6 @@ export function App() {
       setSessionCreateModalOpen(false);
       setExecutionModalMode(null);
       setSessionDraft(emptySessionEditorDraft());
-      setSessionResultDraft("");
       return;
     }
 
@@ -711,7 +706,6 @@ export function App() {
   useEffect(() => {
     if (selectedSession) {
       setSessionDraft(sessionToDraft(selectedSession, promptDrafts));
-      setSessionResultDraft(selectedSession.summary ?? "");
       setSelectedPromptDraftId(selectedSession.promptDraftId ?? null);
       setSessionLaunchSource(selectedSession.source);
       return;
@@ -719,12 +713,9 @@ export function App() {
 
     if (selectedPromptDraft) {
       setSessionDraft(promptDraftToSessionDraft(selectedPromptDraft));
-      setSessionResultDraft("");
       setSessionLaunchSource(selectedPromptDraft.source);
       return;
     }
-
-    setSessionResultDraft("");
   }, [selectedSessionId, selectedPromptDraftId, selectedProjectId, sessions, promptDrafts]);
 
   const databaseInfo = apiState.meta?.database ?? null;
@@ -1984,7 +1975,6 @@ export function App() {
 
   function openSessionModal(source: SessionSource, todoId?: string, sessionId?: string) {
     setSessionLaunchSource(source);
-    setSessionView("terminal");
     setSessionsError(null);
 
     if (sessionId) {
@@ -1994,7 +1984,6 @@ export function App() {
       setSelectedPromptDraftId(session?.promptDraftId ?? null);
       if (session) {
         setSessionDraft(sessionToDraft(session, promptDrafts));
-        setSessionResultDraft(session.summary ?? "");
       }
       setSessionCreateModalOpen(false);
       setExecutionModalMode("session");
@@ -2010,7 +1999,6 @@ export function App() {
     setSelectedSessionId(null);
     setSelectedPromptDraftId(null);
     setSessionDraft(nextDraft);
-    setSessionResultDraft("");
     setExecutionModalMode(null);
     setSessionCreateModalOpen(true);
   }
@@ -2049,7 +2037,6 @@ export function App() {
       return;
     }
 
-    setSessionView("terminal");
     if (execution.projectId && execution.projectId !== selectedProjectId) {
       setSelectedProjectId(execution.projectId);
     }
@@ -2059,7 +2046,6 @@ export function App() {
 
   function openSessionViewer() {
     setSessionCreateModalOpen(false);
-    setSessionView("terminal");
     setSessionsError(null);
 
     const nextExecution =
@@ -2160,41 +2146,11 @@ export function App() {
         sessionDraft.promptDraftId ? reloadPromptDrafts(selectedProject.id, sessionDraft.promptDraftId) : Promise.resolve()
       ]);
       setSessionCreateModalOpen(false);
-      setSessionView("terminal");
       setExecutionModalMode("session");
     } catch (error) {
       setSessionsError(formatError(error, "会话启动失败"));
     } finally {
       setCreatingSession(false);
-    }
-  }
-
-  async function handleSaveSessionResult(options?: { applyToTodo?: boolean; applyToProject?: boolean }) {
-    if (!selectedProject || !selectedSession) {
-      return;
-    }
-
-    setUpdatingSessionId(selectedSession.id);
-    setSessionsError(null);
-
-    try {
-      await updateSession(selectedProject.id, selectedSession.id, {
-        name: selectedSession.name,
-        summary: sessionResultDraft,
-        applyResultToTodo: options?.applyToTodo ?? false,
-        applyResultToProject: options?.applyToProject ?? false
-      });
-
-      await Promise.all([
-        reloadSessions(selectedProject.id, selectedSession.id),
-        reloadExecutions({ kind: "session", id: selectedSession.id }),
-        options?.applyToTodo && selectedSession.todoId ? reloadTodos(selectedProject.id, selectedSession.todoId) : Promise.resolve(),
-        options?.applyToProject ? reloadProjects(selectedProject.id) : Promise.resolve()
-      ]);
-    } catch (error) {
-      setSessionsError(formatError(error, "会话结果保存失败"));
-    } finally {
-      setUpdatingSessionId(null);
     }
   }
 
@@ -2265,7 +2221,6 @@ export function App() {
 
         if (!nextSessionId) {
           setSessionDraft(emptySessionEditorDraft());
-          setSessionResultDraft("");
           setExecutionModalMode(null);
         }
       }
@@ -2288,7 +2243,6 @@ export function App() {
       const data = await continueSession(selectedProject.id, session.id);
       setSelectedExecution({ kind: "session", id: data.session.id });
       setSelectedSessionId(data.session.id);
-      setSessionView("terminal");
       await Promise.all([
         reloadSessions(selectedProject.id, data.session.id),
         reloadExecutions({ kind: "session", id: data.session.id })
@@ -2726,31 +2680,19 @@ export function App() {
           sessions={sessions}
           selectedSession={selectedSession}
           selectedProject={selectedProject}
-          selectedWorktree={selectedWorktree}
           todos={todos}
           worktrees={worktrees}
           workspaceTerminal={workspaceTerminal}
-          workspaceTerminalContext={workspaceTerminalContext ? { projectName: workspaceTerminalContext.projectName, worktreeName: workspaceTerminalContext.worktreeName } : null}
           workspaceTerminalError={workspaceTerminalError}
           openingWorkspaceTerminal={openingWorkspaceTerminal}
           stoppingWorkspaceTerminal={stoppingWorkspaceTerminal}
-          apiConnected={apiConnected}
-          source={sessionLaunchSource}
-          view={sessionView}
           draft={sessionDraft}
-          resultDraft={sessionResultDraft}
-          savingResult={updatingSessionId === selectedSessionId}
           error={sessionsError}
           loading={sessionsLoading}
           updatingSessionId={updatingSessionId}
           deletingSessionId={deletingSessionId}
           deletingWorkspaceTerminalId={deletingWorkspaceTerminalId}
           continuingSessionId={continuingSessionId}
-          onResultDraftChange={setSessionResultDraft}
-          onSaveResult={() => void handleSaveSessionResult()}
-          onApplyResultToTodo={() => void handleSaveSessionResult({ applyToTodo: true })}
-          onApplyResultToProject={() => void handleSaveSessionResult({ applyToProject: true })}
-          onViewChange={setSessionView}
           onSelectExecution={(execution) => void handleOpenExecution(execution)}
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
