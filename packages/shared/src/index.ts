@@ -402,6 +402,47 @@ export type OverviewSessionSummary = {
   updatedAt: string;
 };
 
+export type ExecutionKind = "session" | "workspace-terminal";
+
+export type ExecutionListItemBase = {
+  id: string;
+  kind: ExecutionKind;
+  projectId: string | null;
+  projectName: string | null;
+  name: string;
+  runtimeStatus: SessionRuntimeStatus | null;
+  cwd: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SessionExecutionListItem = ExecutionListItemBase & {
+  kind: "session";
+  status: SessionStatus;
+  source: SessionSource;
+  summary: string | null;
+  todoId: string | null;
+  worktreeId: string | null;
+  requestedWorktreeName: string | null;
+  pid: number | null;
+};
+
+export type WorkspaceTerminalExecutionListItem = ExecutionListItemBase & {
+  kind: "workspace-terminal";
+  status: "running" | "stopped" | "failed";
+  summary: null;
+  todoId: null;
+  worktreeId: string | null;
+  requestedWorktreeName: string | null;
+  pid: number | null;
+};
+
+export type ExecutionListItem = SessionExecutionListItem | WorkspaceTerminalExecutionListItem;
+
+export type ExecutionsResponse = {
+  executions: ExecutionListItem[];
+};
+
 export type RunningSessionsResponse = {
   sessions: OverviewSessionSummary[];
 };
@@ -421,6 +462,10 @@ export type StopSessionResponse = {
 export type DeleteSessionResponse = {
   deleted: true;
   stoppedRuntime: boolean;
+};
+
+export type DeleteWorkspaceTerminalResponse = {
+  deleted: true;
 };
 
 export type SessionTerminalSnapshotResponse = {
@@ -451,6 +496,49 @@ export type SessionStreamEvent = {
   output?: string;
   exitCode?: number | null;
   message?: string;
+};
+
+export type WorkspaceTerminalSummary = {
+  id: string;
+  projectId: string | null;
+  worktreeId: string | null;
+  requestedWorktreeName: string | null;
+  runtimeStatus: SessionRuntimeStatus;
+  pid: number | null;
+  cwd: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkspaceTerminalResponse = {
+  terminal: WorkspaceTerminalSummary;
+};
+
+export type WorkspaceTerminalSnapshotResponse = {
+  terminalId: string;
+  buffer: string;
+  runtimeStatus: SessionRuntimeStatus | null;
+  cwd: string | null;
+};
+
+export type WorkspaceTerminalStreamEventType = "terminal.started" | "terminal.runtime" | "terminal.output" | "terminal.exit" | "terminal.error";
+
+export type WorkspaceTerminalStreamEvent = {
+  type: WorkspaceTerminalStreamEventType;
+  terminalId: string;
+  timestamp: string;
+  runtimeStatus?: SessionRuntimeStatus | null;
+  pid?: number | null;
+  cwd?: string | null;
+  output?: string;
+  exitCode?: number | null;
+  message?: string;
+};
+
+export type CreateWorkspaceTerminalRequest = {
+  projectId?: string | null;
+  worktreeId?: string | null;
+  requestedWorktreeName?: string | null;
 };
 
 export type CreateSessionRequest = {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
+  ExecutionListItem,
   ChatArtifactSuggestion,
   ChatAttachment,
   ChatSkill,
@@ -22,7 +23,6 @@ import type {
   ProjectSkillSummary,
   MetaResponse,
   NoteSummary,
-  OverviewSessionSummary,
   ProjectSummary,
   PromptDraftSummary,
   RuleDetail,
@@ -36,6 +36,8 @@ import type {
   TodoStatus,
   TodoSummary,
   UpdateMemoryRequest,
+  WorkspaceTerminalStreamEvent,
+  WorkspaceTerminalSummary,
   WorktreeStatus,
   WorktreeSummary
 } from "@workhorse-station/shared";
@@ -65,6 +67,7 @@ import {
   deleteNote,
   deleteProject,
   deleteSession,
+  deleteWorkspaceTerminal,
   deleteStoreSkill,
   deleteTodo,
   deleteWorktree,
@@ -77,6 +80,8 @@ import {
   getProjectSkills,
   getProjects,
   getPromptDrafts,
+  getExecutions,
+  getRunningExecutions,
   getRunningSessions,
   getSessions,
   getStoreSkills,
@@ -93,6 +98,9 @@ import {
   confirmChatTool,
   stopSession,
   continueSession,
+  createWorkspaceTerminal,
+  getWorkspaceTerminal,
+  stopWorkspaceTerminal,
   updateGlobalNote,
   updateNote,
   updateProject,
@@ -163,6 +171,16 @@ type HomeMode = "chat" | "overview";
 type WorkbenchTab = "notes" | "skills" | "skill-store" | "projects" | "chats" | "sessions" | "memory";
 type ProjectTab = "overview" | "todos" | "notes" | "skills" | "sessions" | "worktrees" | "memory";
 type SessionView = "terminal" | "history";
+type ExecutionModalMode = "session" | "workspace-terminal";
+type SelectedExecution = { kind: ExecutionListItem["kind"]; id: string };
+
+type WorkspaceTerminalContext = {
+  projectId: string | null;
+  projectName: string | null;
+  worktreeId: string | null;
+  worktreeName: string | null;
+  requestedWorktreeName: string | null;
+};
 
 type StreamingBlock =
   | { type: "text"; text: string }
@@ -216,7 +234,15 @@ export function App() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [worktreeDialogOpen, setWorktreeDialogOpen] = useState(false);
   const [sessionCreateModalOpen, setSessionCreateModalOpen] = useState(false);
-  const [sessionModalOpen, setSessionModalOpen] = useState(false);
+  const [executionModalMode, setExecutionModalMode] = useState<ExecutionModalMode | null>(null);
+  const [workspaceTerminal, setWorkspaceTerminal] = useState<WorkspaceTerminalSummary | null>(null);
+  const [workspaceTerminalContext, setWorkspaceTerminalContext] = useState<WorkspaceTerminalContext | null>(null);
+  const [workspaceTerminalError, setWorkspaceTerminalError] = useState<string | null>(null);
+  const [openingWorkspaceTerminal, setOpeningWorkspaceTerminal] = useState(false);
+  const [stoppingWorkspaceTerminal, setStoppingWorkspaceTerminal] = useState(false);
+  const [deletingWorkspaceTerminalId, setDeletingWorkspaceTerminalId] = useState<string | null>(null);
+  const [selectedExecution, setSelectedExecution] = useState<SelectedExecution | null>(null);
+  const [executionItems, setExecutionItems] = useState<ExecutionListItem[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedPromptDraftId, setSelectedPromptDraftId] = useState<string | null>(null);
   const [sessionView, setSessionView] = useState<SessionView>("terminal");
@@ -274,7 +300,7 @@ export function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
-  const [runningSessions, setRunningSessions] = useState<OverviewSessionSummary[]>([]);
+  const [runningSessions, setRunningSessions] = useState<ExecutionListItem[]>([]);
   const [previewingPromptDraft, setPreviewingPromptDraft] = useState(false);
   const [savingPromptDraft, setSavingPromptDraft] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
@@ -389,10 +415,7 @@ export function App() {
         }
 
         try {
-          const runningData = await getRunningSessions();
-          if (!cancelled) {
-            setRunningSessions(runningData.sessions);
-          }
+          await reloadExecutions();
         } catch {
           if (!cancelled) {
             setRunningSessions([]);
@@ -454,7 +477,7 @@ export function App() {
       setProjectSkillsLoading(false);
       setProjectSkillsError(null);
       setSessionCreateModalOpen(false);
-      setSessionModalOpen(false);
+      setExecutionModalMode(null);
       setSessionDraft(emptySessionEditorDraft());
       setSessionResultDraft("");
       return;
@@ -486,7 +509,7 @@ export function App() {
       }
 
       if (worktreesResult.status === "fulfilled") {
-        const nextWorktree = worktreesResult.value.worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? worktreesResult.value.worktrees[0] ?? null;
+        const nextWorktree = worktreesResult.value.worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? null;
         setWorktrees(worktreesResult.value.worktrees);
         setSelectedWorktreeId(nextWorktree?.id ?? null);
         setWorktreeError(null);
@@ -673,6 +696,20 @@ export function App() {
   }, [selectedTodoId, selectedProjectId]);
 
   useEffect(() => {
+    if (selectedExecution?.kind !== "session") {
+      return;
+    }
+
+    if (!sessions.some((session) => session.id === selectedExecution.id)) {
+      return;
+    }
+
+    if (selectedSessionId !== selectedExecution.id) {
+      setSelectedSessionId(selectedExecution.id);
+    }
+  }, [selectedExecution, sessions, selectedSessionId]);
+
+  useEffect(() => {
     if (selectedSession) {
       setSessionDraft(sessionToDraft(selectedSession, promptDrafts));
       setSessionResultDraft(selectedSession.summary ?? "");
@@ -769,7 +806,6 @@ export function App() {
       const nextWorktree =
         (preferredWorktreeId ? data.worktrees.find((worktree) => worktree.id === preferredWorktreeId) : null) ??
         data.worktrees.find((worktree) => worktree.id === selectedWorktreeId) ??
-        data.worktrees[0] ??
         null;
 
       setWorktrees(data.worktrees);
@@ -951,6 +987,27 @@ export function App() {
       setSessionsError(formatError(error, "Prompt 草稿加载失败"));
     } finally {
       setSessionsLoading(false);
+    }
+  }
+
+  async function reloadExecutions(preferred?: SelectedExecution | null) {
+    try {
+      const [allData, runningData] = await Promise.all([getExecutions(), getRunningExecutions()]);
+      const nextExecution =
+        (preferred ? allData.executions.find((item) => item.kind === preferred.kind && item.id === preferred.id) : null) ??
+        (selectedExecution ? allData.executions.find((item) => item.kind === selectedExecution.kind && item.id === selectedExecution.id) : null) ??
+        allData.executions[0] ??
+        null;
+
+      setExecutionItems(allData.executions);
+      setSelectedExecution(nextExecution ? { kind: nextExecution.kind, id: nextExecution.id } : null);
+      setRunningSessions(runningData.executions);
+      setSessionsError(null);
+      return runningData.executions;
+    } catch (error) {
+      setSessionsError(formatError(error, "执行列表加载失败"));
+      setRunningSessions([]);
+      return [];
     }
   }
 
@@ -1933,6 +1990,7 @@ export function App() {
 
     if (sessionId) {
       const session = sessions.find((item) => item.id === sessionId) ?? null;
+      setSelectedExecution({ kind: "session", id: sessionId });
       setSelectedSessionId(sessionId);
       setSelectedPromptDraftId(session?.promptDraftId ?? null);
       if (session) {
@@ -1940,7 +1998,7 @@ export function App() {
         setSessionResultDraft(session.summary ?? "");
       }
       setSessionCreateModalOpen(false);
-      setSessionModalOpen(true);
+      setExecutionModalMode("session");
       return;
     }
 
@@ -1954,8 +2012,50 @@ export function App() {
     setSelectedPromptDraftId(null);
     setSessionDraft(nextDraft);
     setSessionResultDraft("");
-    setSessionModalOpen(false);
+    setExecutionModalMode(null);
     setSessionCreateModalOpen(true);
+  }
+
+  async function handleOpenExecution(execution: ExecutionListItem) {
+    setSelectedExecution({ kind: execution.kind, id: execution.id });
+    setSessionCreateModalOpen(false);
+    setSessionsError(null);
+
+    if (execution.kind === "workspace-terminal") {
+      setWorkspaceTerminalError(null);
+      try {
+        const data = await getWorkspaceTerminal(execution.id);
+        setWorkspaceTerminal({
+          id: execution.id,
+          projectId: execution.projectId,
+          worktreeId: execution.worktreeId,
+          requestedWorktreeName: execution.requestedWorktreeName,
+          runtimeStatus: data.runtimeStatus ?? execution.runtimeStatus ?? "stopped",
+          pid: execution.pid,
+          cwd: data.cwd ?? execution.cwd ?? "",
+          createdAt: execution.createdAt,
+          updatedAt: execution.updatedAt
+        });
+        setWorkspaceTerminalContext({
+          projectId: execution.projectId,
+          projectName: execution.projectName,
+          worktreeId: execution.worktreeId,
+          worktreeName: execution.requestedWorktreeName,
+          requestedWorktreeName: execution.requestedWorktreeName
+        });
+        setExecutionModalMode("workspace-terminal");
+      } catch (error) {
+        setWorkspaceTerminalError(formatError(error, "终端加载失败"));
+      }
+      return;
+    }
+
+    setSessionView("terminal");
+    if (execution.projectId && execution.projectId !== selectedProjectId) {
+      setSelectedProjectId(execution.projectId);
+    }
+    setSelectedSessionId(execution.id);
+    setExecutionModalMode("session");
   }
 
   function openSessionViewer() {
@@ -1963,15 +2063,17 @@ export function App() {
     setSessionView("terminal");
     setSessionsError(null);
 
-    if (!selectedSessionId && sessions[0]) {
-      setSelectedSessionId(sessions[0].id);
-      setSelectedPromptDraftId(sessions[0].promptDraftId ?? null);
-      setSessionLaunchSource(sessions[0].source);
-      setSessionDraft(sessionToDraft(sessions[0], promptDrafts));
-      setSessionResultDraft(sessions[0].summary ?? "");
+    const nextExecution =
+      (selectedExecution ? executionItems.find((item) => item.kind === selectedExecution.kind && item.id === selectedExecution.id) : null) ??
+      executionItems[0] ??
+      null;
+
+    if (!nextExecution) {
+      setExecutionModalMode("session");
+      return;
     }
 
-    setSessionModalOpen(true);
+    void handleOpenExecution(nextExecution);
   }
 
   async function handlePreviewPromptDraft() {
@@ -2048,17 +2150,19 @@ export function App() {
 
     try {
       const data = await createSession(selectedProject.id, sessionDraftToCreateSessionRequest(sessionDraft, sessionLaunchSource));
+      setSelectedExecution({ kind: "session", id: data.session.id });
       setSelectedSessionId(data.session.id);
       setSelectedPromptDraftId(data.session.promptDraftId ?? null);
       setSessionDraft(sessionToDraft(data.session, promptDrafts));
       await Promise.all([
         reloadSessions(selectedProject.id, data.session.id),
+        reloadExecutions({ kind: "session", id: data.session.id }),
         reloadWorktrees(selectedProject.id, data.session.worktreeId ?? selectedWorktreeId),
         sessionDraft.promptDraftId ? reloadPromptDrafts(selectedProject.id, sessionDraft.promptDraftId) : Promise.resolve()
       ]);
       setSessionCreateModalOpen(false);
       setSessionView("terminal");
-      setSessionModalOpen(true);
+      setExecutionModalMode("session");
     } catch (error) {
       setSessionsError(formatError(error, "会话启动失败"));
     } finally {
@@ -2084,6 +2188,7 @@ export function App() {
 
       await Promise.all([
         reloadSessions(selectedProject.id, selectedSession.id),
+        reloadExecutions({ kind: "session", id: selectedSession.id }),
         options?.applyToTodo && selectedSession.todoId ? reloadTodos(selectedProject.id, selectedSession.todoId) : Promise.resolve(),
         options?.applyToProject ? reloadProjects(selectedProject.id) : Promise.resolve()
       ]);
@@ -2104,7 +2209,10 @@ export function App() {
 
     try {
       await stopSession(selectedProject.id, session.id);
-      await reloadSessions(selectedProject.id, session.id);
+      await Promise.all([
+        reloadSessions(selectedProject.id, session.id),
+        reloadExecutions({ kind: "session", id: session.id })
+      ]);
     } catch (error) {
       setSessionsError(formatError(error, "会话停止失败"));
     } finally {
@@ -2121,7 +2229,10 @@ export function App() {
       return;
     }
 
-    await reloadSessions(selectedProject.id, event.sessionId);
+    await Promise.all([
+      reloadSessions(selectedProject.id, event.sessionId),
+      reloadExecutions({ kind: "session", id: event.sessionId })
+    ]);
   }
 
   async function handleDeleteSession(session: SessionSummary) {
@@ -2143,15 +2254,20 @@ export function App() {
 
       const remainingSessions = sessions.filter((item) => item.id !== session.id);
       const nextSessionId = selectedSessionId === session.id ? remainingSessions[0]?.id ?? null : selectedSessionId;
-      await reloadSessions(selectedProject.id, nextSessionId);
+      const nextExecution = nextSessionId ? { kind: "session" as const, id: nextSessionId } : null;
+      await Promise.all([
+        reloadSessions(selectedProject.id, nextSessionId),
+        reloadExecutions(nextExecution)
+      ]);
 
       if (selectedSessionId === session.id) {
         setSelectedPromptDraftId(null);
+        setSelectedExecution(nextExecution);
 
         if (!nextSessionId) {
           setSessionDraft(emptySessionEditorDraft());
           setSessionResultDraft("");
-          setSessionModalOpen(false);
+          setExecutionModalMode(null);
         }
       }
     } catch (error) {
@@ -2171,14 +2287,152 @@ export function App() {
 
     try {
       const data = await continueSession(selectedProject.id, session.id);
+      setSelectedExecution({ kind: "session", id: data.session.id });
       setSelectedSessionId(data.session.id);
       setSessionView("terminal");
-      await reloadSessions(selectedProject.id, data.session.id);
+      await Promise.all([
+        reloadSessions(selectedProject.id, data.session.id),
+        reloadExecutions({ kind: "session", id: data.session.id })
+      ]);
     } catch (error) {
       setSessionsError(formatError(error, "会话继续失败"));
     } finally {
       setContinuingSessionId(null);
     }
+  }
+
+  async function handleOpenWorkspaceTerminal(context?: WorkspaceTerminalContext | null) {
+    const nextContext: WorkspaceTerminalContext = context ?? {
+      projectId: selectedProject?.id ?? null,
+      projectName: selectedProject?.name ?? null,
+      worktreeId: selectedWorktree?.id ?? null,
+      worktreeName: selectedWorktree?.name ?? null,
+      requestedWorktreeName: null
+    };
+
+    const canReuseWorkspaceTerminal =
+      workspaceTerminal !== null &&
+      workspaceTerminal.projectId === nextContext.projectId &&
+      workspaceTerminal.worktreeId === nextContext.worktreeId &&
+      workspaceTerminal.requestedWorktreeName === nextContext.requestedWorktreeName &&
+      (workspaceTerminal.runtimeStatus === "starting" || workspaceTerminal.runtimeStatus === "running" || workspaceTerminal.runtimeStatus === "stopping");
+
+    if (canReuseWorkspaceTerminal) {
+      setWorkspaceTerminalError(null);
+      setWorkspaceTerminalContext(nextContext);
+      if (workspaceTerminal) {
+        setSelectedExecution({ kind: "workspace-terminal", id: workspaceTerminal.id });
+      }
+      setExecutionModalMode("workspace-terminal");
+      return;
+    }
+
+    setOpeningWorkspaceTerminal(true);
+    setWorkspaceTerminalError(null);
+
+    try {
+      const data = await createWorkspaceTerminal({
+        projectId: nextContext.projectId,
+        worktreeId: nextContext.worktreeId,
+        requestedWorktreeName: nextContext.requestedWorktreeName
+      });
+      setWorkspaceTerminal(data.terminal);
+      setWorkspaceTerminalContext(nextContext);
+      setSelectedExecution({ kind: "workspace-terminal", id: data.terminal.id });
+      await reloadExecutions({ kind: "workspace-terminal", id: data.terminal.id });
+      setExecutionModalMode("workspace-terminal");
+    } catch (error) {
+      setWorkspaceTerminalError(formatError(error, "终端打开失败"));
+    } finally {
+      setOpeningWorkspaceTerminal(false);
+    }
+  }
+
+  async function handleStopWorkspaceTerminal() {
+    if (!workspaceTerminal) {
+      return;
+    }
+
+    setStoppingWorkspaceTerminal(true);
+    setWorkspaceTerminalError(null);
+
+    try {
+      const data = await stopWorkspaceTerminal(workspaceTerminal.id);
+      setWorkspaceTerminal(data.terminal);
+      await reloadExecutions({ kind: "workspace-terminal", id: data.terminal.id });
+    } catch (error) {
+      setWorkspaceTerminalError(formatError(error, "终端停止失败"));
+    } finally {
+      setStoppingWorkspaceTerminal(false);
+    }
+  }
+
+  async function handleDeleteWorkspaceTerminal(execution: Extract<ExecutionListItem, { kind: "workspace-terminal" }>) {
+    const confirmed = await confirm(`确认删除终端「${execution.name}」？`, { danger: true });
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingWorkspaceTerminalId(execution.id);
+    setWorkspaceTerminalError(null);
+    setSessionsError(null);
+
+    try {
+      await deleteWorkspaceTerminal(execution.id);
+
+      const deletingSelectedExecution = selectedExecution?.kind === execution.kind && selectedExecution.id === execution.id;
+      const remainingExecutions = executionItems.filter((item) => !(item.kind === execution.kind && item.id === execution.id));
+      const nextExecution = deletingSelectedExecution
+        ? remainingExecutions[0] ?? null
+        : executionItems.find((item) => item.kind === selectedExecution?.kind && item.id === selectedExecution?.id) ?? remainingExecutions[0] ?? null;
+
+      await reloadExecutions(nextExecution ? { kind: nextExecution.kind, id: nextExecution.id } : null);
+
+      if (!deletingSelectedExecution) {
+        return;
+      }
+
+      setWorkspaceTerminal(null);
+      setWorkspaceTerminalContext(null);
+
+      if (!nextExecution) {
+        setSelectedExecution(null);
+        setExecutionModalMode(null);
+        return;
+      }
+
+      await handleOpenExecution(nextExecution);
+    } catch (error) {
+      setWorkspaceTerminalError(formatError(error, "终端删除失败"));
+    } finally {
+      setDeletingWorkspaceTerminalId(null);
+    }
+  }
+
+  function handleWorkspaceTerminalRuntimeEvent(event: WorkspaceTerminalStreamEvent) {
+    if (!workspaceTerminal || event.terminalId !== workspaceTerminal.id) {
+      return;
+    }
+
+    if (event.type === "terminal.output") {
+      return;
+    }
+
+    setWorkspaceTerminal((current) => {
+      if (!current || current.id !== event.terminalId) {
+        return current;
+      }
+
+      return {
+        ...current,
+        runtimeStatus: event.runtimeStatus ?? current.runtimeStatus,
+        pid: event.pid === undefined ? current.pid : event.pid,
+        cwd: event.cwd ?? current.cwd,
+        updatedAt: new Date().toISOString()
+      };
+    });
+    void reloadExecutions({ kind: "workspace-terminal", id: event.terminalId });
   }
 
   return (
@@ -2309,6 +2563,8 @@ export function App() {
             }}
             onCreateProject={startCreateProject}
             onCreateSession={() => openSessionModal("direct")}
+            onOpenWorkspaceTerminal={() => void handleOpenWorkspaceTerminal()}
+            onOpenExecution={handleOpenExecution}
             globalNoteSearchQuery={globalNoteSearchQuery}
             globalNoteFilterTags={globalNoteFilterTags}
             availableGlobalNoteTags={availableGlobalNoteTags}
@@ -2390,6 +2646,15 @@ export function App() {
             onCopyProjectSkillToGlobal={handleCopyProjectSkillToGlobal}
             onCopyGlobalSkillToProject={handleCopyGlobalSkillToProject}
             onOpenSession={openSessionModal}
+            onOpenWorkspaceTerminal={() =>
+              void handleOpenWorkspaceTerminal({
+                projectId: selectedProject?.id ?? null,
+                projectName: selectedProject?.name ?? null,
+                worktreeId: selectedWorktree?.id ?? null,
+                worktreeName: selectedWorktree?.name ?? null,
+                requestedWorktreeName: null
+              })
+            }
             noteSearchQuery={noteSearchQuery}
             noteFilterTags={noteFilterTags}
             availableNoteTags={availableNoteTags}
@@ -2455,14 +2720,21 @@ export function App() {
         />
       ) : null}
 
-      {sessionModalOpen ? (
+      {executionModalMode ? (
         <SessionModalPanel
+          executionItems={executionItems}
+          selectedExecution={selectedExecution ? executionItems.find((item) => item.kind === selectedExecution.kind && item.id === selectedExecution.id) ?? null : null}
           sessions={sessions}
           selectedSession={selectedSession}
           selectedProject={selectedProject}
           selectedWorktree={selectedWorktree}
           todos={todos}
           worktrees={worktrees}
+          workspaceTerminal={workspaceTerminal}
+          workspaceTerminalContext={workspaceTerminalContext ? { projectName: workspaceTerminalContext.projectName, worktreeName: workspaceTerminalContext.worktreeName } : null}
+          workspaceTerminalError={workspaceTerminalError}
+          openingWorkspaceTerminal={openingWorkspaceTerminal}
+          stoppingWorkspaceTerminal={stoppingWorkspaceTerminal}
           apiConnected={apiConnected}
           source={sessionLaunchSource}
           view={sessionView}
@@ -2473,18 +2745,23 @@ export function App() {
           loading={sessionsLoading}
           updatingSessionId={updatingSessionId}
           deletingSessionId={deletingSessionId}
+          deletingWorkspaceTerminalId={deletingWorkspaceTerminalId}
           continuingSessionId={continuingSessionId}
           onResultDraftChange={setSessionResultDraft}
           onSaveResult={() => void handleSaveSessionResult()}
           onApplyResultToTodo={() => void handleSaveSessionResult({ applyToTodo: true })}
           onApplyResultToProject={() => void handleSaveSessionResult({ applyToProject: true })}
           onViewChange={setSessionView}
-          onSelectSession={(session) => setSelectedSessionId(session.id)}
+          onSelectExecution={(execution) => void handleOpenExecution(execution)}
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
+          onDeleteWorkspaceTerminal={(execution) => void handleDeleteWorkspaceTerminal(execution)}
           onContinueSession={handleContinueSession}
           onRuntimeEvent={handleSessionRuntimeEvent}
-          onClose={() => setSessionModalOpen(false)}
+          onRestartWorkspaceTerminal={() => void handleOpenWorkspaceTerminal(workspaceTerminalContext)}
+          onStopWorkspaceTerminal={() => void handleStopWorkspaceTerminal()}
+          onWorkspaceTerminalRuntimeEvent={handleWorkspaceTerminalRuntimeEvent}
+          onClose={() => setExecutionModalMode(null)}
         />
       ) : null}
     </div>
@@ -2646,6 +2923,8 @@ function HomeWorkspace({
   onEnterProject,
   onCreateProject,
   onCreateSession,
+  onOpenWorkspaceTerminal,
+  onOpenExecution,
   projects,
   recentProjects,
   runningSessions,
@@ -2729,10 +3008,12 @@ function HomeWorkspace({
   onDeleteChatSkill: (skill: ChatSkill) => void;
   projects: ProjectSummary[];
   recentProjects: ProjectSummary[];
-  runningSessions: OverviewSessionSummary[];
+  runningSessions: ExecutionListItem[];
   onEnterProject: (projectId?: string) => void;
   onCreateProject: () => void;
   onCreateSession: () => void;
+  onOpenWorkspaceTerminal: () => void;
+  onOpenExecution: (execution: ExecutionListItem) => void;
   globalNoteSearchQuery?: string;
   globalNoteFilterTags?: string[];
   availableGlobalNoteTags?: string[];
@@ -2798,6 +3079,8 @@ function HomeWorkspace({
           runningSessions={runningSessions}
           onEnterProject={onEnterProject}
           onCreateProject={onCreateProject}
+          onOpenWorkspaceTerminal={onOpenWorkspaceTerminal}
+          onOpenExecution={onOpenExecution}
           onSelectChat={onChatSelect}
           onCreateNote={onCreateGlobalNote}
           onSelectNote={onSelectGlobalNote}
@@ -3276,6 +3559,8 @@ function HomeOverviewWorkspace({
   runningSessions,
   onEnterProject,
   onCreateProject,
+  onOpenWorkspaceTerminal,
+  onOpenExecution,
   onSelectChat,
   onCreateNote,
   onSelectNote,
@@ -3333,9 +3618,11 @@ function HomeOverviewWorkspace({
   chatSessions: ChatSessionSummary[];
   projects: ProjectSummary[];
   recentProjects: ProjectSummary[];
-  runningSessions: OverviewSessionSummary[];
+  runningSessions: ExecutionListItem[];
   onEnterProject: (projectId?: string) => void;
   onCreateProject: () => void;
+  onOpenWorkspaceTerminal: () => void;
+  onOpenExecution: (execution: ExecutionListItem) => void;
   onSelectChat: (session: ChatSessionSummary) => void;
   onCreateNote: () => void;
   onSelectNote: (note: NoteSummary) => void;
@@ -3564,17 +3851,20 @@ function HomeOverviewWorkspace({
         <section className="rounded-xl border border-white/10 bg-[#151821]">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div>
-              <div className="text-sm font-medium text-slate-100">运行中会话</div>
-              <p className="mt-0.5 text-xs text-slate-500">当前正在运行的 Claude Code 执行会话。</p>
+              <div className="text-sm font-medium text-slate-100">运行中执行项</div>
+              <p className="mt-0.5 text-xs text-slate-500">当前正在运行的 Claude Code 会话与普通终端。</p>
             </div>
+            <button onClick={onOpenWorkspaceTerminal} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+              打开终端
+            </button>
           </div>
           <div className="p-4">
             {runningSessions.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">没有运行中的会话</div>
+              <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">没有运行中的执行项</div>
             ) : (
               <div className="space-y-2">
                 {runningSessions.map((session) => (
-                  <div key={session.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                  <div key={`${session.kind}:${session.id}`} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] p-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
@@ -3582,13 +3872,18 @@ function HomeOverviewWorkspace({
                         <span className="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-300">{session.runtimeStatus ?? session.status}</span>
                       </div>
                       <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-                        <span>{session.projectName}</span>
+                        <span>{session.projectName ?? "工作台根目录"}</span>
+                        <span>·</span>
+                        <span>{session.kind === "workspace-terminal" ? "终端" : "Claude 会话"}</span>
                         <span>·</span>
                         <span>{formatDateTime(session.updatedAt)}</span>
                       </div>
                     </div>
-                    <button onClick={() => onEnterProject(session.projectId)} className="ml-3 shrink-0 rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5">
-                      进入
+                    <button
+                      onClick={() => onOpenExecution(session)}
+                      className="ml-3 shrink-0 rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5"
+                    >
+                      打开
                     </button>
                   </div>
                 ))}
@@ -3668,6 +3963,7 @@ function ProjectWorkspacePage({
   onCopyProjectSkillToGlobal,
   onCopyGlobalSkillToProject,
   onOpenSession,
+  onOpenWorkspaceTerminal,
   noteSearchQuery = "",
   noteFilterTags = [],
   availableNoteTags = [],
@@ -3751,6 +4047,7 @@ function ProjectWorkspacePage({
   onCopyProjectSkillToGlobal: (skill: ProjectSkillSummary) => void;
   onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
   onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
+  onOpenWorkspaceTerminal: () => void;
   noteSearchQuery?: string;
   noteFilterTags?: string[];
   availableNoteTags?: string[];
@@ -3779,6 +4076,13 @@ function ProjectWorkspacePage({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              disabled={!selectedProject}
+              onClick={onOpenWorkspaceTerminal}
+              className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              打开终端
+            </button>
             <button
               disabled={!selectedProject}
               onClick={() => onOpenSession("direct")}
@@ -3860,6 +4164,7 @@ function ProjectWorkspacePage({
         onCopyProjectSkillToGlobal={onCopyProjectSkillToGlobal}
         onCopyGlobalSkillToProject={onCopyGlobalSkillToProject}
         onOpenSession={onOpenSession}
+        onOpenWorkspaceTerminal={onOpenWorkspaceTerminal}
         noteSearchQuery={noteSearchQuery}
         noteFilterTags={noteFilterTags}
         availableNoteTags={availableNoteTags}
@@ -3963,6 +4268,7 @@ function ProjectTabWorkspace({
   onCopyProjectSkillToGlobal,
   onCopyGlobalSkillToProject,
   onOpenSession,
+  onOpenWorkspaceTerminal,
   noteSearchQuery = "",
   noteFilterTags = [],
   availableNoteTags = [],
@@ -4045,6 +4351,7 @@ function ProjectTabWorkspace({
   onCopyProjectSkillToGlobal: (skill: ProjectSkillSummary) => void;
   onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
   onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
+  onOpenWorkspaceTerminal: () => void;
   noteSearchQuery?: string;
   noteFilterTags?: string[];
   availableNoteTags?: string[];

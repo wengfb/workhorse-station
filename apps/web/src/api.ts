@@ -28,6 +28,8 @@ import type {
   DeleteProjectResponse,
   DeleteRuleRequest,
   DeleteSessionResponse,
+  DeleteWorkspaceTerminalResponse,
+  ExecutionsResponse,
   DeleteTodoResponse,
   DeleteWorktreeRequest,
   DeleteWorktreeResponse,
@@ -60,9 +62,13 @@ import type {
   SkillsResponse,
   StoreSkillResponse,
   StoreSkillsResponse,
+  WorkspaceTerminalResponse,
+  WorkspaceTerminalSnapshotResponse,
+  WorkspaceTerminalStreamEvent,
   ChatSkill,
   ChatSkillsResponse,
   CreateStoreSkillRequest,
+  CreateWorkspaceTerminalRequest,
   DeleteChatSkillRequest,
   DeleteStoreSkillRequest,
   InstallStoreSkillRequest,
@@ -521,6 +527,34 @@ export function getSessionHistory(projectId: string, sessionId: string) {
   return fetchJson<SessionHistoryResponse>(`/api/projects/${projectId}/sessions/${sessionId}/history`);
 }
 
+export function createWorkspaceTerminal(input: CreateWorkspaceTerminalRequest) {
+  return fetchJson<WorkspaceTerminalResponse>("/api/workspace-terminal", {
+    method: "POST",
+    body: input
+  });
+}
+
+export function getWorkspaceTerminal(terminalId: string) {
+  return fetchJson<WorkspaceTerminalSnapshotResponse>(`/api/workspace-terminal/${terminalId}`);
+}
+
+export function stopWorkspaceTerminal(terminalId: string) {
+  return fetchJson<WorkspaceTerminalResponse>(`/api/workspace-terminal/${terminalId}/stop`, {
+    method: "POST"
+  });
+}
+
+export function deleteWorkspaceTerminal(terminalId: string) {
+  return fetchJson<DeleteWorkspaceTerminalResponse>(`/api/workspace-terminal/${terminalId}`, {
+    method: "DELETE"
+  });
+}
+
+export function createWorkspaceTerminalWebSocket(terminalId: string) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return new WebSocket(`${protocol}//${window.location.host}/api/workspace-terminal/${terminalId}/ws`);
+}
+
 export function sendSessionInput(projectId: string, sessionId: string, input: SessionInputRequest) {
   return fetchJson<SessionResponse>(`/api/projects/${projectId}/sessions/${sessionId}/input`, {
     method: "POST",
@@ -556,6 +590,15 @@ export function deleteSession(projectId: string, sessionId: string) {
 
 export function getRunningSessions() {
   return fetchJson<RunningSessionsResponse>("/api/sessions/running");
+}
+
+export function getExecutions(limit?: number) {
+  const query = limit ? `?limit=${limit}` : "";
+  return fetchJson<ExecutionsResponse>(`/api/executions${query}`);
+}
+
+export function getRunningExecutions() {
+  return fetchJson<ExecutionsResponse>("/api/executions/running");
 }
 
 export function getRecentSessions(limit?: number) {

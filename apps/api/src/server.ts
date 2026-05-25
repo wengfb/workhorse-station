@@ -18,15 +18,18 @@ import { registerChatSkillRoutes } from "./skills/chat-skill-routes.js";
 import { registerMemoryRoutes } from "./memory/memory-routes.js";
 import { reconcileSessionsOnStartup } from "./sessions/session-repository.js";
 import { SessionRuntimeManager } from "./sessions/session-runtime-manager.js";
+import { registerWorkspaceTerminalRoutes } from "./terminals/workspace-terminal-routes.js";
+import { WorkspaceTerminalRuntimeManager } from "./terminals/workspace-terminal-runtime-manager.js";
 import { registerTodoRoutes } from "./todos/todo-routes.js";
 import { registerWorktreeRoutes } from "./worktrees/worktree-routes.js";
 
 const host = process.env.API_HOST ?? "0.0.0.0";
-const port = Number(process.env.API_PORT ?? 3001);
+const port = Number(process.env.API_PORT ?? 3002);
 const database = await initDatabase();
 reconcileSessionsOnStartup(database.db);
 database.persist();
 const sessionRuntimeManager = new SessionRuntimeManager(database);
+const workspaceTerminalRuntimeManager = new WorkspaceTerminalRuntimeManager();
 
 const server = Fastify({
   logger: {
@@ -92,7 +95,8 @@ await registerWorktreeRoutes(server, database);
 await registerNoteRoutes(server, database);
 await registerTodoRoutes(server, database);
 await registerPromptDraftRoutes(server, database);
-await registerSessionRoutes(server, database, sessionRuntimeManager);
+await registerSessionRoutes(server, database, sessionRuntimeManager, workspaceTerminalRuntimeManager);
+await registerWorkspaceTerminalRoutes(server, database, workspaceTerminalRuntimeManager);
 await registerSkillRoutes(server, database);
   await registerSkillStoreRoutes(server, database);
   await registerChatSkillRoutes(server);

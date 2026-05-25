@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { OverviewSessionSummary, SessionRuntimeStatus, SessionSource, SessionStatus, SessionSummary } from "@workhorse-station/shared";
+import type {
+  ExecutionListItem,
+  OverviewSessionSummary,
+  SessionRuntimeStatus,
+  SessionSource,
+  SessionStatus,
+  SessionSummary
+} from "@workhorse-station/shared";
 import type { Database } from "sql.js";
 
 export type SessionWriteInput = {
@@ -326,6 +333,44 @@ export function listRecentSessions(db: Database, limit: number): OverviewSession
   return rows;
 }
 
+export function listExecutionSessions(db: Database, limit?: number): ExecutionListItem[] {
+  const sql =
+    `SELECT s.id, s.project_id, s.worktree_id, s.todo_id, s.prompt_draft_id, s.requested_worktree_name, s.source, s.name, s.prompt, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.resolved_worktree_path, s.exit_code, s.last_activity_at, s.created_at, s.updated_at, p.name AS project_name
+     FROM sessions s
+     JOIN projects p ON s.project_id = p.id
+     ORDER BY s.updated_at DESC` +
+    (typeof limit === "number" ? " LIMIT ?" : "");
+  const stmt = typeof limit === "number" ? db.prepare(sql, [limit]) : db.prepare(sql);
+  const rows: ExecutionListItem[] = [];
+  try {
+    while (stmt.step()) {
+      rows.push(mapExecutionSessionRow(stmt.getAsObject() as OverviewSessionRow));
+    }
+  } finally {
+    stmt.free();
+  }
+  return rows;
+}
+
+export function listRunningExecutionSessions(db: Database): ExecutionListItem[] {
+  const stmt = db.prepare(
+    `SELECT s.id, s.project_id, s.worktree_id, s.todo_id, s.prompt_draft_id, s.requested_worktree_name, s.source, s.name, s.prompt, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.resolved_worktree_path, s.exit_code, s.last_activity_at, s.created_at, s.updated_at, p.name AS project_name
+     FROM sessions s
+     JOIN projects p ON s.project_id = p.id
+     WHERE s.status IN ('running', 'queued')
+     ORDER BY s.updated_at DESC`
+  );
+  const rows: ExecutionListItem[] = [];
+  try {
+    while (stmt.step()) {
+      rows.push(mapExecutionSessionRow(stmt.getAsObject() as OverviewSessionRow));
+    }
+  } finally {
+    stmt.free();
+  }
+  return rows;
+}
+
 function mapOverviewSessionRow(row: OverviewSessionRow): OverviewSessionSummary {
   return {
     id: row.id,
@@ -335,6 +380,27 @@ function mapOverviewSessionRow(row: OverviewSessionRow): OverviewSessionSummary 
     status: row.status,
     runtimeStatus: row.runtime_status,
     summary: row.summary,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapExecutionSessionRow(row: OverviewSessionRow): ExecutionListItem {
+  return {
+    id: row.id,
+    kind: "session",
+    projectId: row.project_id,
+    projectName: row.project_name,
+    name: row.name,
+    status: row.status,
+    source: row.source,
+    runtimeStatus: row.runtime_status,
+    summary: row.summary,
+    todoId: row.todo_id,
+    worktreeId: row.worktree_id,
+    requestedWorktreeName: row.requested_worktree_name,
+    pid: row.pid,
+    cwd: row.cwd,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

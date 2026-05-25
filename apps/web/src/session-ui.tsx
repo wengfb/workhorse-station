@@ -1,6 +1,21 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import type { ProjectSummary, PromptDraftSummary, SessionSource, SessionStatus, SessionStreamEvent, SessionSummary, TodoSummary, WorktreeSummary, SessionHistoryMessage, SessionHistoryMessageBlock } from "@workhorse-station/shared";
+import type {
+  ExecutionListItem,
+  ProjectSummary,
+  PromptDraftSummary,
+  SessionSource,
+  SessionStatus,
+  SessionStreamEvent,
+  SessionSummary,
+  TodoSummary,
+  WorktreeSummary,
+  SessionHistoryMessage,
+  SessionHistoryMessageBlock,
+  WorkspaceTerminalStreamEvent,
+  WorkspaceTerminalSummary
+} from "@workhorse-station/shared";
 import { SessionTerminal } from "./session-terminal";
+import { WorkspaceTerminal } from "./workspace-terminal";
 import { Select } from "./components/ui/Select";
 import { getSessionHistory } from "./api";
 import { MarkdownContent } from "./markdown-content";
@@ -285,13 +300,55 @@ export function CreateSessionModal({
   );
 }
 
+export function ExecutionModalFrame({
+  title,
+  subtitle,
+  sidebar,
+  content,
+  onClose
+}: {
+  title: string;
+  subtitle: string;
+  sidebar: ReactNode;
+  content: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 p-0 md:p-6">
+      <div className="flex h-full w-full flex-col overflow-hidden bg-[#101114] shadow-2xl md:max-w-[min(96vw,1800px)] md:rounded-2xl md:border md:border-white/10">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-slate-100">{title}</div>
+            <div className="mt-1 text-xs text-slate-500">{subtitle}</div>
+          </div>
+          <button onClick={onClose} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10">
+            关闭
+          </button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[3fr_7fr]">
+          <aside className="min-h-0 overflow-auto border-b border-white/10 bg-[#151821] p-4 xl:border-b-0 xl:border-r">{sidebar}</aside>
+          <section className="flex min-h-0 flex-col bg-black/20">{content}</section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SessionModal({
+  executionItems,
+  selectedExecution,
   sessions,
   selectedSession,
   selectedProject,
   selectedWorktree,
   todos,
   worktrees,
+  workspaceTerminal,
+  workspaceTerminalContext,
+  workspaceTerminalError,
+  openingWorkspaceTerminal,
+  stoppingWorkspaceTerminal,
   apiConnected,
   source,
   view,
@@ -302,25 +359,40 @@ export function SessionModal({
   loading,
   updatingSessionId,
   deletingSessionId,
+  deletingWorkspaceTerminalId,
   continuingSessionId,
   onResultDraftChange,
   onSaveResult,
   onApplyResultToTodo,
   onApplyResultToProject,
   onViewChange,
-  onSelectSession,
+  onSelectExecution,
   onStopSession,
   onDeleteSession,
+  onDeleteWorkspaceTerminal,
   onContinueSession,
   onRuntimeEvent,
+  onRestartWorkspaceTerminal,
+  onStopWorkspaceTerminal,
+  onWorkspaceTerminalRuntimeEvent,
   onClose
 }: {
+  executionItems: ExecutionListItem[];
+  selectedExecution: ExecutionListItem | null;
   sessions: SessionSummary[];
   selectedSession: SessionSummary | null;
   selectedProject: ProjectSummary | null;
   selectedWorktree: WorktreeSummary | null;
   todos: TodoSummary[];
   worktrees: WorktreeSummary[];
+  workspaceTerminal: WorkspaceTerminalSummary | null;
+  workspaceTerminalContext: {
+    projectName: string | null;
+    worktreeName: string | null;
+  } | null;
+  workspaceTerminalError: string | null;
+  openingWorkspaceTerminal: boolean;
+  stoppingWorkspaceTerminal: boolean;
   apiConnected: boolean;
   source: SessionSource;
   view: SessionView;
@@ -331,17 +403,22 @@ export function SessionModal({
   loading: boolean;
   updatingSessionId: string | null;
   deletingSessionId: string | null;
+  deletingWorkspaceTerminalId: string | null;
   continuingSessionId: string | null;
   onResultDraftChange: (value: string) => void;
   onSaveResult: () => void;
   onApplyResultToTodo: () => void;
   onApplyResultToProject: () => void;
   onViewChange: (view: SessionView) => void;
-  onSelectSession: (session: SessionSummary) => void;
+  onSelectExecution: (execution: ExecutionListItem) => void;
   onStopSession: (session: SessionSummary) => void;
   onDeleteSession: (session: SessionSummary) => void;
+  onDeleteWorkspaceTerminal: (execution: Extract<ExecutionListItem, { kind: "workspace-terminal" }>) => void;
   onContinueSession: (session: SessionSummary) => void;
   onRuntimeEvent: (event: SessionStreamEvent) => void;
+  onRestartWorkspaceTerminal: () => void;
+  onStopWorkspaceTerminal: () => void;
+  onWorkspaceTerminalRuntimeEvent: (event: WorkspaceTerminalStreamEvent) => void;
   onClose: () => void;
 }) {
   const sessionWorktree = selectedSession?.worktreeId ? worktrees.find((worktree) => worktree.id === selectedSession.worktreeId) ?? null : null;
@@ -349,12 +426,13 @@ export function SessionModal({
   const sessionStatus = selectedSession?.status ?? "draft";
   const selectedSessionTodo = selectedSession?.todoId ? todos.find((todo) => todo.id === selectedSession.todoId) ?? null : null;
   const runtimeStatus = selectedSession?.runtimeStatus ?? null;
+  const isWorkspaceTerminalSelected = selectedExecution?.kind === "workspace-terminal";
 
   const [historyMessages, setHistoryMessages] = useState<SessionHistoryMessage[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
-    if (view !== "history" || !selectedSession || !selectedProject) {
+    if (view !== "history" || !selectedSession || !selectedProject || isWorkspaceTerminalSelected) {
       return;
     }
 
@@ -372,60 +450,61 @@ export function SessionModal({
         if (!cancelled) setHistoryLoading(false);
       });
 
-    return () => { cancelled = true; };
-  }, [view, selectedSession?.id, selectedProject?.id]);
+    return () => {
+      cancelled = true;
+    };
+  }, [view, selectedSession?.id, selectedProject?.id, isWorkspaceTerminalSelected]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 p-0 md:p-6">
-      <div className="flex h-full w-full flex-col overflow-hidden bg-[#101114] shadow-2xl md:max-w-[min(96vw,1800px)] md:rounded-2xl md:border md:border-white/10">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-slate-100">会话执行：{selectedSession?.name || draft.sessionName || "新会话"}</div>
-            <div className="mt-1 text-xs text-slate-500">真实 Claude Code PTY 已接入，可查看输出并发送终端输入。</div>
-          </div>
-          <button onClick={onClose} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10">
-            关闭
-          </button>
-        </div>
-
-        <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[3fr_7fr]">
-          <aside className="min-h-0 overflow-auto border-b border-white/10 bg-[#151821] p-4 xl:border-b-0 xl:border-r">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-medium text-slate-100">会话列表</div>
-                <div className="mt-1 text-xs text-slate-500">最近入口：{sessionSource === "todo" ? "从任务创建" : "直接创建"}</div>
-              </div>
-              <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-400">{sessions.length} 个</span>
+    <ExecutionModalFrame
+      title={`会话执行：${selectedExecution?.name || selectedSession?.name || draft.sessionName || "新会话"}`}
+      subtitle="Claude Code 会话与普通终端共用同一个全局执行列表。"
+      onClose={onClose}
+      sidebar={
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium text-slate-100">执行列表</div>
+              <div className="mt-1 text-xs text-slate-500">所有项目的 Claude Code 会话与普通终端。</div>
             </div>
-            {error ? <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-            {loading ? <div className="mt-4 rounded-lg border border-white/10 p-3 text-xs text-slate-400">会话加载中...</div> : null}
-            <div className="mt-4 space-y-2">
-              {sessions.map((session) => {
-                const todo = session.todoId ? todos.find((item) => item.id === session.todoId) ?? null : null;
-                const worktree = session.worktreeId ? worktrees.find((item) => item.id === session.worktreeId) ?? null : null;
+            <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-400">{executionItems.length} 个</span>
+          </div>
+          {error ? <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+          {workspaceTerminalError && isWorkspaceTerminalSelected ? <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{workspaceTerminalError}</p> : null}
+          {loading ? <div className="mt-4 rounded-lg border border-white/10 p-3 text-xs text-slate-400">会话加载中...</div> : null}
+          <div className="mt-4 space-y-2">
+            {executionItems.map((execution) => {
+              const isSelected = selectedExecution?.kind === execution.kind && selectedExecution.id === execution.id;
+              const isSession = execution.kind === "session";
+              const session = isSession ? sessions.find((item) => item.id === execution.id) ?? null : null;
+              const todo = session?.todoId ? todos.find((item) => item.id === session.todoId) ?? null : null;
+              const worktree = session?.worktreeId ? worktrees.find((item) => item.id === session.worktreeId) ?? null : null;
 
-                return (
-                  <div
-                    key={session.id}
-                    className={`rounded-lg border p-3 text-left text-sm ${
-                      selectedSession?.id === session.id ? "border-slate-300/50 bg-white/[0.08]" : "border-white/10 bg-white/[0.03]"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <button onClick={() => onSelectSession(session)} className="min-w-0 flex-1 text-left">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0 truncate font-medium text-slate-100">{session.name}</div>
-                          <SessionStatusPill status={session.status} />
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-slate-300">
-                          <MetaTag label="项目" value={selectedProject?.name ?? "未选择"} />
-                          <MetaTag label="任务" value={todo?.title ?? "未关联"} />
-                          <MetaTag label="Worktree" value={worktree?.name ?? session.requestedWorktreeName ?? "未选择"} />
-                          <MetaTag label="运行态" value={session.runtimeStatus ?? "stopped"} />
-                        </div>
-                        {session.summary ? <div className="mt-2 line-clamp-2 text-[11px] text-slate-400">{session.summary}</div> : null}
-                        <div className="mt-2 text-[11px] text-slate-500">{formatDateTime(session.createdAt)}</div>
-                      </button>
+              return (
+                <div
+                  key={`${execution.kind}:${execution.id}`}
+                  className={`rounded-lg border p-3 text-left text-sm ${
+                    isSelected ? "border-slate-300/50 bg-white/[0.08]" : "border-white/10 bg-white/[0.03]"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <button onClick={() => onSelectExecution(execution)} className="min-w-0 flex-1 text-left">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 truncate font-medium text-slate-100">{execution.name}</div>
+                        {isSession ? <SessionStatusPill status={execution.status} /> : <RuntimeStatusPill status={execution.runtimeStatus ?? "stopped"} />}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-slate-300">
+                        <MetaTag label="项目" value={execution.projectName ?? "工作台根目录"} />
+                        <MetaTag label="类型" value={isSession ? "Claude 会话" : "终端"} />
+                        <MetaTag label="运行态" value={execution.runtimeStatus ?? "stopped"} />
+                        <MetaTag label="Worktree" value={worktree?.name ?? execution.requestedWorktreeName ?? "未绑定"} />
+                        {isSession ? <MetaTag label="任务" value={todo?.title ?? "未关联"} /> : null}
+                      </div>
+                      {isSession && execution.summary ? <div className="mt-2 line-clamp-2 text-[11px] text-slate-400">{execution.summary}</div> : null}
+                      {!isSession && execution.cwd ? <div className="mt-2 line-clamp-2 text-[11px] text-slate-400">{execution.cwd}</div> : null}
+                      <div className="mt-2 text-[11px] text-slate-500">{formatDateTime(execution.updatedAt)}</div>
+                    </button>
+                    {isSession && session ? (
                       <div className="flex shrink-0 gap-1">
                         {(session.status === "completed" || session.status === "failed") && (
                           <button
@@ -451,15 +530,67 @@ export function SessionModal({
                           {deletingSessionId === session.id ? "删除中" : "删除"}
                         </button>
                       </div>
-                    </div>
+                    ) : null}
+                    {!isSession ? (
+                      <div className="flex shrink-0 gap-1">
+                        <button
+                          disabled={deletingWorkspaceTerminalId === execution.id}
+                          onClick={() => onDeleteWorkspaceTerminal(execution)}
+                          className="rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-[11px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {deletingWorkspaceTerminalId === execution.id ? "删除中" : "删除"}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
-                );
-              })}
-              {!loading && sessions.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-xs text-slate-500">还没有保存的会话。</div> : null}
+                </div>
+              );
+            })}
+            {!loading && executionItems.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-xs text-slate-500">还没有执行项。</div> : null}
+          </div>
+        </>
+      }
+      content={
+        isWorkspaceTerminalSelected && workspaceTerminal ? (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 p-3">
+              <div className="text-sm text-slate-300">操作终端</div>
+              <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">{workspaceTerminal.runtimeStatus}</span>
             </div>
-          </aside>
-
-          <section className="flex min-h-0 flex-col bg-black/20">
+            <div className="min-h-0 flex-1 overflow-auto p-4">
+              <div className="space-y-3">
+                <WorkspaceTerminal terminalId={workspaceTerminal.id} runtimeStatus={workspaceTerminal.runtimeStatus} onRuntimeEvent={onWorkspaceTerminalRuntimeEvent} />
+                <div className="rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-xs text-slate-300">
+                  <div>project: {workspaceTerminalContext?.projectName ?? "none"}</div>
+                  <div className="mt-1">worktree: {workspaceTerminalContext?.worktreeName ?? workspaceTerminal.requestedWorktreeName ?? "none"}</div>
+                  <div className="mt-1">cwd: {workspaceTerminal.cwd}</div>
+                  <div className="mt-1">pid: {workspaceTerminal.pid ?? "none"}</div>
+                  <div className="mt-1">runtime: {workspaceTerminal.runtimeStatus}</div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {workspaceTerminal.runtimeStatus === "starting" || workspaceTerminal.runtimeStatus === "running" || workspaceTerminal.runtimeStatus === "stopping" ? (
+                    <button
+                      onClick={onStopWorkspaceTerminal}
+                      disabled={stoppingWorkspaceTerminal}
+                      className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {stoppingWorkspaceTerminal ? "停止中..." : "停止终端"}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={onRestartWorkspaceTerminal}
+                      disabled={openingWorkspaceTerminal}
+                      className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {openingWorkspaceTerminal ? "打开中..." : "重新打开终端"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 p-3">
               <div className="flex gap-1">
                 {[
@@ -494,7 +625,7 @@ export function SessionModal({
                     </div>
                   </div>
                 ) : (
-                  <section className="rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">请先选择一个已创建会话。</section>
+                  <section className="rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">请先选择一个 Claude 会话。</section>
                 )
               ) : (
                 <section className="space-y-4 text-sm text-slate-300">
@@ -570,10 +701,103 @@ export function SessionModal({
                 </section>
               )}
             </div>
-          </section>
-        </div>
-      </div>
-    </div>
+          </>
+        )
+      }
+    />
+  );
+}
+
+export function WorkspaceExecutionModal({
+  terminal,
+  context,
+  error,
+  opening,
+  stopping,
+  onRestart,
+  onStop,
+  onRuntimeEvent,
+  onClose
+}: {
+  terminal: WorkspaceTerminalSummary;
+  context: {
+    projectName: string | null;
+    worktreeName: string | null;
+  } | null;
+  error: string | null;
+  opening: boolean;
+  stopping: boolean;
+  onRestart: () => void;
+  onStop: () => void;
+  onRuntimeEvent: (event: WorkspaceTerminalStreamEvent) => void;
+  onClose: () => void;
+}) {
+  const isRunning = terminal.runtimeStatus === "starting" || terminal.runtimeStatus === "running" || terminal.runtimeStatus === "stopping";
+
+  return (
+    <ExecutionModalFrame
+      title="会话执行：工作台终端"
+      subtitle="普通 shell 终端，不会创建 Claude Code 会话记录。"
+      onClose={onClose}
+      sidebar={
+        <>
+          <div>
+            <div className="text-sm font-medium text-slate-100">终端上下文</div>
+            <div className="mt-1 text-xs text-slate-500">关闭窗口只会隐藏终端，不会停止后台进程。</div>
+          </div>
+
+          <div className="mt-4 space-y-2 text-sm text-slate-300">
+            <DetailCard label="项目" value={context?.projectName ?? "工作台根目录"} />
+            <DetailCard label="Worktree" value={context?.worktreeName ?? terminal.requestedWorktreeName ?? "未绑定"} />
+            <DetailCard label="状态" value={terminal.runtimeStatus} />
+            <DetailCard label="PID" value={terminal.pid ? String(terminal.pid) : "-"} />
+            <DetailCard label="目录" value={terminal.cwd} />
+          </div>
+
+          {error ? <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {isRunning ? (
+              <button
+                onClick={onStop}
+                disabled={stopping}
+                className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {stopping ? "停止中..." : "停止终端"}
+              </button>
+            ) : (
+              <button
+                onClick={onRestart}
+                disabled={opening}
+                className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {opening ? "打开中..." : "重新打开终端"}
+              </button>
+            )}
+          </div>
+        </>
+      }
+      content={
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 p-3">
+            <div className="text-sm text-slate-300">操作终端</div>
+            <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">{terminal.runtimeStatus}</span>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-4">
+            <div className="space-y-3">
+              <WorkspaceTerminal terminalId={terminal.id} runtimeStatus={terminal.runtimeStatus} onRuntimeEvent={onRuntimeEvent} />
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-xs text-slate-300">
+                <div>project: {context?.projectName ?? "none"}</div>
+                <div className="mt-1">worktree: {context?.worktreeName ?? terminal.requestedWorktreeName ?? "none"}</div>
+                <div className="mt-1">cwd: {terminal.cwd}</div>
+                <div className="mt-1">pid: {terminal.pid ?? "none"}</div>
+                <div className="mt-1">runtime: {terminal.runtimeStatus}</div>
+              </div>
+            </div>
+          </div>
+        </>
+      }
+    />
   );
 }
 
@@ -593,6 +817,18 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {children}
     </label>
   );
+}
+
+function RuntimeStatusPill({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    starting: "border-sky-400/30 bg-sky-400/10 text-sky-200",
+    running: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
+    stopping: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+    stopped: "border-slate-400/30 bg-slate-400/10 text-slate-300",
+    failed: "border-red-400/30 bg-red-500/10 text-red-200"
+  };
+
+  return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${styles[status] ?? styles.stopped}`}>{status}</span>;
 }
 
 function SessionStatusPill({ status }: { status: SessionStatus }) {

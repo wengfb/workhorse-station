@@ -3,6 +3,7 @@ import type {
   ApiResponse,
   CreateSessionRequest,
   DeleteSessionResponse,
+  ExecutionsResponse,
   RecentSessionsResponse,
   RunningSessionsResponse,
   SessionInputRequest,
@@ -29,6 +30,8 @@ import {
   createSessionRecord,
   deleteSessionRecord,
   getProjectSession,
+  listExecutionSessions,
+  listRunningExecutionSessions,
   listRecentSessions,
   listRunningSessions,
   listSessions,
@@ -44,6 +47,7 @@ import { createInterface } from "node:readline";
 import { createReadStream } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import type { WorkspaceTerminalRuntimeManager } from "../terminals/workspace-terminal-runtime-manager.js";
 
  type ProjectParams = {
   projectId: string;
@@ -56,7 +60,12 @@ type ProjectSessionParams = ProjectParams & {
 const sessionSources: SessionSource[] = ["direct", "todo"];
 const sessionStatuses: SessionStatus[] = ["draft", "queued", "running", "completed", "failed"];
 
-export async function registerSessionRoutes(server: FastifyInstance, database: DatabaseState, runtimeManager: SessionRuntimeManager) {
+export async function registerSessionRoutes(
+  server: FastifyInstance,
+  database: DatabaseState,
+  runtimeManager: SessionRuntimeManager,
+  workspaceTerminalRuntimeManager: WorkspaceTerminalRuntimeManager
+) {
   server.get<{ Params: ProjectParams }>("/api/projects/:projectId/sessions", async (request): Promise<ApiResponse<SessionsResponse>> => {
     assertProjectExists(database, request.params.projectId);
 
@@ -412,6 +421,40 @@ export async function registerSessionRoutes(server: FastifyInstance, database: D
     return {
       ok: true,
       data: { deleted: true, stoppedRuntime }
+    };
+  });
+
+  server.get<{ Querystring: { limit?: string } }>("/api/executions", async (request): Promise<ApiResponse<ExecutionsResponse>> => {
+    const limit = request.query.limit ? Math.min(Math.max(Number(request.query.limit) || 50, 1), 200) : undefined;
+    const sessionItems = listExecutionSessions(database.db, limit);
+    const terminalItems = workspaceTerminalRuntimeManager.list();
+    const projectNames = new Map(database.db.exec("SELECT id, name FROM projects")[0]?.values.map((row) => [String(row[0]), String(row[1])]) ?? []);
+
+    const executions = [...sessionItems, ...terminalItems.map((item) => ({
+      ...item,
+      projectName: item.projectId ? projectNames.get(item.projectId) ?? null : null
+    }))]
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+
+    return {
+      ok: true,
+      data: { executions: typeof limit === "number" ? executions.slice(0, limit) : executions }
+    };
+  });
+
+  server.get("/api/executions/running", async (): Promise<ApiResponse<ExecutionsResponse>> => {
+    const sessionItems = listRunningExecutionSessions(database.db);
+    const projectNames = new Map(database.db.exec("SELECT id, name FROM projects")[0]?.values.map((row) => [String(row[0]), String(row[1])]) ?? []);
+    const terminalItems = workspaceTerminalRuntimeManager.listRunning().map((item) => ({
+      ...item,
+      projectName: item.projectId ? projectNames.get(item.projectId) ?? null : null
+    }));
+
+    return {
+      ok: true,
+      data: {
+        executions: [...sessionItems, ...terminalItems].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      }
     };
   });
 
