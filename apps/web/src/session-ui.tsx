@@ -1,9 +1,10 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type {
   ExecutionListItem,
   ProjectSummary,
   PromptDraftSummary,
   SessionSource,
+  SessionHistoryMessage,
   SessionStatus,
   SessionStreamEvent,
   SessionSummary,
@@ -12,6 +13,7 @@ import type {
   WorkspaceTerminalStreamEvent,
   WorkspaceTerminalSummary
 } from "@workhorse-station/shared";
+import { getSessionHistory } from "./api";
 import { SessionTerminal } from "./session-terminal";
 import { WorkspaceTerminal } from "./workspace-terminal";
 import { Select } from "./components/ui/Select";
@@ -30,6 +32,7 @@ export type SessionEditorDraft = {
 
 type ExecutionKindFilter = "all" | ExecutionListItem["kind"];
 type ExecutionStatusFilter = "all" | "active" | "stopped" | "failed";
+type SessionView = "terminal" | "history";
 
 export function SessionsWorkspace({
   selectedProject,
@@ -397,6 +400,45 @@ export function SessionModal({
   const [kindFilter, setKindFilter] = useState<ExecutionKindFilter>("all");
   const [statusFilter, setStatusFilter] = useState<ExecutionStatusFilter>("all");
   const [expandedActionKey, setExpandedActionKey] = useState<string | null>(null);
+  const [view, setView] = useState<SessionView>("terminal");
+  const [historyMessages, setHistoryMessages] = useState<SessionHistoryMessage[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    if (isWorkspaceTerminalSelected) {
+      setView("terminal");
+    }
+  }, [isWorkspaceTerminalSelected]);
+
+  useEffect(() => {
+    if (view !== "history" || !selectedSession || !selectedProject || isWorkspaceTerminalSelected) {
+      return;
+    }
+
+    let disposed = false;
+    setHistoryLoading(true);
+
+    getSessionHistory(selectedProject.id, selectedSession.id)
+      .then((response) => {
+        if (!disposed) {
+          setHistoryMessages(response.messages);
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setHistoryMessages([]);
+        }
+      })
+      .finally(() => {
+        if (!disposed) {
+          setHistoryLoading(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [isWorkspaceTerminalSelected, selectedProject, selectedSession, view]);
 
   const filteredExecutionItems = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -653,18 +695,64 @@ export function SessionModal({
         ) : (
           <>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 p-3">
-              <div className="text-sm text-slate-300">Claude Code 终端</div>
+              <div className="flex items-center gap-2">
+                {[
+                  { id: "terminal", label: "操作终端" },
+                  { id: "history", label: "会话历史" }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setView(tab.id as SessionView)}
+                    className={`rounded-md px-3 py-1.5 text-sm ${view === tab.id ? "bg-white text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-slate-100"}`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
               <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">{runtimeStatus ?? "stopped"}</span>
             </div>
             <div className="min-h-0 flex-1 p-3">
-              {selectedSession && selectedProject ? (
-                <SessionTerminal
-                  projectId={selectedProject.id}
-                  sessionId={selectedSession.id}
-                  runtimeStatus={runtimeStatus}
-                  onRuntimeEvent={onRuntimeEvent}
-                  className="h-full min-h-[320px] w-full rounded-xl border border-white/10 bg-black"
-                />
+              {view === "terminal" ? (
+                selectedSession && selectedProject ? (
+                  <SessionTerminal
+                    projectId={selectedProject.id}
+                    sessionId={selectedSession.id}
+                    runtimeStatus={runtimeStatus}
+                    onRuntimeEvent={onRuntimeEvent}
+                    className="h-full min-h-[320px] w-full rounded-xl border border-white/10 bg-black"
+                  />
+                ) : (
+                  <section className="flex h-full min-h-[320px] items-center justify-center rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">
+                    请先选择一个 Claude 会话。
+                  </section>
+                )
+              ) : selectedSession ? (
+                <section className="h-full min-h-[320px] overflow-auto rounded-xl border border-white/10 bg-black/30 p-4">
+                  {historyLoading ? (
+                    <div className="text-sm text-slate-400">会话历史加载中...</div>
+                  ) : historyMessages.length === 0 ? (
+                    <div className="text-sm text-slate-500">当前会话还没有可展示的历史记录。</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {historyMessages.map((message, index) => (
+                        <div key={`${message.timestamp ?? "no-ts"}-${index}`} className="rounded-xl border border-white/10 bg-black/30 p-3">
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                            <span className="rounded-full border border-white/10 px-2 py-0.5 text-slate-300">{message.role === "assistant" ? "Claude" : "User"}</span>
+                            {message.isSidechain ? <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-amber-200">Sidechain</span> : null}
+                            <span>{message.timestamp ? formatDateTime(message.timestamp) : "无时间"}</span>
+                          </div>
+                          <div className="mt-3 space-y-2">
+                            {message.content.map((block, blockIndex) => (
+                              <div key={blockIndex} className="whitespace-pre-wrap break-words rounded-lg border border-white/5 bg-white/[0.03] p-3 font-mono text-xs text-slate-200">
+                                {formatSessionHistoryBlock(block)}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
               ) : (
                 <section className="flex h-full min-h-[320px] items-center justify-center rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">
                   请先选择一个 Claude 会话。
@@ -843,6 +931,23 @@ function getExecutionStatusDotClass(execution: ExecutionListItem) {
   }
 
   return "bg-slate-500";
+}
+
+function formatSessionHistoryBlock(block: SessionHistoryMessage["content"][number]) {
+  if (block.type === "text") {
+    return block.text?.trim() || "[空文本]";
+  }
+
+  if (block.type === "tool_use") {
+    const input = block.toolInput ? `\n${JSON.stringify(block.toolInput, null, 2)}` : "";
+    return `[Tool Use] ${block.toolName ?? "unknown"}${input}`;
+  }
+
+  if (block.type === "tool_result") {
+    return `[Tool Result]\n${block.toolResult?.trim() || "[空结果]"}`;
+  }
+
+  return "[未知内容块]";
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
