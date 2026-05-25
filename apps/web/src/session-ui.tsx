@@ -472,6 +472,12 @@ export function SessionModal({
               const secondaryText = isSession
                 ? [execution.projectName ?? "工作台根目录", worktree?.name ?? execution.requestedWorktreeName ?? "未绑定 Worktree"].join(" · ")
                 : [execution.projectName ?? "工作台根目录", execution.cwd ?? "普通终端"].join(" · ");
+              const sessionRuntimeStatus = session?.runtimeStatus ?? null;
+              const showSessionActions =
+                isSelected ||
+                sessionRuntimeStatus === "starting" ||
+                sessionRuntimeStatus === "running" ||
+                sessionRuntimeStatus === "stopping";
 
               return (
                 <div
@@ -495,7 +501,7 @@ export function SessionModal({
                     {isSession && session ? (
                       <div
                         className={`mt-0.5 flex shrink-0 gap-1 transition ${
-                          isSelected ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                          showSessionActions ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
                         }`}
                       >
                         {(session.status === "completed" || session.status === "failed") && (
