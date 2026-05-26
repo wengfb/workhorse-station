@@ -32,6 +32,7 @@ import type {
   SessionStreamEvent,
   SessionSummary,
   SkillSummary,
+  SkillTransferMode,
   StoreSkillStatus,
   TodoStatus,
   TodoSummary,
@@ -45,6 +46,9 @@ import { MarkdownContent } from "./markdown-content";
 import { Select } from "./components/ui/Select";
 import { useConfirmDialog } from "./components/DialogContext";
 import {
+  addGlobalSkillToStore,
+  addProjectSkillToStore,
+  ApiError,
   copyGlobalSkillToProject,
   copyProjectSkillToGlobal,
   deleteChatSkill,
@@ -93,6 +97,7 @@ import {
   renameProjectSkill,
   renameStoreSkill,
   sendChatMessage,
+  sendStoreSkillToProject,
   streamChatMessage,
   truncateChatMessages,
   confirmChatTool,
@@ -179,6 +184,12 @@ type WorkspaceTerminalContext = {
   worktreeName: string | null;
   requestedWorktreeName: string | null;
 };
+
+type SkillTransferTarget =
+  | { kind: "global-to-project"; skill: SkillSummary }
+  | { kind: "store-to-project"; skill: StoreSkillStatus }
+  | { kind: "global-to-store"; skill: SkillSummary }
+  | { kind: "project-to-store"; skill: ProjectSkillSummary };
 
 type StreamingBlock =
   | { type: "text"; text: string }
@@ -362,6 +373,10 @@ export function App() {
   const [storeSkillsLoading, setStoreSkillsLoading] = useState(true);
   const [storeSkillsError, setStoreSkillsError] = useState<string | null>(null);
   const [storeSkillOperationName, setStoreSkillOperationName] = useState<string | null>(null);
+  const [skillTransferTarget, setSkillTransferTarget] = useState<SkillTransferTarget | null>(null);
+  const [skillTransferProjectId, setSkillTransferProjectId] = useState<string>("");
+  const [skillTransferMode, setSkillTransferMode] = useState<SkillTransferMode>("copy");
+  const [skillTransferError, setSkillTransferError] = useState<string | null>(null);
   const [chatSkills, setChatSkills] = useState<ChatSkill[]>([]);
   const [chatSkillsLoading, setChatSkillsLoading] = useState(true);
   const [chatSkillsError, setChatSkillsError] = useState<string | null>(null);
@@ -874,6 +889,133 @@ export function App() {
     }
   }
 
+  function openSkillTransfer(target: SkillTransferTarget) {
+    setSkillTransferTarget(target);
+    setSkillTransferMode("copy");
+    setSkillTransferError(null);
+    setSkillTransferProjectId(selectedProject?.id ?? "");
+  }
+
+  function closeSkillTransfer() {
+    setSkillTransferTarget(null);
+    setSkillTransferError(null);
+    setSkillTransferMode("copy");
+    setSkillTransferProjectId("");
+  }
+
+  async function runSkillTransferWithOverwriteRetry(
+    skillName: string,
+    confirmMessage: string,
+    action: (overwrite: boolean) => Promise<void>
+  ) {
+    try {
+      await action(false);
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== "skill_path_exists") {
+        throw error;
+      }
+
+      const overwrite = await confirm(confirmMessage, { danger: true });
+      if (!overwrite) {
+        return false;
+      }
+
+      await action(true);
+    }
+
+    return true;
+  }
+
+  async function submitSkillTransfer() {
+    if (!skillTransferTarget) {
+      return;
+    }
+
+    const isProjectTarget = skillTransferTarget.kind === "global-to-project" || skillTransferTarget.kind === "store-to-project";
+    const targetProject = isProjectTarget ? projects.find((project) => project.id === skillTransferProjectId) ?? null : null;
+
+    if (isProjectTarget && !targetProject) {
+      setSkillTransferError("请选择目标项目");
+      return;
+    }
+
+    try {
+      setSkillTransferError(null);
+
+      if (skillTransferTarget.kind === "global-to-project") {
+        setSkillOperationName(skillTransferTarget.skill.name);
+        setGlobalSkillsError(null);
+        setProjectSkillsError(null);
+        const completed = await runSkillTransferWithOverwriteRetry(
+          skillTransferTarget.skill.name,
+          `项目中已存在同名 Skill「${skillTransferTarget.skill.name}」，是否覆盖项目文件夹？`,
+          async (overwrite) => {
+            await copyGlobalSkillToProject(skillTransferTarget.skill.name, {
+              targetProjectId: targetProject!.id,
+              mode: skillTransferMode,
+              overwrite
+            });
+          }
+        );
+        if (!completed) return;
+        await Promise.all([
+          reloadGlobalSkills(),
+          targetProject!.id === selectedProject?.id ? reloadProjectSkills(targetProject!.id, skillTransferTarget.skill.name) : Promise.resolve()
+        ]);
+      } else if (skillTransferTarget.kind === "store-to-project") {
+        setStoreSkillOperationName(skillTransferTarget.skill.skill.name);
+        setStoreSkillsError(null);
+        const completed = await runSkillTransferWithOverwriteRetry(
+          skillTransferTarget.skill.skill.name,
+          `项目中已存在同名 Skill「${skillTransferTarget.skill.skill.name}」，是否覆盖项目文件夹？`,
+          async (overwrite) => {
+            await sendStoreSkillToProject(skillTransferTarget.skill.skill.name, {
+              targetProjectId: targetProject!.id,
+              mode: skillTransferMode,
+              overwrite
+            });
+          }
+        );
+        if (!completed) return;
+        await Promise.all([
+          reloadStoreSkills(),
+          targetProject!.id === selectedProject?.id ? reloadProjectSkills(targetProject!.id, skillTransferTarget.skill.skill.name) : Promise.resolve()
+        ]);
+      } else if (skillTransferTarget.kind === "global-to-store") {
+        const overwrite = storeSkills.some((item) => item.skill.name === skillTransferTarget.skill.name)
+          ? await confirm(`技能仓库中已存在同名 Skill「${skillTransferTarget.skill.name}」，是否覆盖仓库文件夹？`, { danger: true })
+          : false;
+        if (storeSkills.some((item) => item.skill.name === skillTransferTarget.skill.name) && !overwrite) return;
+        setSkillOperationName(skillTransferTarget.skill.name);
+        setGlobalSkillsError(null);
+        setStoreSkillsError(null);
+        await addGlobalSkillToStore(skillTransferTarget.skill.name, { mode: skillTransferMode, overwrite });
+        await Promise.all([reloadGlobalSkills(), reloadStoreSkills()]);
+      } else {
+        const overwrite = storeSkills.some((item) => item.skill.name === skillTransferTarget.skill.name)
+          ? await confirm(`技能仓库中已存在同名 Skill「${skillTransferTarget.skill.name}」，是否覆盖仓库文件夹？`, { danger: true })
+          : false;
+        if (storeSkills.some((item) => item.skill.name === skillTransferTarget.skill.name) && !overwrite) return;
+        if (!selectedProject) {
+          setSkillTransferError("当前未选择项目");
+          return;
+        }
+        setSkillOperationName(skillTransferTarget.skill.name);
+        setProjectSkillsError(null);
+        setStoreSkillsError(null);
+        await addProjectSkillToStore(selectedProject.id, skillTransferTarget.skill.name, { mode: skillTransferMode, overwrite });
+        await Promise.all([reloadProjectSkills(selectedProject.id, skillTransferTarget.skill.name), reloadStoreSkills()]);
+      }
+
+      closeSkillTransfer();
+    } catch (error) {
+      setSkillTransferError(formatError(error, "Skill 流转失败"));
+    } finally {
+      setSkillOperationName(null);
+      setStoreSkillOperationName(null);
+    }
+  }
+
   async function handleDeleteChatSkill(skill: ChatSkill) {
     const confirmedName = await prompt(`请输入 Skill 名称「${skill.name}」以确认删除`);
 
@@ -1247,29 +1389,11 @@ export function App() {
   }
 
   async function handleCopyGlobalSkillToProject(skill: SkillSummary) {
-    if (!selectedProject) {
-      return;
-    }
+    openSkillTransfer({ kind: "global-to-project", skill });
+  }
 
-    const existingProjectSkill = projectSkills.find((item) => item.name === skill.name && item.hasProject);
-    const overwrite = existingProjectSkill ? await confirm(`项目中已存在同名 Skill「${skill.name}」，是否覆盖项目文件夹？`, { danger: true }) : false;
-
-    if (existingProjectSkill && !overwrite) {
-      return;
-    }
-
-    setSkillOperationName(skill.name);
-    setGlobalSkillsError(null);
-    setProjectSkillsError(null);
-
-    try {
-      await copyGlobalSkillToProject(skill.name, { targetProjectId: selectedProject.id, overwrite });
-      await reloadProjectSkills(selectedProject.id, skill.name);
-    } catch (error) {
-      setGlobalSkillsError(formatError(error, "复制全局 Skill 到项目失败"));
-    } finally {
-      setSkillOperationName(null);
-    }
+  async function handleAddGlobalSkillToStore(skill: SkillSummary) {
+    openSkillTransfer({ kind: "global-to-store", skill });
   }
 
   async function handleCreateStoreSkill(name: string, description: string) {
@@ -1327,12 +1451,8 @@ export function App() {
     }
   }
 
-  async function handleInstallStoreSkill(skill: StoreSkillStatus, target: "claude-code" | "chat" | "claude-code-project") {
-    const targetLabel = target === "claude-code" ? "全局 Claude Code" : target === "chat" ? "AI Chat" : "项目 Claude Code";
-
-    if (target === "claude-code-project" && !selectedProjectId) {
-      return;
-    }
+  async function handleInstallStoreSkill(skill: StoreSkillStatus, target: "claude-code" | "chat") {
+    const targetLabel = target === "claude-code" ? "全局 Claude Code" : "AI Chat";
 
     const ok = await confirm(`确认将「${skill.skill.name}」安装到 ${targetLabel}？`);
 
@@ -1346,15 +1466,21 @@ export function App() {
     try {
       await installStoreSkill(skill.skill.name, {
         targets: [target],
-        projectId: target === "claude-code-project" ? selectedProjectId ?? undefined : undefined,
         overwrite: true
       });
       await reloadStoreSkills();
+      if (target === "chat") {
+        await reloadChatSkills();
+      }
     } catch (error) {
       setStoreSkillsError(formatError(error, "Skill 安装失败"));
     } finally {
       setStoreSkillOperationName(null);
     }
+  }
+
+  async function handleSendStoreSkillToProject(skill: StoreSkillStatus) {
+    openSkillTransfer({ kind: "store-to-project", skill });
   }
 
   async function handleCreateProjectSkill() {
@@ -1429,6 +1555,10 @@ export function App() {
     } finally {
       setSkillOperationName(null);
     }
+  }
+
+  async function handleAddProjectSkillToStore(skill: ProjectSkillSummary) {
+    openSkillTransfer({ kind: "project-to-store", skill });
   }
 
   async function handleCopyProjectSkillToGlobal(skill: ProjectSkillSummary) {
@@ -2490,6 +2620,7 @@ export function App() {
             onRenameGlobalSkill={handleRenameGlobalSkill}
             onDeleteGlobalSkill={handleDeleteGlobalSkill}
             onCopyGlobalSkillToProject={handleCopyGlobalSkillToProject}
+            onAddGlobalSkillToStore={handleAddGlobalSkillToStore}
             storeSkills={storeSkills}
             storeSkillsLoading={storeSkillsLoading}
             storeSkillsError={storeSkillsError}
@@ -2498,6 +2629,7 @@ export function App() {
             onRenameStoreSkill={handleRenameStoreSkill}
             onDeleteStoreSkill={handleDeleteStoreSkill}
             onInstallStoreSkill={handleInstallStoreSkill}
+            onSendStoreSkillToProject={handleSendStoreSkillToProject}
             chatSkills={chatSkills}
             chatSkillsLoading={chatSkillsLoading}
             chatSkillsError={chatSkillsError}
@@ -2599,7 +2731,7 @@ export function App() {
             onRenameProjectSkill={handleRenameProjectSkill}
             onDeleteProjectSkill={handleDeleteProjectSkill}
             onCopyProjectSkillToGlobal={handleCopyProjectSkillToGlobal}
-            onCopyGlobalSkillToProject={handleCopyGlobalSkillToProject}
+            onAddProjectSkillToStore={handleAddProjectSkillToStore}
             onOpenSession={openSessionModal}
             onOpenWorkspaceTerminal={() =>
               void handleOpenWorkspaceTerminal({
@@ -2638,6 +2770,20 @@ export function App() {
           onChange={updateProjectDraft}
           onSubmit={handleProjectSubmit}
           onClose={() => setProjectDialogOpen(false)}
+        />
+      ) : null}
+
+      {skillTransferTarget ? (
+        <SkillTransferModal
+          target={skillTransferTarget}
+          projects={projects}
+          selectedProjectId={skillTransferProjectId}
+          mode={skillTransferMode}
+          error={skillTransferError}
+          onProjectChange={setSkillTransferProjectId}
+          onModeChange={setSkillTransferMode}
+          onSubmit={() => void submitSkillTransfer()}
+          onClose={closeSkillTransfer}
         />
       ) : null}
 
@@ -2850,6 +2996,7 @@ function HomeWorkspace({
   onRenameGlobalSkill,
   onDeleteGlobalSkill,
   onCopyGlobalSkillToProject,
+  onAddGlobalSkillToStore,
   storeSkills,
   storeSkillsLoading,
   storeSkillsError,
@@ -2858,6 +3005,7 @@ function HomeWorkspace({
   onRenameStoreSkill,
   onDeleteStoreSkill,
   onInstallStoreSkill,
+  onSendStoreSkillToProject,
   chatSkills,
   chatSkillsLoading,
   chatSkillsError,
@@ -2936,6 +3084,7 @@ function HomeWorkspace({
   onRenameGlobalSkill: (skill: SkillSummary) => void;
   onDeleteGlobalSkill: (skill: SkillSummary) => void;
   onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
+  onAddGlobalSkillToStore: (skill: SkillSummary) => void;
   storeSkills: StoreSkillStatus[];
   storeSkillsLoading: boolean;
   storeSkillsError: string | null;
@@ -2943,7 +3092,8 @@ function HomeWorkspace({
   onCreateStoreSkill: (name: string, description: string) => void;
   onRenameStoreSkill: (skill: StoreSkillStatus) => void;
   onDeleteStoreSkill: (skill: StoreSkillStatus) => void;
-  onInstallStoreSkill: (skill: StoreSkillStatus, target: "claude-code" | "chat" | "claude-code-project") => void;
+  onInstallStoreSkill: (skill: StoreSkillStatus, target: "claude-code" | "chat") => void;
+  onSendStoreSkillToProject: (skill: StoreSkillStatus) => void;
   chatSkills: ChatSkill[];
   chatSkillsLoading: boolean;
   chatSkillsError: string | null;
@@ -3036,6 +3186,7 @@ function HomeWorkspace({
           onRenameSkill={onRenameGlobalSkill}
           onDeleteSkill={onDeleteGlobalSkill}
           onCopyToProject={onCopyGlobalSkillToProject}
+          onAddSkillToStore={onAddGlobalSkillToStore}
           storeSkills={storeSkills}
           storeSkillsLoading={storeSkillsLoading}
           storeSkillsError={storeSkillsError}
@@ -3044,6 +3195,7 @@ function HomeWorkspace({
           onRenameStoreSkill={onRenameStoreSkill}
           onDeleteStoreSkill={onDeleteStoreSkill}
           onInstallStoreSkill={onInstallStoreSkill}
+          onSendStoreSkillToProject={onSendStoreSkillToProject}
           chatSkillsData={chatSkills}
           chatSkillsLoadingData={chatSkillsLoading}
           chatSkillsErrorData={chatSkillsError}
@@ -3516,6 +3668,7 @@ function HomeOverviewWorkspace({
   onRenameSkill,
   onDeleteSkill,
   onCopyToProject,
+  onAddSkillToStore,
   storeSkills = [],
   storeSkillsLoading = false,
   storeSkillsError = null,
@@ -3524,6 +3677,7 @@ function HomeOverviewWorkspace({
   onRenameStoreSkill,
   onDeleteStoreSkill,
   onInstallStoreSkill,
+  onSendStoreSkillToProject,
   chatSkillsData = [],
   chatSkillsLoadingData = false,
   chatSkillsErrorData = null,
@@ -3578,6 +3732,7 @@ function HomeOverviewWorkspace({
   onRenameSkill: (skill: SkillSummary) => void;
   onDeleteSkill: (skill: SkillSummary) => void;
   onCopyToProject: (skill: SkillSummary) => void;
+  onAddSkillToStore: (skill: SkillSummary) => void;
   storeSkills?: StoreSkillStatus[];
   storeSkillsLoading?: boolean;
   storeSkillsError?: string | null;
@@ -3585,7 +3740,8 @@ function HomeOverviewWorkspace({
   onCreateStoreSkill?: (name: string, description: string) => void;
   onRenameStoreSkill?: (skill: StoreSkillStatus) => void;
   onDeleteStoreSkill?: (skill: StoreSkillStatus) => void;
-  onInstallStoreSkill?: (skill: StoreSkillStatus, target: "claude-code" | "chat" | "claude-code-project") => void;
+  onInstallStoreSkill?: (skill: StoreSkillStatus, target: "claude-code" | "chat") => void;
+  onSendStoreSkillToProject?: (skill: StoreSkillStatus) => void;
   chatSkillsData?: ChatSkill[];
   chatSkillsLoadingData?: boolean;
   chatSkillsErrorData?: string | null;
@@ -3699,6 +3855,7 @@ function HomeOverviewWorkspace({
           onRename={onRenameSkill}
           onDelete={onDeleteSkill}
           onCopyToProject={onCopyToProject}
+          onAddToStore={onAddSkillToStore}
           onRefresh={onRefreshGlobalSkills ?? (() => {})}
         />
       ) : activeTab === "skill-store" ? (
@@ -3711,6 +3868,7 @@ function HomeOverviewWorkspace({
           onRename={onRenameStoreSkill ?? (() => undefined)}
           onDelete={onDeleteStoreSkill ?? (() => undefined)}
           onInstall={onInstallStoreSkill ?? (() => undefined)}
+          onSendToProject={onSendStoreSkillToProject ?? (() => undefined)}
           onRefreshStore={onRefreshStoreSkills ?? (() => {})}
           chatSkills={chatSkillsData}
           chatSkillsLoading={chatSkillsLoadingData}
@@ -3904,7 +4062,7 @@ function ProjectWorkspacePage({
   onRenameProjectSkill,
   onDeleteProjectSkill,
   onCopyProjectSkillToGlobal,
-  onCopyGlobalSkillToProject,
+  onAddProjectSkillToStore,
   onOpenSession,
   onOpenWorkspaceTerminal,
   noteSearchQuery = "",
@@ -3988,7 +4146,7 @@ function ProjectWorkspacePage({
   onRenameProjectSkill: (skill: ProjectSkillSummary) => void;
   onDeleteProjectSkill: (skill: ProjectSkillSummary) => void;
   onCopyProjectSkillToGlobal: (skill: ProjectSkillSummary) => void;
-  onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
+  onAddProjectSkillToStore: (skill: ProjectSkillSummary) => void;
   onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
   onOpenWorkspaceTerminal: () => void;
   noteSearchQuery?: string;
@@ -4159,7 +4317,7 @@ function ProjectWorkspacePage({
           onRename={onRenameProjectSkill}
           onDelete={onDeleteProjectSkill}
           onCopyToGlobal={onCopyProjectSkillToGlobal}
-          onCopyGlobalToProject={onCopyGlobalSkillToProject}
+          onAddToStore={onAddProjectSkillToStore}
           onRefresh={onRefreshProjectSkills ?? (() => {})}
         />
       ) : null}
@@ -4284,6 +4442,7 @@ function GlobalSkillPanel({
   onRename,
   onDelete,
   onCopyToProject,
+  onAddToStore,
   onRefresh
 }: {
   selectedProject: ProjectSummary | null;
@@ -4296,6 +4455,7 @@ function GlobalSkillPanel({
   onRename: (skill: SkillSummary) => void;
   onDelete: (skill: SkillSummary) => void;
   onCopyToProject: (skill: SkillSummary) => void;
+  onAddToStore: (skill: SkillSummary) => void;
   onRefresh: () => void;
 }) {
   return (
@@ -4337,8 +4497,11 @@ function GlobalSkillPanel({
                       <button disabled={busy} onClick={() => onRename(skill)} className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 disabled:opacity-50">
                         重命名
                       </button>
-                      <button disabled={busy || !selectedProject} onClick={() => onCopyToProject(skill)} className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100 disabled:opacity-50">
-                        复制到项目
+                      <button disabled={busy} onClick={() => onAddToStore(skill)} className="rounded-md border border-sky-400/30 bg-sky-400/10 px-2 py-1 text-xs text-sky-100 disabled:opacity-50">
+                        添加到仓库
+                      </button>
+                      <button disabled={busy} onClick={() => onCopyToProject(skill)} className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100 disabled:opacity-50">
+                        发送到项目
                       </button>
                       <button disabled={busy} onClick={() => onDelete(skill)} className="rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-200 disabled:opacity-50">
                         {busy ? "处理中" : "删除"}
@@ -4364,6 +4527,7 @@ function SkillStorePanel({
   onRename,
   onDelete,
   onInstall,
+  onSendToProject,
   onRefreshStore,
   chatSkills,
   chatSkillsLoading,
@@ -4379,7 +4543,8 @@ function SkillStorePanel({
   onCreate: (name: string, description: string) => void;
   onRename: (skill: StoreSkillStatus) => void;
   onDelete: (skill: StoreSkillStatus) => void;
-  onInstall: (skill: StoreSkillStatus, target: "claude-code" | "chat" | "claude-code-project") => void;
+  onInstall: (skill: StoreSkillStatus, target: "claude-code" | "chat") => void;
+  onSendToProject: (skill: StoreSkillStatus) => void;
   onRefreshStore: () => void;
   chatSkills: ChatSkill[];
   chatSkillsLoading: boolean;
@@ -4460,8 +4625,8 @@ function SkillStorePanel({
                       <button disabled={busy || item.installed.chat} onClick={() => onInstall(item, "chat")} className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 disabled:opacity-50" title="安装到 AI Chat">
                         安装到 Chat
                       </button>
-                      <button disabled={busy || item.installed.claudeCodeProject} onClick={() => onInstall(item, "claude-code-project")} className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 disabled:opacity-50" title="安装到项目 Claude Code">
-                        安装到项目
+                      <button disabled={busy} onClick={() => onSendToProject(item)} className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100 disabled:opacity-50" title="发送到指定项目">
+                        发送到项目
                       </button>
                       <button disabled={busy} onClick={() => onRename(item)} className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 disabled:opacity-50">
                         重命名
@@ -4586,7 +4751,7 @@ function ProjectSkillPanel({
   onRename,
   onDelete,
   onCopyToGlobal,
-  onCopyGlobalToProject,
+  onAddToStore,
   onRefresh
 }: {
   project: ProjectSummary | null;
@@ -4600,7 +4765,7 @@ function ProjectSkillPanel({
   onRename: (skill: ProjectSkillSummary) => void;
   onDelete: (skill: ProjectSkillSummary) => void;
   onCopyToGlobal: (skill: ProjectSkillSummary) => void;
-  onCopyGlobalToProject: (skill: SkillSummary) => void;
+  onAddToStore: (skill: ProjectSkillSummary) => void;
   onRefresh: () => void;
 }) {
   if (!project) {
@@ -4608,7 +4773,6 @@ function ProjectSkillPanel({
   }
 
   const selectedSkill = skills.find((skill) => skill.name === selectedSkillName) ?? skills[0] ?? null;
-  const selectedAsGlobalSkill: SkillSummary | null = selectedSkill?.hasGlobal && selectedSkill.globalPath ? { name: selectedSkill.name, source: "global", path: selectedSkill.globalPath } : null;
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.65fr)]">
@@ -4686,8 +4850,8 @@ function ProjectSkillPanel({
               <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onCopyToGlobal(selectedSkill)} className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-xs text-sky-100 disabled:opacity-50">
                 复制到全局
               </button>
-              <button disabled={!selectedAsGlobalSkill || operationName === selectedSkill.name} onClick={() => selectedAsGlobalSkill && onCopyGlobalToProject(selectedAsGlobalSkill)} className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100 disabled:opacity-50">
-                复制到项目
+              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onAddToStore(selectedSkill)} className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100 disabled:opacity-50">
+                添加到技能仓库
               </button>
               <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onDelete(selectedSkill)} className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-200 disabled:opacity-50">
                 {operationName === selectedSkill.name ? "处理中" : "删除项目 Skill"}
@@ -4699,6 +4863,73 @@ function ProjectSkillPanel({
         )}
       </section>
     </div>
+  );
+}
+
+function SkillTransferModal({
+  target,
+  projects,
+  selectedProjectId,
+  mode,
+  error,
+  onProjectChange,
+  onModeChange,
+  onSubmit,
+  onClose
+}: {
+  target: SkillTransferTarget;
+  projects: ProjectSummary[];
+  selectedProjectId: string;
+  mode: SkillTransferMode;
+  error: string | null;
+  onProjectChange: (projectId: string) => void;
+  onModeChange: (mode: SkillTransferMode) => void;
+  onSubmit: () => void;
+  onClose: () => void;
+}) {
+  const needsProject = target.kind === "global-to-project" || target.kind === "store-to-project";
+  const projectOptions = projects.map((project) => ({ value: project.id, label: project.name }));
+  const modeOptions = [
+    { value: "copy", label: "复制" },
+    { value: "move", label: "转移" }
+  ];
+  const sourceName = target.kind === "store-to-project" ? target.skill.skill.name : target.skill.name;
+  const title = needsProject ? `发送 Skill「${sourceName}」` : `添加 Skill「${sourceName}」到仓库`;
+  const description = needsProject
+    ? "选择目标项目，并决定保留源 Skill 还是在成功后移走源 Skill。"
+    : "选择复制或转移模式，将现有 Skill 放入技能仓库。";
+
+  return (
+    <Modal title={title} description={description} onClose={onClose}>
+      <div className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          {needsProject ? (
+            <Field label="目标项目">
+              <Select options={projectOptions} value={selectedProjectId} onChange={onProjectChange} placeholder="请选择目标项目" />
+            </Field>
+          ) : null}
+          <Field label="传输模式">
+            <Select options={modeOptions} value={mode} onChange={(value) => onModeChange(value === "move" ? "move" : "copy")} placeholder="请选择模式" />
+          </Field>
+        </div>
+
+        <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-slate-400">
+          <div>复制：保留源 Skill，目标新增或覆盖。</div>
+          <div className="mt-1">转移：目标创建成功后删除源 Skill。</div>
+        </div>
+
+        {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+            取消
+          </button>
+          <button type="button" onClick={onSubmit} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+            确认
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

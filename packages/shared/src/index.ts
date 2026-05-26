@@ -153,8 +153,11 @@ export type DeleteSkillRequest = {
   confirmName: string;
 };
 
+export type SkillTransferMode = "copy" | "move";
+
 export type CopyGlobalSkillRequest = {
   targetProjectId: string;
+  mode?: SkillTransferMode;
   overwrite?: boolean;
 };
 
@@ -165,6 +168,24 @@ export type CopyProjectSkillRequest = {
 export type CopySkillResponse = {
   skill: SkillSummary | ProjectSkillSummary;
   overwritten: boolean;
+  mode?: SkillTransferMode;
+  sourceDeleted?: boolean;
+};
+
+export type AddGlobalSkillToStoreRequest = {
+  mode?: SkillTransferMode;
+  overwrite?: boolean;
+};
+
+export type AddProjectSkillToStoreRequest = {
+  mode?: SkillTransferMode;
+  overwrite?: boolean;
+};
+
+export type SendStoreSkillToProjectRequest = {
+  targetProjectId: string;
+  mode?: SkillTransferMode;
+  overwrite?: boolean;
 };
 
 // Skill Store types

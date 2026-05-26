@@ -1,4 +1,6 @@
 import type {
+  AddGlobalSkillToStoreRequest,
+  AddProjectSkillToStoreRequest,
   ApiResponse,
   ApplyChatSuggestionRequest,
   ApplyChatSuggestionResponse,
@@ -73,6 +75,7 @@ import type {
   DeleteStoreSkillRequest,
   InstallStoreSkillRequest,
   RenameStoreSkillRequest,
+  SendStoreSkillToProjectRequest,
   StopSessionResponse,
   TodoResponse,
   TodosResponse,
@@ -280,6 +283,13 @@ export function copyGlobalSkillToProject(name: string, input: CopyGlobalSkillReq
   });
 }
 
+export function addGlobalSkillToStore(name: string, input: AddGlobalSkillToStoreRequest) {
+  return fetchJson<StoreSkillResponse>(`/api/skills/${encodeURIComponent(name)}/add-to-store`, {
+    method: "POST",
+    body: input
+  });
+}
+
 export function getProjectSkills(projectId: string) {
   return fetchJson<ProjectSkillsResponse>(`/api/projects/${projectId}/skills`);
 }
@@ -307,6 +317,13 @@ export function deleteProjectSkill(projectId: string, name: string, input: Delet
 
 export function copyProjectSkillToGlobal(projectId: string, name: string, input: CopyProjectSkillRequest) {
   return fetchJson<CopySkillResponse>(`/api/projects/${projectId}/skills/${encodeURIComponent(name)}/copy`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function addProjectSkillToStore(projectId: string, name: string, input: AddProjectSkillToStoreRequest) {
+  return fetchJson<StoreSkillResponse>(`/api/projects/${projectId}/skills/${encodeURIComponent(name)}/add-to-store`, {
     method: "POST",
     body: input
   });
@@ -340,6 +357,13 @@ export function deleteStoreSkill(name: string, input: DeleteStoreSkillRequest) {
 
 export function installStoreSkill(name: string, input: InstallStoreSkillRequest) {
   return fetchJson<StoreSkillResponse>(`/api/skill-store/${encodeURIComponent(name)}/install`, {
+    method: "POST",
+    body: input
+  });
+}
+
+export function sendStoreSkillToProject(name: string, input: SendStoreSkillToProjectRequest) {
+  return fetchJson<CopySkillResponse>(`/api/skill-store/${encodeURIComponent(name)}/to-project`, {
     method: "POST",
     body: input
   });

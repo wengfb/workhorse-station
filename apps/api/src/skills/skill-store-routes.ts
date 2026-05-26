@@ -1,23 +1,27 @@
 import type { FastifyInstance } from "fastify";
 import type {
   ApiResponse,
+  CopySkillResponse,
   CreateStoreSkillRequest,
   DeleteStoreSkillRequest,
   InstallStoreSkillRequest,
   RenameStoreSkillRequest,
+  SendStoreSkillToProjectRequest,
   StoreSkillResponse,
   StoreSkillsResponse
 } from "@workhorse-station/shared";
 import type { DatabaseState } from "../db/init.js";
 import { HttpError } from "../projects/http-error.js";
 import { getProject } from "../projects/project-repository.js";
+import { listProjectSkillView } from "./skill-fs.js";
 import {
   createStoreSkill,
   deleteStoreSkill,
   getStoreSkillStatus,
   installStoreSkill,
   listStoreSkillsWithStatus,
-  renameStoreSkill
+  renameStoreSkill,
+  sendStoreSkillToProject
 } from "./skill-store.js";
 
 type SkillParams = {
@@ -106,6 +110,34 @@ export async function registerSkillStoreRoutes(server: FastifyInstance, database
       return {
         ok: true,
         data: { skill: status }
+      };
+    }
+  );
+
+  server.post<{ Params: SkillParams; Body: SendStoreSkillToProjectRequest }>(
+    "/api/skill-store/:name/to-project",
+    async (request): Promise<ApiResponse<CopySkillResponse>> => {
+      const project = getProject(database.db, request.body?.targetProjectId ?? "");
+      if (!project) {
+        throw new HttpError(404, "project_not_found", "项目不存在");
+      }
+
+      const result = await sendStoreSkillToProject(request.params.name, project.path, request.body?.mode, request.body?.overwrite);
+      const projectSkills = await listProjectSkillView(project.path);
+      const skill = projectSkills.find((item) => item.name === result.name);
+
+      if (!skill) {
+        throw new HttpError(500, "skill_copy_failed", "Skill 文件夹复制后无法读取");
+      }
+
+      return {
+        ok: true,
+        data: {
+          skill,
+          overwritten: result.overwritten,
+          mode: result.mode,
+          sourceDeleted: result.sourceDeleted
+        }
       };
     }
   );

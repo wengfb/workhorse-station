@@ -4,8 +4,8 @@ import path from "node:path";
 import type { StoreSkill, StoreSkillInstallStatus, StoreSkillStatus } from "@workhorse-station/shared";
 import { HttpError } from "../projects/http-error.js";
 import { isPathInside } from "../worktrees/git-worktree.js";
+import { transferSkillDirectory, validateSkillName } from "./skill-fs.js";
 import { parseFrontmatter } from "./skill-frontmatter.js";
-import { validateSkillName } from "./skill-fs.js";
 import { getChatSkillsRoot } from "./skill-loader.js";
 
 export function getStoreSkillRoot(): string {
@@ -115,6 +115,15 @@ export async function deleteStoreSkill(nameInput: unknown, confirmNameInput: unk
   await rm(skillPath, { recursive: true });
 }
 
+export async function sendStoreSkillToProject(
+  nameInput: unknown,
+  projectPath: string,
+  modeInput: unknown,
+  overwriteInput: unknown
+) {
+  return transferSkillDirectory(getStoreSkillRoot(), getProjectClaudeCodeSkillRoot(projectPath), nameInput, modeInput, overwriteInput);
+}
+
 export async function installStoreSkill(
   nameInput: unknown,
   targets: string[],
@@ -151,7 +160,7 @@ export async function installStoreSkill(
         throw new HttpError(400, "invalid_target", `无效的安装目标: ${target}`);
     }
 
-    await copySkillDir(sourcePath, targetRoot, name, overwrite ?? false);
+    await copySkillDir(sourceRoot, targetRoot, name, overwrite ?? false);
   }
 }
 
@@ -242,25 +251,8 @@ async function getInstallStatus(name: string, projectPath?: string): Promise<Sto
   return { claudeCode, chat, claudeCodeProject };
 }
 
-async function copySkillDir(sourcePath: string, targetRoot: string, name: string, overwrite: boolean): Promise<void> {
-  const targetPath = path.join(targetRoot, name);
-  const targetExists = await pathExists(targetPath);
-
-  if (targetExists && !overwrite) {
-    throw new HttpError(409, "skill_path_exists", `目标 Skill ${name} 已存在于 ${targetRoot}`);
-  }
-
-  if (targetExists) {
-    await rm(targetPath, { recursive: true });
-  }
-
-  await mkdir(targetRoot, { recursive: true });
-
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
-  const exec = promisify(execFile);
-
-  await exec("/bin/cp", ["-r", sourcePath, targetPath]);
+async function copySkillDir(sourceRoot: string, targetRoot: string, name: string, overwrite: boolean): Promise<void> {
+  await transferSkillDirectory(sourceRoot, targetRoot, name, "copy", overwrite);
 }
 
 function resolvePath(root: string, name: string): string {

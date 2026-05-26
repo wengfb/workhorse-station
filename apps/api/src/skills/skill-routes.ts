@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type {
+  AddGlobalSkillToStoreRequest,
+  AddProjectSkillToStoreRequest,
   ApiResponse,
   CopyGlobalSkillRequest,
   CopyProjectSkillRequest,
@@ -10,12 +12,15 @@ import type {
   ProjectSkillsResponse,
   RenameSkillRequest,
   SkillResponse,
-  SkillsResponse
+  SkillsResponse,
+  StoreSkillResponse
 } from "@workhorse-station/shared";
 import type { DatabaseState } from "../db/init.js";
 import { HttpError } from "../projects/http-error.js";
 import { getProject } from "../projects/project-repository.js";
 import {
+  addGlobalSkillToStore,
+  addProjectSkillToStore,
   copyGlobalSkillToProject,
   copyProjectSkillToGlobal,
   createGlobalSkill,
@@ -27,6 +32,7 @@ import {
   renameGlobalSkill,
   renameProjectSkill
 } from "./skill-fs.js";
+import { getStoreSkillStatus } from "./skill-store.js";
 
 type SkillParams = {
   name: string;
@@ -85,11 +91,24 @@ export async function registerSkillRoutes(server: FastifyInstance, database: Dat
         throw new HttpError(404, "project_not_found", "项目不存在");
       }
 
-      const result = await copyGlobalSkillToProject(request.params.name, project.path, request.body?.overwrite);
+      const result = await copyGlobalSkillToProject(request.params.name, project.path, request.body?.mode, request.body?.overwrite);
 
       return {
         ok: true,
         data: result
+      };
+    }
+  );
+
+  server.post<{ Params: SkillParams; Body: AddGlobalSkillToStoreRequest }>(
+    "/api/skills/:name/add-to-store",
+    async (request): Promise<ApiResponse<StoreSkillResponse>> => {
+      const result = await addGlobalSkillToStore(request.params.name, request.body?.mode, request.body?.overwrite);
+      const skill = await getStoreSkillStatus(result.name);
+
+      return {
+        ok: true,
+        data: { skill }
       };
     }
   );
@@ -173,6 +192,25 @@ export async function registerSkillRoutes(server: FastifyInstance, database: Dat
       return {
         ok: true,
         data: { deleted: true }
+      };
+    }
+  );
+
+  server.post<{ Params: ProjectSkillParams; Body: AddProjectSkillToStoreRequest }>(
+    "/api/projects/:projectId/skills/:name/add-to-store",
+    async (request): Promise<ApiResponse<StoreSkillResponse>> => {
+      const project = getProject(database.db, request.params.projectId);
+
+      if (!project) {
+        throw new HttpError(404, "project_not_found", "项目不存在");
+      }
+
+      const result = await addProjectSkillToStore(project.path, request.params.name, request.body?.mode, request.body?.overwrite);
+      const skill = await getStoreSkillStatus(result.name);
+
+      return {
+        ok: true,
+        data: { skill }
       };
     }
   );
