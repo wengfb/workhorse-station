@@ -91,6 +91,24 @@ function forceTerminalReflow(container: HTMLDivElement, runFit: () => void, getC
   };
 }
 
+function bindTerminalCopyShortcut(terminal: Terminal) {
+  terminal.attachCustomKeyEventHandler((event) => {
+    if (event.type !== "keydown" || !event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey || event.key.toLowerCase() !== "c") {
+      return true;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const selection = terminal.getSelection();
+    if (selection) {
+      void navigator.clipboard.writeText(selection).catch(() => {});
+    }
+
+    return false;
+  });
+}
+
 export function PtyTerminal<TEvent extends { output?: string }>({ runtimeStatus, loadSnapshot, createSocket, onRuntimeEvent, className }: PtyTerminalProps<TEvent>) {
   const liveContainerRef = useRef<HTMLDivElement | null>(null);
   const stoppedContainerRef = useRef<HTMLDivElement | null>(null);
@@ -142,6 +160,7 @@ export function PtyTerminal<TEvent extends { output?: string }>({ runtimeStatus,
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(container);
+    bindTerminalCopyShortcut(terminal);
     stoppedTerminalRef.current = terminal;
 
     const fit = () => {
@@ -221,6 +240,7 @@ export function PtyTerminal<TEvent extends { output?: string }>({ runtimeStatus,
 
     terminal.loadAddon(fitAddon);
     terminal.open(container);
+    bindTerminalCopyShortcut(terminal);
 
     const ws = createSocket();
 
