@@ -222,7 +222,7 @@ export async function registerSessionRoutes(
         projectId: request.params.projectId,
         cwd,
         resolvedWorktreePath: currentSession.resolvedWorktreePath,
-        prompt: currentSession.prompt ?? "",
+        prompt: "",
         resumeSessionId: currentSession.id,
         forkSession: false,
         initialBuffer: currentSession.terminalBuffer ?? ""
