@@ -2143,6 +2143,7 @@ export function App() {
         reloadSessions(selectedProject.id, data.session.id),
         reloadExecutions({ kind: "session", id: data.session.id }),
         reloadWorktrees(selectedProject.id, data.session.worktreeId ?? selectedWorktreeId),
+        reloadTodos(selectedProject.id, data.session.todoId ?? selectedTodoId),
         sessionDraft.promptDraftId ? reloadPromptDrafts(selectedProject.id, sessionDraft.promptDraftId) : Promise.resolve()
       ]);
       setSessionCreateModalOpen(false);
@@ -5156,7 +5157,7 @@ function buildSessionDraft({
   return {
     sessionName: source === "todo" && todo ? todo.title : source === "todo" ? "任务会话" : "直接会话",
     promptTitle: source === "todo" && todo ? `Prompt 草稿：${todo.title}` : "",
-    prompt: "",
+    prompt: source === "todo" && todo?.description.trim() ? todo.description : "",
     todoId: todo?.id ?? "",
     worktreeId: selectedWorktree?.id ?? "",
     requestedWorktreeName: "",

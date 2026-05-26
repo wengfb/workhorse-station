@@ -25,7 +25,7 @@ import type { DatabaseState } from "../db/init.js";
 import { getProject, updateProjectLatestSessionResult } from "../projects/project-repository.js";
 import { HttpError } from "../projects/http-error.js";
 import { getProjectPromptDraft } from "../prompt-drafts/prompt-draft-repository.js";
-import { getProjectTodo, updateTodoLatestSessionResult } from "../todos/todo-repository.js";
+import { getProjectTodo, updateTodo, updateTodoLatestSessionResult } from "../todos/todo-repository.js";
 import {
   createSessionRecord,
   deleteSessionRecord,
@@ -122,12 +122,14 @@ export async function registerSessionRoutes(
         lastActivityAt: runtime.lastActivityAt,
         summary: input.summary
       });
-      database.persist();
-      reply.status(201);
 
       if (!launchedSession) {
         throw new Error("Failed to read launched session");
       }
+
+      maybeMarkTodoInProgress(database, request.params.projectId, launchedSession.todoId);
+      database.persist();
+      reply.status(201);
 
       return {
         ok: true,
@@ -532,6 +534,28 @@ function buildSessionResultSummary(session: SessionSummary): SessionResultSummar
     exitCode: session.exitCode,
     updatedAt: session.updatedAt
   };
+}
+
+function maybeMarkTodoInProgress(database: DatabaseState, projectId: string, todoId: string | null) {
+  if (!todoId) {
+    return;
+  }
+
+  const todo = getProjectTodo(database.db, projectId, todoId);
+
+  if (!todo || (todo.status !== "draft" && todo.status !== "pending")) {
+    return;
+  }
+
+  updateTodo(database.db, projectId, todoId, {
+    projectId,
+    title: todo.title,
+    description: todo.description,
+    status: "in_progress",
+    tags: todo.tags,
+    sourceNoteId: todo.sourceNoteId,
+    sourceChatSuggestion: todo.sourceChatSuggestion
+  });
 }
 
 function assertSummaryPresent(summary: string | null) {
