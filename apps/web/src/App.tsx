@@ -1996,6 +1996,7 @@ export function App() {
       selectedWorktree
     });
 
+    setSelectedExecution(null);
     setSelectedSessionId(null);
     setSelectedPromptDraftId(null);
     setSessionDraft(nextDraft);
