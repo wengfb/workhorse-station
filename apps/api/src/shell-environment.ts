@@ -91,14 +91,16 @@ async function readShellFromPasswd() {
 
 function buildFallbackEnvironment(shell: string): NodeJS.ProcessEnv {
   const user = os.userInfo();
-
-  return {
+  const environment = {
     ...process.env,
     HOME: process.env.HOME || user.homedir,
     USER: process.env.USER || user.username,
     LOGNAME: process.env.LOGNAME || user.username,
     SHELL: normalizeShellPath(process.env.SHELL) ?? shell
   };
+
+  delete environment.NODE_ENV;
+  return environment;
 }
 
 function readLoginShellEnvironment(shell: string, env: NodeJS.ProcessEnv): Promise<NodeJS.ProcessEnv> {
