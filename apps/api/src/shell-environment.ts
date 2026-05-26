@@ -100,6 +100,7 @@ function buildFallbackEnvironment(shell: string): NodeJS.ProcessEnv {
   };
 
   delete environment.NODE_ENV;
+  delete environment.API_PORT;
   return environment;
 }
 
