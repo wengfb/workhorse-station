@@ -8,6 +8,7 @@ import type {
   UpdateNoteRequest
 } from "@workhorse-station/shared";
 import type { DatabaseState } from "../db/init.js";
+import { parseListQuery } from "../list-query.js";
 import { HttpError } from "../projects/http-error.js";
 import { getProject } from "../projects/project-repository.js";
 import { countGlobalNotes, countNotes, createNote, deleteGlobalNote, deleteNote, getGlobalNote, getProjectNote, listGlobalNotes, listNotes, setFts5Available, updateGlobalNote, updateNote, type NoteWriteInput } from "./note-repository.js";
@@ -24,7 +25,7 @@ export async function registerNoteRoutes(server: FastifyInstance, database: Data
   setFts5Available(database.fts5);
 
   server.get<{ Querystring: { search?: string; tags?: string; page?: string; pageSize?: string } }>("/api/notes", async (request): Promise<ApiResponse<NotesResponse>> => {
-    const opts = parseFilterOptions(request.query);
+    const opts = parseListQuery(request.query);
     const [notes, total] = [listGlobalNotes(database.db, opts), countGlobalNotes(database.db, { search: opts.search, tags: opts.tags })];
     return {
       ok: true,
@@ -89,7 +90,7 @@ export async function registerNoteRoutes(server: FastifyInstance, database: Data
 
   server.get<{ Params: ProjectParams; Querystring: { search?: string; tags?: string; page?: string; pageSize?: string } }>("/api/projects/:projectId/notes", async (request): Promise<ApiResponse<NotesResponse>> => {
     assertProjectExists(database, request.params.projectId);
-    const opts = parseFilterOptions(request.query);
+    const opts = parseListQuery(request.query);
     const [notes, total] = [
       listNotes(database.db, request.params.projectId, opts),
       countNotes(database.db, request.params.projectId, { search: opts.search, tags: opts.tags })
@@ -240,17 +241,6 @@ function normalizeTags(value: unknown) {
   }
 
   return tags;
-}
-
-function parseFilterOptions(query: { search?: string; tags?: string; page?: string; pageSize?: string }): { search?: string; tags?: string[]; page?: number; pageSize?: number } {
-  const page = query.page ? parseInt(query.page, 10) : undefined;
-  const pageSize = query.pageSize ? parseInt(query.pageSize, 10) : undefined;
-  return {
-    search: query.search || undefined,
-    tags: query.tags ? query.tags.split(",").map((t) => t.trim()).filter(Boolean) : undefined,
-    page: page && page > 0 ? page : undefined,
-    pageSize: pageSize && pageSize > 0 && pageSize <= 100 ? pageSize : undefined
-  };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

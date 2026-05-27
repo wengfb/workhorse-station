@@ -9,6 +9,7 @@ import type {
   UpdateTodoRequest
 } from "@workhorse-station/shared";
 import type { DatabaseState } from "../db/init.js";
+import { parseListQuery } from "../list-query.js";
 import { HttpError } from "../projects/http-error.js";
 import { getProject } from "../projects/project-repository.js";
 import { getProjectNote } from "../notes/note-repository.js";
@@ -29,28 +30,13 @@ export async function registerTodoRoutes(server: FastifyInstance, database: Data
     "/api/projects/:projectId/todos",
     async (request): Promise<ApiResponse<TodosResponse>> => {
       assertProjectExists(database, request.params.projectId);
-      const page = request.query.page ? parseInt(request.query.page, 10) : undefined;
-      const pageSize = request.query.pageSize ? parseInt(request.query.pageSize, 10) : undefined;
-      const search = request.query.search?.trim() || undefined;
-      const tags = request.query.tags
-        ? request.query.tags
-            .split(",")
-            .map((t) => t.trim())
-            .filter(Boolean)
-        : undefined;
-
-      const opts = {
-        page: page && page > 0 ? page : undefined,
-        pageSize: pageSize && pageSize > 0 && pageSize <= 100 ? pageSize : undefined,
-        search,
-        tags: tags?.length ? tags : undefined
-      };
+      const opts = parseListQuery(request.query);
 
       return {
         ok: true,
         data: {
           todos: listTodos(database.db, request.params.projectId, opts),
-          total: countTodos(database.db, request.params.projectId, { search, tags: tags?.length ? tags : undefined }),
+          total: countTodos(database.db, request.params.projectId, { search: opts.search, tags: opts.tags }),
           page: opts.page ?? 1,
           pageSize: opts.pageSize ?? 12
         }

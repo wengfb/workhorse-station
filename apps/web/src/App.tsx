@@ -45,6 +45,9 @@ import type {
 import { MarkdownContent } from "./markdown-content";
 import { Select } from "./components/ui/Select";
 import { useConfirmDialog } from "./components/DialogContext";
+import { useGlobalNotesList } from "./hooks/use-global-notes-list";
+import { useProjectNotesList } from "./hooks/use-project-notes-list";
+import { useProjectTodosList } from "./hooks/use-project-todos-list";
 import {
   addGlobalSkillToStore,
   addProjectSkillToStore,
@@ -78,9 +81,7 @@ import {
   getChatSessions,
   getHealth,
   getMeta,
-  getGlobalNotes,
   getGlobalSkills,
-  getNotes,
   getProjectSkills,
   getProjects,
   getPromptDrafts,
@@ -89,7 +90,6 @@ import {
   getRunningSessions,
   getSessions,
   getStoreSkills,
-  getTodos,
   getWorktrees,
   previewPromptDraft,
   installStoreSkill,
@@ -276,32 +276,16 @@ export function App() {
   const [worktreeError, setWorktreeError] = useState<string | null>(null);
   const [savingWorktree, setSavingWorktree] = useState(false);
   const [deletingWorktreeId, setDeletingWorktreeId] = useState<string | null>(null);
-  const [notes, setNotes] = useState<NoteSummary[]>([]);
-  const [notesTotal, setNotesTotal] = useState(0);
-  const [notesPage, setNotesPage] = useState(1);
-  const [notesLoading, setNotesLoading] = useState(false);
-  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState<NoteDraft>(emptyNoteDraft());
-  const [notesError, setNotesError] = useState<string | null>(null);
   const [savingNote, setSavingNote] = useState(false);
   const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
   const [noteSettingsOpen, setNoteSettingsOpen] = useState(false);
   const [noteTitleLocked, setNoteTitleLocked] = useState(false);
-  const noteAutosaveTimerRef = useRef<number | null>(null);
-  const noteAutosaveSkipRef = useRef(false);
+  const noteAutosaveSkipRef = useRef(0);
 
-  const [todos, setTodos] = useState<TodoSummary[]>([]);
-  const [todosTotal, setTodosTotal] = useState(0);
-  const [todosPage, setTodosPage] = useState(1);
-  const [todosLoading, setTodosLoading] = useState(false);
-  const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
   const [todoDraft, setTodoDraft] = useState<TodoDraft>(emptyTodoDraft());
-  const [todosError, setTodosError] = useState<string | null>(null);
   const [savingTodo, setSavingTodo] = useState(false);
   const [deletingTodoId, setDeletingTodoId] = useState<string | null>(null);
-  const [todoSearchQuery, setTodoSearchQuery] = useState("");
-  const [todoFilterTags, setTodoFilterTags] = useState<string[]>([]);
-  const todoSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [promptDrafts, setPromptDrafts] = useState<PromptDraftSummary[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -313,54 +297,12 @@ export function App() {
   const [updatingSessionId, setUpdatingSessionId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [continuingSessionId, setContinuingSessionId] = useState<string | null>(null);
-  const [globalNotes, setGlobalNotes] = useState<NoteSummary[]>([]);
-  const [globalNotesTotal, setGlobalNotesTotal] = useState(0);
-  const [globalNotesPage, setGlobalNotesPage] = useState(1);
-  const [globalNotesLoading, setGlobalNotesLoading] = useState(true);
-  const [selectedGlobalNoteId, setSelectedGlobalNoteId] = useState<string | null>(null);
   const [globalNoteDraft, setGlobalNoteDraft] = useState<NoteDraft>(emptyNoteDraft());
-  const [globalNotesError, setGlobalNotesError] = useState<string | null>(null);
   const [savingGlobalNote, setSavingGlobalNote] = useState(false);
   const [deletingGlobalNoteId, setDeletingGlobalNoteId] = useState<string | null>(null);
   const [globalNoteSettingsOpen, setGlobalNoteSettingsOpen] = useState(false);
   const [globalNoteTitleLocked, setGlobalNoteTitleLocked] = useState(false);
-  const globalNoteAutosaveSkipRef = useRef(false);
-  const [noteSearchQuery, setNoteSearchQuery] = useState("");
-  const [noteFilterTags, setNoteFilterTags] = useState<string[]>([]);
-  const [globalNoteSearchQuery, setGlobalNoteSearchQuery] = useState("");
-  const [globalNoteFilterTags, setGlobalNoteFilterTags] = useState<string[]>([]);
-  const noteSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const globalNoteSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  const availableNoteTags = (() => {
-    const tagSet = new Set<string>();
-    for (const note of notes) {
-      for (const tag of note.tags) {
-        tagSet.add(tag);
-      }
-    }
-    return Array.from(tagSet).sort();
-  })();
-
-  const availableGlobalNoteTags = (() => {
-    const tagSet = new Set<string>();
-    for (const note of globalNotes) {
-      for (const tag of note.tags) {
-        tagSet.add(tag);
-      }
-    }
-    return Array.from(tagSet).sort();
-  })();
-
-  const availableTodoTags = (() => {
-    const tagSet = new Set<string>();
-    for (const todo of todos) {
-      for (const tag of todo.tags) {
-        tagSet.add(tag);
-      }
-    }
-    return Array.from(tagSet).sort();
-  })();
+  const globalNoteAutosaveSkipRef = useRef(0);
   const [globalSkills, setGlobalSkills] = useState<SkillSummary[]>([]);
   const [globalSkillsLoading, setGlobalSkillsLoading] = useState(true);
   const [globalSkillsError, setGlobalSkillsError] = useState<string | null>(null);
@@ -382,13 +324,16 @@ export function App() {
   const [chatSkillsError, setChatSkillsError] = useState<string | null>(null);
   const [deletingChatSkillName, setDeletingChatSkillName] = useState<string | null>(null);
   const { confirm, prompt } = useConfirmDialog();
+  const globalNotesList = useGlobalNotesList({ formatError });
+  const projectNotesList = useProjectNotesList({ projectId: selectedProjectId, formatError });
+  const projectTodosList = useProjectTodosList({ projectId: selectedProjectId, formatError });
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadAppState() {
       try {
-        const [health, meta, projectsData, chatData, globalNotesData, globalSkillsData, storeSkillsData, chatSkillsData] = await Promise.all([getHealth(), getMeta(), getProjects(), getChatSessions(), getGlobalNotes(), getGlobalSkills(), getStoreSkills(), getChatSkills()]);
+        const [health, meta, projectsData, chatData, globalSkillsData, storeSkillsData, chatSkillsData] = await Promise.all([getHealth(), getMeta(), getProjects(), getChatSessions(), getGlobalSkills(), getStoreSkills(), getChatSkills()]);
 
         if (cancelled) {
           return;
@@ -396,15 +341,10 @@ export function App() {
 
         const firstProject = projectsData.projects[0] ?? null;
         const firstChat = chatData.chatSessions[0] ?? null;
-        const firstGlobalNote = globalNotesData.notes[0] ?? null;
         setApiState({ health, meta, loading: false, error: null });
         setProjects(projectsData.projects);
         setProjectsLoading(false);
         setChatSessions(chatData.chatSessions);
-        setGlobalNotes(globalNotesData.notes);
-        setSelectedGlobalNoteId(firstGlobalNote?.id ?? null);
-        setGlobalNotesLoading(false);
-        setGlobalNotesError(null);
         setGlobalSkills(globalSkillsData.skills);
         setGlobalSkillsLoading(false);
         setGlobalSkillsError(null);
@@ -441,8 +381,6 @@ export function App() {
           setProjectsLoading(false);
           setChatLoading(false);
           setChatError(formatError(error, "聊天会话加载失败"));
-          setGlobalNotesLoading(false);
-          setGlobalNotesError(formatError(error, "全局笔记加载失败"));
           setGlobalSkillsLoading(false);
           setGlobalSkillsError(formatError(error, "全局 Skill 加载失败"));
           setStoreSkillsLoading(false);
@@ -468,14 +406,6 @@ export function App() {
       setSelectedWorktreeId(null);
       setWorktreesLoading(false);
       setWorktreeError(null);
-      setNotes([]);
-      setSelectedNoteId(null);
-      setNotesLoading(false);
-      setNotesError(null);
-      setTodos([]);
-      setSelectedTodoId(null);
-      setTodosLoading(false);
-      setTodosError(null);
       setPromptDrafts([]);
       setSessions([]);
       setSelectedSessionId(null);
@@ -495,19 +425,13 @@ export function App() {
     async function loadProjectResources(projectId: string) {
       setWorktreesLoading(true);
       setWorktreeError(null);
-      setNotesLoading(true);
-      setNotesError(null);
-      setTodosLoading(true);
-      setTodosError(null);
       setSessionsLoading(true);
       setSessionsError(null);
       setProjectSkillsLoading(true);
       setProjectSkillsError(null);
 
-      const [worktreesResult, notesResult, todosResult, promptDraftsResult, sessionsResult, projectSkillsResult] = await Promise.allSettled([
+      const [worktreesResult, promptDraftsResult, sessionsResult, projectSkillsResult] = await Promise.allSettled([
         getWorktrees(projectId),
-        getNotes(projectId),
-        getTodos(projectId),
         getPromptDrafts(projectId),
         getSessions(projectId),
         getProjectSkills(projectId)
@@ -526,28 +450,6 @@ export function App() {
         setWorktrees([]);
         setSelectedWorktreeId(null);
         setWorktreeError(formatError(worktreesResult.reason, "Worktree 列表加载失败"));
-      }
-
-      if (notesResult.status === "fulfilled") {
-        const nextNote = notesResult.value.notes.find((note) => note.id === selectedNoteId) ?? notesResult.value.notes[0] ?? null;
-        setNotes(notesResult.value.notes);
-        setSelectedNoteId(nextNote?.id ?? null);
-        setNotesError(null);
-      } else {
-        setNotes([]);
-        setSelectedNoteId(null);
-        setNotesError(formatError(notesResult.reason, "项目笔记加载失败"));
-      }
-
-      if (todosResult.status === "fulfilled") {
-        const nextTodo = todosResult.value.todos.find((todo) => todo.id === selectedTodoId) ?? todosResult.value.todos[0] ?? null;
-        setTodos(todosResult.value.todos);
-        setSelectedTodoId(nextTodo?.id ?? null);
-        setTodosError(null);
-      } else {
-        setTodos([]);
-        setSelectedTodoId(null);
-        setTodosError(formatError(todosResult.reason, "项目任务加载失败"));
       }
 
       if (promptDraftsResult.status === "fulfilled") {
@@ -580,8 +482,6 @@ export function App() {
       }
 
       setWorktreesLoading(false);
-      setNotesLoading(false);
-      setTodosLoading(false);
       setSessionsLoading(false);
       setProjectSkillsLoading(false);
     }
@@ -595,8 +495,50 @@ export function App() {
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
   const selectedWorktree = worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? null;
+  const globalNotes = globalNotesList.items;
+  const selectedGlobalNoteId = globalNotesList.selectedId;
+  const setSelectedGlobalNoteId = globalNotesList.setSelectedId;
+  const globalNotesLoading = globalNotesList.loading;
+  const globalNotesError = globalNotesList.error;
+  const setGlobalNotesError = globalNotesList.setError;
+  const globalNotesTotal = globalNotesList.total;
+  const globalNotesPage = globalNotesList.page;
+  const setGlobalNotesPage = globalNotesList.setPage;
+  const globalNoteSearchQuery = globalNotesList.searchQuery;
+  const setGlobalNoteSearchQuery = globalNotesList.setSearchQuery;
+  const globalNoteFilterTags = globalNotesList.filterTags;
+  const setGlobalNoteFilterTags = globalNotesList.setFilterTags;
+  const availableGlobalNoteTags = globalNotesList.availableTags;
   const selectedGlobalNote = globalNotes.find((note) => note.id === selectedGlobalNoteId) ?? null;
+  const notes = projectNotesList.items;
+  const selectedNoteId = projectNotesList.selectedId;
+  const setSelectedNoteId = projectNotesList.setSelectedId;
+  const notesLoading = projectNotesList.loading;
+  const notesError = projectNotesList.error;
+  const setNotesError = projectNotesList.setError;
+  const notesTotal = projectNotesList.total;
+  const notesPage = projectNotesList.page;
+  const setNotesPage = projectNotesList.setPage;
+  const noteSearchQuery = projectNotesList.searchQuery;
+  const setNoteSearchQuery = projectNotesList.setSearchQuery;
+  const noteFilterTags = projectNotesList.filterTags;
+  const setNoteFilterTags = projectNotesList.setFilterTags;
+  const availableNoteTags = projectNotesList.availableTags;
   const selectedNote = notes.find((note) => note.id === selectedNoteId) ?? null;
+  const todos = projectTodosList.items;
+  const selectedTodoId = projectTodosList.selectedId;
+  const setSelectedTodoId = projectTodosList.setSelectedId;
+  const todosLoading = projectTodosList.loading;
+  const todosError = projectTodosList.error;
+  const setTodosError = projectTodosList.setError;
+  const todosTotal = projectTodosList.total;
+  const todosPage = projectTodosList.page;
+  const setTodosPage = projectTodosList.setPage;
+  const todoSearchQuery = projectTodosList.searchQuery;
+  const setTodoSearchQuery = projectTodosList.setSearchQuery;
+  const todoFilterTags = projectTodosList.filterTags;
+  const setTodoFilterTags = projectTodosList.setFilterTags;
+  const availableTodoTags = projectTodosList.availableTags;
   const selectedTodo = todos.find((todo) => todo.id === selectedTodoId) ?? null;
   const selectedSession = selectedSessionId ? sessions.find((session) => session.id === selectedSessionId) ?? null : null;
   const selectedPromptDraft = selectedPromptDraftId ? promptDrafts.find((promptDraft) => promptDraft.id === selectedPromptDraftId) ?? null : null;
@@ -604,20 +546,20 @@ export function App() {
 
   useEffect(() => {
     if (selectedGlobalNote) {
-      globalNoteAutosaveSkipRef.current = true;
+      globalNoteAutosaveSkipRef.current += 1;
       setGlobalNoteTitleLocked(true);
       setGlobalNoteDraft(noteToDraft(selectedGlobalNote));
       return;
     }
 
-    globalNoteAutosaveSkipRef.current = true;
+    globalNoteAutosaveSkipRef.current += 1;
     setGlobalNoteTitleLocked(false);
     setGlobalNoteDraft(emptyNoteDraft());
   }, [selectedGlobalNoteId]);
 
   useEffect(() => {
-    if (globalNoteAutosaveSkipRef.current) {
-      globalNoteAutosaveSkipRef.current = false;
+    if (globalNoteAutosaveSkipRef.current > 0) {
+      globalNoteAutosaveSkipRef.current -= 1;
       return;
     }
 
@@ -630,17 +572,17 @@ export function App() {
     }, 650);
 
     return () => window.clearTimeout(timeoutId);
-  }, [globalNoteDraft.content, globalNoteDraft.tags, globalNoteDraft.title, selectedGlobalNoteId]);
+  }, [globalNoteDraft.content, globalNoteDraft.tags, globalNoteDraft.title]);
 
   useEffect(() => {
     if (selectedNote) {
-      noteAutosaveSkipRef.current = true;
+      noteAutosaveSkipRef.current += 1;
       setNoteTitleLocked(true);
       setNoteDraft(noteToDraft(selectedNote));
       return;
     }
 
-    noteAutosaveSkipRef.current = true;
+    noteAutosaveSkipRef.current += 1;
     setNoteTitleLocked(false);
     setNoteDraft(emptyNoteDraft());
   }, [selectedNoteId, selectedProjectId]);
@@ -650,8 +592,8 @@ export function App() {
       return;
     }
 
-    if (noteAutosaveSkipRef.current) {
-      noteAutosaveSkipRef.current = false;
+    if (noteAutosaveSkipRef.current > 0) {
+      noteAutosaveSkipRef.current -= 1;
       return;
     }
 
@@ -664,36 +606,7 @@ export function App() {
     }, 650);
 
     return () => window.clearTimeout(timeoutId);
-  }, [noteDraft.content, noteDraft.tags, noteDraft.title, selectedNoteId, selectedProjectId]);
-
-  useEffect(() => {
-    if (!selectedProjectId) return;
-    setNotesPage(1);
-    if (noteSearchTimerRef.current) clearTimeout(noteSearchTimerRef.current);
-    noteSearchTimerRef.current = setTimeout(() => {
-      reloadNotes(selectedProjectId, null);
-    }, 300);
-    return () => { if (noteSearchTimerRef.current) clearTimeout(noteSearchTimerRef.current); };
-  }, [noteSearchQuery, noteFilterTags]);
-
-  useEffect(() => {
-    setGlobalNotesPage(1);
-    if (globalNoteSearchTimerRef.current) clearTimeout(globalNoteSearchTimerRef.current);
-    globalNoteSearchTimerRef.current = setTimeout(() => {
-      reloadGlobalNotes(null);
-    }, 300);
-    return () => { if (globalNoteSearchTimerRef.current) clearTimeout(globalNoteSearchTimerRef.current); };
-  }, [globalNoteSearchQuery, globalNoteFilterTags]);
-
-  useEffect(() => {
-    if (!selectedProjectId) return;
-    setTodosPage(1);
-    if (todoSearchTimerRef.current) clearTimeout(todoSearchTimerRef.current);
-    todoSearchTimerRef.current = setTimeout(() => {
-      reloadTodos(selectedProjectId, null);
-    }, 300);
-    return () => { if (todoSearchTimerRef.current) clearTimeout(todoSearchTimerRef.current); };
-  }, [todoSearchQuery, todoFilterTags]);
+  }, [noteDraft.content, noteDraft.tags, noteDraft.title]);
 
   useEffect(() => {
     if (selectedTodo) {
@@ -820,30 +733,6 @@ export function App() {
       setWorktreeError(formatError(error, "Worktree 列表加载失败"));
     } finally {
       setWorktreesLoading(false);
-    }
-  }
-
-  async function reloadGlobalNotes(preferredNoteId?: string | null) {
-    setGlobalNotesLoading(true);
-
-    try {
-      const data = await getGlobalNotes({
-        search: globalNoteSearchQuery || undefined,
-        tags: globalNoteFilterTags.length ? globalNoteFilterTags : undefined,
-        page: globalNotesPage,
-        pageSize: 12
-      });
-      const nextNote =
-        (preferredNoteId ? data.notes.find((note) => note.id === preferredNoteId) : null) ?? data.notes.find((note) => note.id === selectedGlobalNoteId) ?? data.notes[0] ?? null;
-
-      setGlobalNotes(data.notes);
-      setGlobalNotesTotal(data.total);
-      setSelectedGlobalNoteId(nextNote?.id ?? null);
-      setGlobalNotesError(null);
-    } catch (error) {
-      setGlobalNotesError(formatError(error, "全局笔记加载失败"));
-    } finally {
-      setGlobalNotesLoading(false);
     }
   }
 
@@ -1058,49 +947,6 @@ export function App() {
     }
   }
 
-  async function reloadNotes(projectId: string, preferredNoteId?: string | null) {
-    setNotesLoading(true);
-
-    try {
-      const data = await getNotes(projectId, {
-        search: noteSearchQuery || undefined,
-        tags: noteFilterTags.length ? noteFilterTags : undefined,
-        page: notesPage,
-        pageSize: 12
-      });
-      const nextNote =
-        (preferredNoteId ? data.notes.find((note) => note.id === preferredNoteId) : null) ?? data.notes.find((note) => note.id === selectedNoteId) ?? data.notes[0] ?? null;
-
-      setNotes(data.notes);
-      setNotesTotal(data.total);
-      setSelectedNoteId(nextNote?.id ?? null);
-      setNotesError(null);
-    } catch (error) {
-      setNotesError(formatError(error, "项目笔记加载失败"));
-    } finally {
-      setNotesLoading(false);
-    }
-  }
-
-  async function reloadTodos(projectId: string, preferredTodoId?: string | null) {
-    setTodosLoading(true);
-
-    try {
-      const data = await getTodos(projectId, { search: todoSearchQuery || undefined, tags: todoFilterTags.length ? todoFilterTags : undefined, page: todosPage, pageSize: 12 });
-      const nextTodo =
-        (preferredTodoId ? data.todos.find((todo) => todo.id === preferredTodoId) : null) ?? data.todos.find((todo) => todo.id === selectedTodoId) ?? data.todos[0] ?? null;
-
-      setTodos(data.todos);
-      setTodosTotal(data.total);
-      setSelectedTodoId(nextTodo?.id ?? null);
-      setTodosError(null);
-    } catch (error) {
-      setTodosError(formatError(error, "项目任务加载失败"));
-    } finally {
-      setTodosLoading(false);
-    }
-  }
-
   async function reloadPromptDrafts(projectId: string, preferredPromptDraftId?: string | null) {
     setSessionsLoading(true);
 
@@ -1194,14 +1040,6 @@ export function App() {
     setWorkspaceScope("project");
     setActiveProjectTab("todos");
     setProjectMenuOpen(false);
-    void Promise.all([
-      reloadWorktrees(project.id, null),
-      reloadNotes(project.id, null),
-      reloadTodos(project.id, null),
-      reloadPromptDrafts(project.id, null),
-      reloadSessions(project.id, null),
-      reloadProjectSkills(project.id, null)
-    ]);
   }
 
   function updateProjectDraft(field: keyof ProjectDraft, value: string) {
@@ -1671,10 +1509,10 @@ export function App() {
     try {
       if (selectedGlobalNote) {
         const data = await updateGlobalNote(selectedGlobalNote.id, request);
-        await reloadGlobalNotes(data.note.id);
+        await globalNotesList.refresh(data.note.id);
       } else {
         const data = await createGlobalNote(request);
-        await reloadGlobalNotes(data.note.id);
+        await globalNotesList.refresh(data.note.id);
       }
     } catch (error) {
       setGlobalNotesError(formatError(error, "全局笔记保存失败"));
@@ -1700,7 +1538,7 @@ export function App() {
 
     try {
       await deleteGlobalNote(note.id);
-      await reloadGlobalNotes(null);
+      await globalNotesList.refresh(null);
       setGlobalNoteSettingsOpen(false);
     } catch (error) {
       setGlobalNotesError(formatError(error, "全局笔记删除失败"));
@@ -1725,10 +1563,10 @@ export function App() {
     try {
       if (selectedNote) {
         const data = await updateNote(selectedProject.id, selectedNote.id, request);
-        await reloadNotes(selectedProject.id, data.note.id);
+        await projectNotesList.refresh(data.note.id);
       } else {
         const data = await createNote(selectedProject.id, request);
-        await reloadNotes(selectedProject.id, data.note.id);
+        await projectNotesList.refresh(data.note.id);
       }
     } catch (error) {
       setNotesError(formatError(error, "项目笔记保存失败"));
@@ -1758,7 +1596,7 @@ export function App() {
 
     try {
       await deleteNote(selectedProject.id, note.id);
-      await Promise.all([reloadNotes(selectedProject.id, null), reloadTodos(selectedProject.id, null)]);
+      await Promise.all([projectNotesList.refresh(null), projectTodosList.refresh(null)]);
       setNoteSettingsOpen(false);
     } catch (error) {
       setNotesError(formatError(error, "项目笔记删除失败"));
@@ -1783,7 +1621,7 @@ export function App() {
         status: "draft",
         tags: selectedNote.tags
       });
-      await reloadTodos(selectedProject.id, data.todo.id);
+      await projectTodosList.refresh(data.todo.id);
       setActiveProjectTab("todos");
     } catch (error) {
       setTodosError(formatError(error, "从笔记创建任务失败"));
@@ -1807,10 +1645,10 @@ export function App() {
 
       if (selectedTodo) {
         const data = await updateTodo(selectedProject.id, selectedTodo.id, request);
-        await reloadTodos(selectedProject.id, data.todo.id);
+        await projectTodosList.refresh(data.todo.id);
       } else {
         const data = await createTodo(selectedProject.id, request);
-        await reloadTodos(selectedProject.id, data.todo.id);
+        await projectTodosList.refresh(data.todo.id);
       }
     } catch (error) {
       setTodosError(formatError(error, "项目任务保存失败"));
@@ -1835,7 +1673,7 @@ export function App() {
 
     try {
       await deleteTodo(selectedProject.id, todo.id);
-      await reloadTodos(selectedProject.id, null);
+      await projectTodosList.refresh(null);
       setTodoDraft(emptyTodoDraft());
     } catch (error) {
       setTodosError(formatError(error, "项目任务删除失败"));
@@ -1851,7 +1689,7 @@ export function App() {
 
     try {
       await updateTodo(selectedProject.id, todo.id, { status: newStatus });
-      await reloadTodos(selectedProject.id, todo.id);
+      await projectTodosList.refresh(todo.id);
     } catch (error) {
       setTodosError(formatError(error, "任务状态更新失败"));
     }
@@ -1867,7 +1705,7 @@ export function App() {
     setSelectedGlobalNoteId(null);
     setGlobalNoteSettingsOpen(false);
     setGlobalNoteTitleLocked(false);
-    globalNoteAutosaveSkipRef.current = true;
+    globalNoteAutosaveSkipRef.current += 1;
     setGlobalNoteDraft(emptyNoteDraft());
     setGlobalNotesError(null);
   }
@@ -1876,7 +1714,7 @@ export function App() {
     setSelectedNoteId(null);
     setNoteSettingsOpen(false);
     setNoteTitleLocked(false);
-    noteAutosaveSkipRef.current = true;
+    noteAutosaveSkipRef.current += 1;
     setNoteDraft(emptyNoteDraft());
     setNotesError(null);
   }
@@ -2274,7 +2112,7 @@ export function App() {
         reloadSessions(selectedProject.id, data.session.id),
         reloadExecutions({ kind: "session", id: data.session.id }),
         reloadWorktrees(selectedProject.id, data.session.worktreeId ?? selectedWorktreeId),
-        reloadTodos(selectedProject.id, data.session.todoId ?? selectedTodoId),
+        data.session.todoId ? projectTodosList.refresh(data.session.todoId) : Promise.resolve(),
         sessionDraft.promptDraftId ? reloadPromptDrafts(selectedProject.id, sessionDraft.promptDraftId) : Promise.resolve()
       ]);
       setSessionCreateModalOpen(false);

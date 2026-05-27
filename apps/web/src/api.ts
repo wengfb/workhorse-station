@@ -36,6 +36,7 @@ import type {
   DeleteWorktreeRequest,
   DeleteWorktreeResponse,
   HealthResponse,
+  ListQuery,
   MemoriesResponse,
   MemoryIndexResponse,
   MemoryResponse,
@@ -92,6 +93,7 @@ import type {
   WorktreesResponse,
   DeleteSkillRequest
 } from "@workhorse-station/shared";
+import { buildListQueryParams } from "./lib/list-query";
 
 export class ApiError extends Error {
   constructor(
@@ -398,13 +400,8 @@ export function deleteWorktree(projectId: string, worktreeId: string, input: Del
   });
 }
 
-export function getGlobalNotes(opts?: { search?: string; tags?: string[]; page?: number; pageSize?: number }) {
-  const params = new URLSearchParams();
-  if (opts?.search) params.set("search", opts.search);
-  if (opts?.tags?.length) params.set("tags", opts.tags.join(","));
-  if (opts?.page) params.set("page", String(opts.page));
-  if (opts?.pageSize) params.set("pageSize", String(opts.pageSize));
-  const qs = params.toString();
+export function getGlobalNotes(opts?: ListQuery) {
+  const qs = buildListQueryParams(opts).toString();
   return fetchJson<NotesResponse>(`/api/notes${qs ? `?${qs}` : ""}`);
 }
 
@@ -428,13 +425,8 @@ export function deleteGlobalNote(noteId: string) {
   });
 }
 
-export function getNotes(projectId: string, opts?: { search?: string; tags?: string[]; page?: number; pageSize?: number }) {
-  const params = new URLSearchParams();
-  if (opts?.search) params.set("search", opts.search);
-  if (opts?.tags?.length) params.set("tags", opts.tags.join(","));
-  if (opts?.page) params.set("page", String(opts.page));
-  if (opts?.pageSize) params.set("pageSize", String(opts.pageSize));
-  const qs = params.toString();
+export function getNotes(projectId: string, opts?: ListQuery) {
+  const qs = buildListQueryParams(opts).toString();
   return fetchJson<NotesResponse>(`/api/projects/${projectId}/notes${qs ? `?${qs}` : ""}`);
 }
 
@@ -458,13 +450,8 @@ export function deleteNote(projectId: string, noteId: string) {
   });
 }
 
-export function getTodos(projectId: string, opts?: { search?: string; tags?: string[]; page?: number; pageSize?: number }) {
-  const params = new URLSearchParams();
-  if (opts?.search) params.set("search", opts.search);
-  if (opts?.tags?.length) params.set("tags", opts.tags.join(","));
-  if (opts?.page) params.set("page", String(opts.page));
-  if (opts?.pageSize) params.set("pageSize", String(opts.pageSize));
-  const qs = params.toString();
+export function getTodos(projectId: string, opts?: ListQuery) {
+  const qs = buildListQueryParams(opts).toString();
   return fetchJson<TodosResponse>(`/api/projects/${projectId}/todos${qs ? `?${qs}` : ""}`);
 }
 

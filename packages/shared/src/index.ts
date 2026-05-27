@@ -252,6 +252,13 @@ export type DeleteChatSkillRequest = {
   confirmName: string;
 };
 
+export type ListQuery = {
+  search?: string;
+  tags?: string[];
+  page?: number;
+  pageSize?: number;
+};
+
 export type NoteSummary = {
   id: string;
   projectId: string | null;
