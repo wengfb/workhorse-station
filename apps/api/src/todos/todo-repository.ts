@@ -28,7 +28,7 @@ export type TodoWriteInput = Required<Pick<CreateTodoRequest, "title" | "status"
 const TODO_SELECT = `SELECT id, project_id, source_note_id, title, description, status, tags, latest_session_result, source_chat_suggestion_json, created_at, updated_at
      FROM todos`;
 
-export function listTodos(db: Database, projectId: string, opts?: { page?: number; pageSize?: number; search?: string; tags?: string[] }) {
+export function listTodos(db: Database, projectId: string, opts?: { page?: number; pageSize?: number; search?: string; tags?: string[]; statuses?: TodoStatus[] }) {
   const page = opts?.page ?? 1;
   const pageSize = opts?.pageSize ?? 12;
   const offset = (page - 1) * pageSize;
@@ -45,7 +45,7 @@ export function listTodos(db: Database, projectId: string, opts?: { page?: numbe
   );
 }
 
-export function countTodos(db: Database, projectId: string, opts?: { search?: string; tags?: string[] }) {
+export function countTodos(db: Database, projectId: string, opts?: { search?: string; tags?: string[]; statuses?: TodoStatus[] }) {
   const { where, params } = buildWhere(projectId, opts);
   const sql = `SELECT COUNT(*) as count FROM todos ${where}`;
   const stmt = db.prepare(sql, params);
@@ -59,7 +59,7 @@ export function countTodos(db: Database, projectId: string, opts?: { search?: st
   }
 }
 
-function buildWhere(projectId: string, opts?: { search?: string; tags?: string[] }): { where: string; params: string[] } {
+function buildWhere(projectId: string, opts?: { search?: string; tags?: string[]; statuses?: TodoStatus[] }): { where: string; params: string[] } {
   const clauses: string[] = ["project_id = ?"];
   const params: string[] = [projectId];
 
@@ -72,8 +72,13 @@ function buildWhere(projectId: string, opts?: { search?: string; tags?: string[]
   if (opts?.tags?.length) {
     for (const tag of opts.tags) {
       clauses.push("tags LIKE ?");
-      params.push(`%"${tag}"%`);
+      params.push(`%\"${tag}\"%`);
     }
+  }
+
+  if (opts?.statuses?.length) {
+    clauses.push(`status IN (${opts.statuses.map(() => "?").join(", ")})`);
+    params.push(...opts.statuses);
   }
 
   return { where: `WHERE ${clauses.join(" AND ")}`, params };

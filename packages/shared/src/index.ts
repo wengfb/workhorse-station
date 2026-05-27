@@ -255,6 +255,7 @@ export type DeleteChatSkillRequest = {
 export type ListQuery = {
   search?: string;
   tags?: string[];
+  statuses?: TodoStatus[];
   page?: number;
   pageSize?: number;
 };

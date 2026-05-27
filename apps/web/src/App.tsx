@@ -538,6 +538,8 @@ export function App() {
   const setTodoSearchQuery = projectTodosList.setSearchQuery;
   const todoFilterTags = projectTodosList.filterTags;
   const setTodoFilterTags = projectTodosList.setFilterTags;
+  const todoStatuses = projectTodosList.statuses;
+  const setTodoStatuses = projectTodosList.setStatuses;
   const availableTodoTags = projectTodosList.availableTags;
   const selectedTodo = todos.find((todo) => todo.id === selectedTodoId) ?? null;
   const selectedSession = selectedSessionId ? sessions.find((session) => session.id === selectedSessionId) ?? null : null;
@@ -2589,9 +2591,11 @@ export function App() {
             onTodosPageChange={setTodosPage}
             todoSearchQuery={todoSearchQuery}
             todoFilterTags={todoFilterTags}
+            todoStatuses={todoStatuses}
             availableTodoTags={availableTodoTags}
             onTodoSearchChange={setTodoSearchQuery}
             onTodoFilterTagsChange={setTodoFilterTags}
+            onTodoStatusesChange={setTodoStatuses}
             onTodoStatusChange={handleTodoStatusChange}
             onRefreshWorktrees={() => selectedProject && reloadWorktrees(selectedProject.id, null)}
             onRefreshProjectSkills={() => selectedProject && reloadProjectSkills(selectedProject.id, null)}
@@ -3912,9 +3916,11 @@ function ProjectWorkspacePage({
   onTodosPageChange,
   todoSearchQuery = "",
   todoFilterTags = [],
+  todoStatuses = [],
   availableTodoTags = [],
   onTodoSearchChange,
   onTodoFilterTagsChange,
+  onTodoStatusesChange,
   onTodoStatusChange,
   onRefreshWorktrees,
   onRefreshProjectSkills
@@ -3996,9 +4002,11 @@ function ProjectWorkspacePage({
   onTodosPageChange?: (page: number) => void;
   todoSearchQuery?: string;
   todoFilterTags?: string[];
+  todoStatuses?: TodoStatus[];
   availableTodoTags?: string[];
   onTodoSearchChange?: (query: string) => void;
   onTodoFilterTagsChange?: (tags: string[]) => void;
+  onTodoStatusesChange?: (statuses: TodoStatus[]) => void;
   onTodoStatusChange?: (todo: TodoSummary, newStatus: TodoStatus) => void;
   onRefreshWorktrees?: () => void;
   onRefreshProjectSkills?: () => void;
@@ -4104,9 +4112,11 @@ function ProjectWorkspacePage({
           onOpenSession={onOpenSession}
           searchQuery={todoSearchQuery}
           filterTags={todoFilterTags}
+          statuses={todoStatuses}
           availableTags={availableTodoTags}
           onSearchChange={onTodoSearchChange}
           onFilterTagsChange={onTodoFilterTagsChange}
+          onStatusesChange={onTodoStatusesChange}
           onStatusChange={onTodoStatusChange}
         />
       ) : null}
@@ -5704,9 +5714,11 @@ function TodoPanel({
   onOpenSession,
   searchQuery = "",
   filterTags = [],
+  statuses = [],
   availableTags = [],
   onSearchChange,
   onFilterTagsChange,
+  onStatusesChange,
   onStatusChange
 }: {
   project: ProjectSummary | null;
@@ -5730,9 +5742,11 @@ function TodoPanel({
   onOpenSession: (source: SessionSource, todoId?: string, sessionId?: string) => void;
   searchQuery?: string;
   filterTags?: string[];
+  statuses?: TodoStatus[];
   availableTags?: string[];
   onSearchChange?: (query: string) => void;
   onFilterTagsChange?: (tags: string[]) => void;
+  onStatusesChange?: (statuses: TodoStatus[]) => void;
   onStatusChange?: (todo: TodoSummary, newStatus: TodoStatus) => void;
 }) {
   if (!project) {
@@ -5791,6 +5805,28 @@ function TodoPanel({
               placeholder="搜索任务标题、描述或标签..."
             />
           </div>
+          <div className="flex flex-wrap items-center gap-1">
+            {todoStatusOptions.map((option) => {
+              const active = statuses.includes(option.value);
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    const next = active
+                      ? statuses.filter((status) => status !== option.value)
+                      : [...statuses, option.value];
+                    onStatusesChange?.(next);
+                  }}
+                  className={`rounded-full border px-2 py-0.5 text-[10px] transition-colors ${
+                    active ? "border-violet-400/40 bg-violet-400/10 text-violet-300" : "border-white/10 text-slate-400 hover:border-white/20 hover:text-slate-300"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
           {availableTags.length > 0 && (
             <div className="flex flex-wrap items-center gap-1">
               {availableTags.map((tag) => {
@@ -5814,7 +5850,7 @@ function TodoPanel({
             </div>
           )}
           <div className="text-[11px] text-slate-500">
-            {todos.length} 条结果{(searchQuery || filterTags.length > 0) ? "（已筛选）" : ""}
+            {todos.length} 条结果{(searchQuery || filterTags.length > 0 || statuses.length !== todoStatusOptions.length) ? "（已筛选）" : ""}
           </div>
         </div>
         <div className="min-h-[200px] grid grid-cols-3 gap-3 p-3 items-start">

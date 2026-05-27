@@ -26,7 +26,7 @@ type ProjectTodoParams = ProjectParams & {
 const todoStatuses: TodoStatus[] = ["draft", "pending", "in_progress", "completed"];
 
 export async function registerTodoRoutes(server: FastifyInstance, database: DatabaseState) {
-  server.get<{ Params: ProjectParams; Querystring: { page?: string; pageSize?: string; search?: string; tags?: string } }>(
+  server.get<{ Params: ProjectParams; Querystring: { page?: string; pageSize?: string; search?: string; tags?: string; statuses?: string } }>(
     "/api/projects/:projectId/todos",
     async (request): Promise<ApiResponse<TodosResponse>> => {
       assertProjectExists(database, request.params.projectId);
@@ -36,7 +36,7 @@ export async function registerTodoRoutes(server: FastifyInstance, database: Data
         ok: true,
         data: {
           todos: listTodos(database.db, request.params.projectId, opts),
-          total: countTodos(database.db, request.params.projectId, { search: opts.search, tags: opts.tags }),
+          total: countTodos(database.db, request.params.projectId, { search: opts.search, tags: opts.tags, statuses: opts.statuses }),
           page: opts.page ?? 1,
           pageSize: opts.pageSize ?? 12
         }

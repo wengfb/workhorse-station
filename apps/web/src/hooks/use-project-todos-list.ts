@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { TodoSummary } from "@workhorse-station/shared";
+import type { TodoStatus, TodoSummary } from "@workhorse-station/shared";
 import { getTodos } from "../api";
 import { isDefaultListQuery } from "../lib/list-query";
 import { useListQueryState } from "./use-list-query-state";
+
+const defaultTodoStatuses: TodoStatus[] = ["draft", "pending", "in_progress"];
 
 type UseProjectTodosListOptions = {
   projectId: string | null;
@@ -16,7 +18,7 @@ export function useProjectTodosList({ projectId, formatError }: UseProjectTodosL
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
-  const queryState = useListQueryState();
+  const queryState = useListQueryState({ statuses: defaultTodoStatuses });
   const effectiveQueryRef = useRef(queryState.effectiveQuery);
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export function useProjectTodosList({ projectId, formatError }: UseProjectTodosL
 
   useEffect(() => {
     if (!isDefaultListQuery(queryState.query)) {
-      queryState.reset();
+      queryState.reset({ statuses: defaultTodoStatuses });
     }
   }, [projectId]);
 
