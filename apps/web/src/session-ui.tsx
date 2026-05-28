@@ -351,10 +351,12 @@ export function SessionModal({
   error,
   loading,
   updatingSessionId,
+  renamingSessionId,
   deletingSessionId,
   deletingWorkspaceTerminalId,
   continuingSessionId,
   onSelectExecution,
+  onRenameSession,
   onStopSession,
   onDeleteSession,
   onDeleteWorkspaceTerminal,
@@ -380,10 +382,12 @@ export function SessionModal({
   error: string | null;
   loading: boolean;
   updatingSessionId: string | null;
+  renamingSessionId: string | null;
   deletingSessionId: string | null;
   deletingWorkspaceTerminalId: string | null;
   continuingSessionId: string | null;
   onSelectExecution: (execution: ExecutionListItem) => void;
+  onRenameSession: (session: SessionSummary) => void;
   onStopSession: (session: SessionSummary) => void;
   onDeleteSession: (session: SessionSummary) => void;
   onDeleteWorkspaceTerminal: (execution: Extract<ExecutionListItem, { kind: "workspace-terminal" }>) => void;
@@ -557,6 +561,13 @@ export function SessionModal({
                             </button>
                           )}
                           <button
+                            disabled={renamingSessionId === session.id}
+                            onClick={() => onRenameSession(session)}
+                            className="rounded-md border border-sky-400/30 bg-sky-400/10 px-1.5 py-1 text-[10px] text-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {renamingSessionId === session.id ? "重命名中" : "重命名"}
+                          </button>
+                          <button
                             disabled={updatingSessionId === session.id || session.runtimeStatus === "stopped" || session.runtimeStatus === "failed"}
                             onClick={() => onStopSession(session)}
                             className="rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-1 text-[10px] text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
@@ -582,6 +593,13 @@ export function SessionModal({
                               {continuingSessionId === session.id ? "继续中" : "继续"}
                             </button>
                           )}
+                          <button
+                            disabled={renamingSessionId === session.id}
+                            onClick={() => onRenameSession(session)}
+                            className="rounded-md border border-sky-400/30 bg-sky-400/10 px-1.5 py-1 text-[10px] text-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {renamingSessionId === session.id ? "重命名中" : "重命名"}
+                          </button>
                           <button
                             disabled={updatingSessionId === session.id || session.runtimeStatus === "stopped" || session.runtimeStatus === "failed"}
                             onClick={() => onStopSession(session)}

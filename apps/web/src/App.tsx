@@ -110,6 +110,7 @@ import {
   updateNote,
   updateProject,
   updatePromptDraft,
+  updateSession,
   updateTodo,
   getGlobalClaudeMd,
   updateGlobalClaudeMd,
@@ -183,6 +184,10 @@ type WorkspaceTerminalContext = {
   worktreeId: string | null;
   worktreeName: string | null;
   requestedWorktreeName: string | null;
+};
+
+type WorkspaceTerminalOpenOptions = {
+  forceCreate?: boolean;
 };
 
 type SkillTransferTarget =
@@ -295,6 +300,7 @@ export function App() {
   const [savingPromptDraft, setSavingPromptDraft] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
   const [updatingSessionId, setUpdatingSessionId] = useState<string | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [continuingSessionId, setContinuingSessionId] = useState<string | null>(null);
   const [globalNoteDraft, setGlobalNoteDraft] = useState<NoteDraft>(emptyNoteDraft());
@@ -2162,6 +2168,33 @@ export function App() {
     ]);
   }
 
+  async function handleRenameSession(session: SessionSummary) {
+    if (!selectedProject) {
+      return;
+    }
+
+    const nextName = await prompt("请输入新的会话名称", { defaultValue: session.name });
+
+    if (!nextName || nextName.trim() === session.name) {
+      return;
+    }
+
+    setRenamingSessionId(session.id);
+    setSessionsError(null);
+
+    try {
+      const data = await updateSession(selectedProject.id, session.id, { name: nextName.trim() });
+      await Promise.all([
+        reloadSessions(selectedProject.id, data.session.id),
+        reloadExecutions({ kind: "session", id: data.session.id })
+      ]);
+    } catch (error) {
+      setSessionsError(formatError(error, "会话重命名失败"));
+    } finally {
+      setRenamingSessionId(null);
+    }
+  }
+
   async function handleDeleteSession(session: SessionSummary) {
     if (!selectedProject) {
       return;
@@ -2226,7 +2259,7 @@ export function App() {
     }
   }
 
-  async function handleOpenWorkspaceTerminal(context?: WorkspaceTerminalContext | null) {
+  async function handleOpenWorkspaceTerminal(context?: WorkspaceTerminalContext | null, options?: WorkspaceTerminalOpenOptions) {
     const nextContext: WorkspaceTerminalContext = context ?? {
       projectId: selectedProject?.id ?? null,
       projectName: selectedProject?.name ?? null,
@@ -2235,14 +2268,15 @@ export function App() {
       requestedWorktreeName: null
     };
 
-    const canReuseWorkspaceTerminal =
+    const shouldReuseWorkspaceTerminal =
+      options?.forceCreate !== true &&
       workspaceTerminal !== null &&
       workspaceTerminal.projectId === nextContext.projectId &&
       workspaceTerminal.worktreeId === nextContext.worktreeId &&
       workspaceTerminal.requestedWorktreeName === nextContext.requestedWorktreeName &&
       (workspaceTerminal.runtimeStatus === "starting" || workspaceTerminal.runtimeStatus === "running" || workspaceTerminal.runtimeStatus === "stopping");
 
-    if (canReuseWorkspaceTerminal) {
+    if (shouldReuseWorkspaceTerminal) {
       setWorkspaceTerminalError(null);
       setWorkspaceTerminalContext(nextContext);
       if (workspaceTerminal) {
@@ -2272,6 +2306,7 @@ export function App() {
       setOpeningWorkspaceTerminal(false);
     }
   }
+
 
   async function handleStopWorkspaceTerminal() {
     if (!workspaceTerminal) {
@@ -2580,7 +2615,7 @@ export function App() {
                 worktreeId: selectedWorktree?.id ?? null,
                 worktreeName: selectedWorktree?.name ?? null,
                 requestedWorktreeName: null
-              })
+              }, { forceCreate: true })
             }
             noteSearchQuery={noteSearchQuery}
             noteFilterTags={noteFilterTags}
@@ -2680,10 +2715,12 @@ export function App() {
           error={sessionsError}
           loading={sessionsLoading}
           updatingSessionId={updatingSessionId}
+          renamingSessionId={renamingSessionId}
           deletingSessionId={deletingSessionId}
           deletingWorkspaceTerminalId={deletingWorkspaceTerminalId}
           continuingSessionId={continuingSessionId}
           onSelectExecution={(execution) => void handleOpenExecution(execution)}
+          onRenameSession={handleRenameSession}
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
           onDeleteWorkspaceTerminal={(execution) => void handleDeleteWorkspaceTerminal(execution)}
