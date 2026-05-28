@@ -22,12 +22,18 @@ type RuntimeSession = RuntimeSessionState & {
   pty: SessionPty;
   stopRequested: boolean;
   flushTimer: ReturnType<typeof setInterval>;
-  lastFlushedLength: number;
+  flushInProgress: boolean;
+  flushRequested: boolean;
+  runtimeDirty: boolean;
+  bufferDirty: boolean;
+  bufferDirtyAt: number | null;
+  lastBufferFlushedLength: number;
 };
 
 const maxBufferLength = 200_000;
-const flushIntervalMs = 10_000;
-const flushThresholdBytes = 50_000;
+const runtimeFlushTickMs = 1_000;
+const bufferFlushDelayMs = 5_000;
+const bufferFlushThresholdBytes = 50_000;
 
 export class SessionRuntimeManager extends EventEmitter {
   private readonly sessions = new Map<string, RuntimeSession>();
@@ -81,17 +87,14 @@ export class SessionRuntimeManager extends EventEmitter {
       pty,
       stopRequested: false,
       flushTimer: setInterval(() => {
-        void flushToDb();
-      }, flushIntervalMs),
-      lastFlushedLength: 0
-    };
-
-    const flushToDb = async () => {
-      if (state.buffer.length > state.lastFlushedLength) {
-        state.lastFlushedLength = state.buffer.length;
-        await updateSessionTerminalBuffer(this.database.db, input.projectId, input.sessionId, state.buffer);
-        await this.database.persist();
-      }
+        void this.flushSession(input.sessionId);
+      }, runtimeFlushTickMs),
+      flushInProgress: false,
+      flushRequested: false,
+      runtimeDirty: false,
+      bufferDirty: false,
+      bufferDirtyAt: null,
+      lastBufferFlushedLength: 0
     };
 
     this.sessions.set(input.sessionId, state);
@@ -103,20 +106,21 @@ export class SessionRuntimeManager extends EventEmitter {
         state.buffer = nextBuffer.length > maxBufferLength ? nextBuffer.slice(-maxBufferLength) : nextBuffer;
         state.lastActivityAt = formatMysqlDateTime();
         state.runtimeStatus = state.stopRequested ? "stopping" : "running";
-        await updateSessionRuntime(this.database.db, input.projectId, input.sessionId, {
-          runtimeStatus: state.runtimeStatus,
-          pid: state.pid,
-          lastActivityAt: state.lastActivityAt
-        });
-        await this.database.persist();
+        state.runtimeDirty = true;
+        state.bufferDirty = true;
+        state.bufferDirtyAt ??= Date.now();
 
-        if (state.buffer.length - state.lastFlushedLength >= flushThresholdBytes) {
-          state.lastFlushedLength = state.buffer.length;
-          await updateSessionTerminalBuffer(this.database.db, input.projectId, input.sessionId, state.buffer);
-          await this.database.persist();
-        }
-
-        this.emit("event", createRuntimeEvent({ type: "session.output", sessionId: input.sessionId, output: data, runtimeStatus: state.runtimeStatus, cwd: state.cwd, pid: state.pid }));
+        this.emit(
+          "event",
+          createRuntimeEvent({
+            type: "session.output",
+            sessionId: input.sessionId,
+            output: data,
+            runtimeStatus: state.runtimeStatus,
+            cwd: state.cwd,
+            pid: state.pid
+          })
+        );
       })().catch((error) => {
         console.error("[SessionRuntime] output handler error:", error);
       });
@@ -130,18 +134,10 @@ export class SessionRuntimeManager extends EventEmitter {
         const currentSummary = currentSession?.summary ?? null;
         state.runtimeStatus = stoppedByUser || exitCode === 0 ? "stopped" : "failed";
         state.lastActivityAt = formatMysqlDateTime();
+        state.runtimeDirty = true;
+        state.bufferDirty = true;
+        state.bufferDirtyAt ??= Date.now();
 
-        await updateSessionTerminalBuffer(this.database.db, input.projectId, input.sessionId, state.buffer);
-
-        await updateSessionCompletion(this.database.db, input.projectId, input.sessionId, {
-          status: stoppedByUser || exitCode === 0 ? "completed" : "failed",
-          runtimeStatus: state.runtimeStatus,
-          exitCode: stoppedByUser ? null : exitCode,
-          lastActivityAt: state.lastActivityAt,
-          summary:
-            stoppedByUser || exitCode === 0 ? currentSummary : currentSummary ?? `Claude Code 退出，exit code ${exitCode}`
-        });
-        await this.database.persist();
         this.emit(
           "event",
           createRuntimeEvent({
@@ -153,6 +149,16 @@ export class SessionRuntimeManager extends EventEmitter {
             exitCode: stoppedByUser ? null : exitCode
           })
         );
+
+        await this.flushSession(input.sessionId, true);
+        await updateSessionCompletion(this.database.db, input.projectId, input.sessionId, {
+          status: stoppedByUser || exitCode === 0 ? "completed" : "failed",
+          runtimeStatus: state.runtimeStatus,
+          exitCode: stoppedByUser ? null : exitCode,
+          lastActivityAt: state.lastActivityAt,
+          summary: stoppedByUser || exitCode === 0 ? currentSummary : currentSummary ?? `Claude Code 退出，exit code ${exitCode}`
+        });
+        await this.database.persist();
         this.sessions.delete(input.sessionId);
       })().catch((error) => {
         console.error("[SessionRuntime] exit handler error:", error);
@@ -171,12 +177,7 @@ export class SessionRuntimeManager extends EventEmitter {
     state.pid = pid;
     state.runtimeStatus = "running";
     state.lastActivityAt = formatMysqlDateTime();
-    await updateSessionRuntime(this.database.db, input.projectId, input.sessionId, {
-      runtimeStatus: state.runtimeStatus,
-      pid: state.pid,
-      lastActivityAt: state.lastActivityAt
-    });
-    await this.database.persist();
+    state.runtimeDirty = true;
     this.emit("event", createRuntimeEvent({ type: "session.started", sessionId: input.sessionId, runtimeStatus: state.runtimeStatus, cwd: state.cwd, pid: state.pid }));
 
     return {
@@ -218,15 +219,89 @@ export class SessionRuntimeManager extends EventEmitter {
 
     session.stopRequested = true;
     session.runtimeStatus = "stopping";
-    await updateSessionRuntime(this.database.db, projectId, sessionId, {
-      runtimeStatus: session.runtimeStatus,
-      pid: session.pid,
-      lastActivityAt: formatMysqlDateTime()
-    });
-    await this.database.persist();
+    session.lastActivityAt = formatMysqlDateTime();
+    session.runtimeDirty = true;
     this.emit("event", createRuntimeEvent({ type: "session.runtime", sessionId, runtimeStatus: session.runtimeStatus, cwd: session.cwd, pid: session.pid }));
     session.pty.stop();
+    void this.flushSession(sessionId, true).catch((error) => {
+      console.error("[SessionRuntime] stop flush error:", error);
+    });
     return true;
+  }
+
+  private async flushSession(sessionId: string, force = false) {
+    const session = this.sessions.get(sessionId);
+
+    if (!session) {
+      return false;
+    }
+
+    if (session.flushInProgress) {
+      session.flushRequested = true;
+      return true;
+    }
+
+    session.flushInProgress = true;
+
+    try {
+      do {
+        session.flushRequested = false;
+
+        const runtimeShouldFlush = force || session.runtimeDirty;
+        const bufferShouldFlush = force || this.shouldFlushBuffer(session);
+
+        if (runtimeShouldFlush) {
+          session.runtimeDirty = false;
+          try {
+            await updateSessionRuntime(this.database.db, session.projectId, session.sessionId, {
+              runtimeStatus: session.runtimeStatus,
+              pid: session.pid,
+              lastActivityAt: session.lastActivityAt
+            });
+          } catch (error) {
+            session.runtimeDirty = true;
+            throw error;
+          }
+        }
+
+        if (bufferShouldFlush) {
+          const bufferSnapshot = session.buffer;
+          session.bufferDirty = false;
+          try {
+            await updateSessionTerminalBuffer(this.database.db, session.projectId, session.sessionId, bufferSnapshot);
+            session.lastBufferFlushedLength = bufferSnapshot.length;
+            if (!session.bufferDirty) {
+              session.bufferDirtyAt = null;
+            }
+          } catch (error) {
+            session.bufferDirty = true;
+            throw error;
+          }
+        }
+
+        await this.database.persist();
+      } while (session.flushRequested);
+    } finally {
+      session.flushInProgress = false;
+    }
+
+    return true;
+  }
+
+  private shouldFlushBuffer(session: RuntimeSession) {
+    if (!session.bufferDirty) {
+      return false;
+    }
+
+    if (session.buffer.length - session.lastBufferFlushedLength >= bufferFlushThresholdBytes) {
+      return true;
+    }
+
+    if (session.bufferDirtyAt === null) {
+      return false;
+    }
+
+    return Date.now() - session.bufferDirtyAt >= bufferFlushDelayMs;
   }
 }
 
