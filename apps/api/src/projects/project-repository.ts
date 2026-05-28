@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CreateProjectRequest, ProjectSummary, SessionResultSummary } from "@workhorse-station/shared";
-import type { Database } from "sql.js";
+import type { DatabaseExecutor } from "../db/mysql.js";
+import { execute, queryOne, queryRows } from "../db/mysql.js";
 
 type ProjectRow = {
   id: string;
@@ -18,7 +19,7 @@ export type ProjectWriteInput = Required<Pick<CreateProjectRequest, "name" | "pa
   description: string | null;
 };
 
-export function listProjects(db: Database) {
+export async function listProjects(db: DatabaseExecutor) {
   return selectRows(
     db,
     `SELECT id, name, path, default_branch, description, latest_session_result, created_at, updated_at
@@ -27,7 +28,7 @@ export function listProjects(db: Database) {
   );
 }
 
-export function getProject(db: Database, id: string) {
+export async function getProject(db: DatabaseExecutor, id: string) {
   return selectOne(
     db,
     `SELECT id, name, path, default_branch, description, latest_session_result, created_at, updated_at
@@ -37,7 +38,7 @@ export function getProject(db: Database, id: string) {
   );
 }
 
-export function findProjectByPath(db: Database, projectPath: string) {
+export async function findProjectByPath(db: DatabaseExecutor, projectPath: string) {
   return selectOne(
     db,
     `SELECT id, name, path, default_branch, description, latest_session_result, created_at, updated_at
@@ -47,15 +48,16 @@ export function findProjectByPath(db: Database, projectPath: string) {
   );
 }
 
-export function createProject(db: Database, input: ProjectWriteInput) {
+export async function createProject(db: DatabaseExecutor, input: ProjectWriteInput) {
   const id = input.id ?? randomUUID();
-  db.run(
+  await execute(
+    db,
     `INSERT INTO projects (id, name, path, default_branch, description, latest_session_result)
      VALUES (?, ?, ?, ?, ?, NULL)`,
     [id, input.name, input.path, input.defaultBranch, input.description]
   );
 
-  const project = getProject(db, id);
+  const project = await getProject(db, id);
 
   if (!project) {
     throw new Error("Failed to read created project");
@@ -64,8 +66,9 @@ export function createProject(db: Database, input: ProjectWriteInput) {
   return project;
 }
 
-export function updateProjectLatestSessionResult(db: Database, id: string, latestSessionResult: SessionResultSummary | null) {
-  db.run(
+export async function updateProjectLatestSessionResult(db: DatabaseExecutor, id: string, latestSessionResult: SessionResultSummary | null) {
+  await execute(
+    db,
     `UPDATE projects
      SET latest_session_result = ?, updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
@@ -75,8 +78,9 @@ export function updateProjectLatestSessionResult(db: Database, id: string, lates
   return getProject(db, id);
 }
 
-export function updateProject(db: Database, id: string, input: ProjectWriteInput) {
-  db.run(
+export async function updateProject(db: DatabaseExecutor, id: string, input: ProjectWriteInput) {
+  await execute(
+    db,
     `UPDATE projects
      SET name = ?, path = ?, default_branch = ?, description = ?, updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
@@ -86,38 +90,18 @@ export function updateProject(db: Database, id: string, input: ProjectWriteInput
   return getProject(db, id);
 }
 
-export function deleteProject(db: Database, id: string) {
-  db.run("DELETE FROM projects WHERE id = ?", [id]);
-  return db.getRowsModified() > 0;
+export async function deleteProject(db: DatabaseExecutor, id: string) {
+  return (await execute(db, "DELETE FROM projects WHERE id = ?", [id])) > 0;
 }
 
-function selectRows(db: Database, sql: string, params: (string | null)[] = []) {
-  const statement = db.prepare(sql, params);
-  const rows: ProjectSummary[] = [];
-
-  try {
-    while (statement.step()) {
-      rows.push(mapProjectRow(statement.getAsObject() as ProjectRow));
-    }
-  } finally {
-    statement.free();
-  }
-
-  return rows;
+async function selectRows(db: DatabaseExecutor, sql: string, params: Array<string | null> = []) {
+  const rows = await queryRows<ProjectRow>(db, sql, params);
+  return rows.map(mapProjectRow);
 }
 
-function selectOne(db: Database, sql: string, params: string[]) {
-  const statement = db.prepare(sql, params);
-
-  try {
-    if (!statement.step()) {
-      return null;
-    }
-
-    return mapProjectRow(statement.getAsObject() as ProjectRow);
-  } finally {
-    statement.free();
-  }
+async function selectOne(db: DatabaseExecutor, sql: string, params: string[]) {
+  const row = await queryOne<ProjectRow>(db, sql, params);
+  return row ? mapProjectRow(row) : null;
 }
 
 function mapProjectRow(row: ProjectRow): ProjectSummary {

@@ -61,7 +61,7 @@ export async function registerSkillRoutes(server: FastifyInstance, database: Dat
     return {
       ok: true,
       data: { skill }
-    };
+    }
   });
 
   server.patch<{ Params: SkillParams; Body: RenameSkillRequest }>("/api/skills/:name", async (request): Promise<ApiResponse<SkillResponse>> => {
@@ -70,7 +70,7 @@ export async function registerSkillRoutes(server: FastifyInstance, database: Dat
     return {
       ok: true,
       data: { skill }
-    };
+    }
   });
 
   server.delete<{ Params: SkillParams; Body: DeleteSkillRequest }>("/api/skills/:name", async (request): Promise<ApiResponse<{ deleted: true }>> => {
@@ -79,13 +79,13 @@ export async function registerSkillRoutes(server: FastifyInstance, database: Dat
     return {
       ok: true,
       data: { deleted: true }
-    };
+    }
   });
 
   server.post<{ Params: SkillParams; Body: CopyGlobalSkillRequest }>(
     "/api/skills/:name/copy",
     async (request): Promise<ApiResponse<CopySkillResponse>> => {
-      const project = getProject(database.db, request.body?.targetProjectId ?? "");
+      const project = await getProject(database.db, request.body?.targetProjectId ?? "");
 
       if (!project) {
         throw new HttpError(404, "project_not_found", "项目不存在");
@@ -114,7 +114,7 @@ export async function registerSkillRoutes(server: FastifyInstance, database: Dat
   );
 
   server.get<{ Params: ProjectParams }>("/api/projects/:projectId/skills", async (request): Promise<ApiResponse<ProjectSkillsResponse>> => {
-    const project = getProject(database.db, request.params.projectId);
+    const project = await getProject(database.db, request.params.projectId);
 
     if (!project) {
       throw new HttpError(404, "project_not_found", "项目不存在");
@@ -131,7 +131,7 @@ export async function registerSkillRoutes(server: FastifyInstance, database: Dat
   server.post<{ Params: ProjectParams; Body: CreateSkillRequest }>(
     "/api/projects/:projectId/skills",
     async (request, reply): Promise<ApiResponse<ProjectSkillResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
 
       if (!project) {
         throw new HttpError(404, "project_not_found", "项目不存在");
@@ -157,7 +157,7 @@ export async function registerSkillRoutes(server: FastifyInstance, database: Dat
   server.patch<{ Params: ProjectSkillParams; Body: RenameSkillRequest }>(
     "/api/projects/:projectId/skills/:name",
     async (request): Promise<ApiResponse<ProjectSkillResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
 
       if (!project) {
         throw new HttpError(404, "project_not_found", "项目不存在");
@@ -181,7 +181,7 @@ export async function registerSkillRoutes(server: FastifyInstance, database: Dat
   server.delete<{ Params: ProjectSkillParams; Body: DeleteSkillRequest }>(
     "/api/projects/:projectId/skills/:name",
     async (request): Promise<ApiResponse<{ deleted: true }>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
 
       if (!project) {
         throw new HttpError(404, "project_not_found", "项目不存在");
@@ -199,7 +199,7 @@ export async function registerSkillRoutes(server: FastifyInstance, database: Dat
   server.post<{ Params: ProjectSkillParams; Body: AddProjectSkillToStoreRequest }>(
     "/api/projects/:projectId/skills/:name/add-to-store",
     async (request): Promise<ApiResponse<StoreSkillResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
 
       if (!project) {
         throw new HttpError(404, "project_not_found", "项目不存在");
@@ -218,7 +218,7 @@ export async function registerSkillRoutes(server: FastifyInstance, database: Dat
   server.post<{ Params: ProjectSkillParams; Body: CopyProjectSkillRequest }>(
     "/api/projects/:projectId/skills/:name/copy",
     async (request): Promise<ApiResponse<CopySkillResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
 
       if (!project) {
         throw new HttpError(404, "project_not_found", "项目不存在");

@@ -22,7 +22,7 @@ import type {
   SessionHistoryMessageBlock
 } from "@workhorse-station/shared";
 import type { DatabaseState } from "../db/init.js";
-import { getProject, updateProjectLatestSessionResult } from "../projects/project-repository.js";
+import { getProject, listProjects, updateProjectLatestSessionResult } from "../projects/project-repository.js";
 import { HttpError } from "../projects/http-error.js";
 import { getProjectPromptDraft } from "../prompt-drafts/prompt-draft-repository.js";
 import { getProjectTodo, updateTodo, updateTodoLatestSessionResult } from "../todos/todo-repository.js";
@@ -42,14 +42,14 @@ import {
 } from "./session-repository.js";
 import { resolveSessionWorktree } from "./resolve-session-worktree.js";
 import { SessionRuntimeManager } from "./session-runtime-manager.js";
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { createReadStream } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import type { WorkspaceTerminalRuntimeManager } from "../terminals/workspace-terminal-runtime-manager.js";
 
- type ProjectParams = {
+type ProjectParams = {
   projectId: string;
 };
 
@@ -67,26 +67,26 @@ export async function registerSessionRoutes(
   workspaceTerminalRuntimeManager: WorkspaceTerminalRuntimeManager
 ) {
   server.get<{ Params: ProjectParams }>("/api/projects/:projectId/sessions", async (request): Promise<ApiResponse<SessionsResponse>> => {
-    assertProjectExists(database, request.params.projectId);
+    await assertProjectExists(database, request.params.projectId);
 
     return {
       ok: true,
       data: {
-        sessions: listSessions(database.db, request.params.projectId)
+        sessions: await listSessions(database.db, request.params.projectId)
       }
     };
   });
 
   server.post<{ Params: ProjectParams; Body: CreateSessionRequest }>("/api/projects/:projectId/sessions", async (request, reply): Promise<ApiResponse<SessionResponse>> => {
-    assertProjectExists(database, request.params.projectId);
-    const input = buildSessionInput(database, request.params.projectId, request.body);
+    await assertProjectExists(database, request.params.projectId);
+    const input = await buildSessionInput(database, request.params.projectId, request.body);
     const resolvedWorktree = await resolveSessionWorktree(database, {
       projectId: request.params.projectId,
       worktreeId: input.worktreeId,
       requestedWorktreeName: input.requestedWorktreeName
     });
 
-    const session = createSessionRecord(database.db, {
+    const session = await createSessionRecord(database.db, {
       ...input,
       worktreeId: resolvedWorktree.worktreeId,
       requestedWorktreeName: resolvedWorktree.requestedWorktreeName,
@@ -98,7 +98,7 @@ export async function registerSessionRoutes(
       exitCode: null,
       lastActivityAt: null
     });
-    database.persist();
+    await database.persist();
 
     try {
       const runtime = await runtimeManager.startSession({
@@ -111,7 +111,7 @@ export async function registerSessionRoutes(
         forkSession: input.forkSession ?? false
       });
 
-      const launchedSession = updateSessionLaunch(database.db, request.params.projectId, session.id, {
+      const launchedSession = await updateSessionLaunch(database.db, request.params.projectId, session.id, {
         status: "running",
         runtimeStatus: runtime.runtimeStatus,
         worktreeId: resolvedWorktree.worktreeId,
@@ -127,8 +127,8 @@ export async function registerSessionRoutes(
         throw new Error("Failed to read launched session");
       }
 
-      maybeMarkTodoInProgress(database, request.params.projectId, launchedSession.todoId);
-      database.persist();
+      await maybeMarkTodoInProgress(database, request.params.projectId, launchedSession.todoId);
+      await database.persist();
       reply.status(201);
 
       return {
@@ -136,28 +136,28 @@ export async function registerSessionRoutes(
         data: { session: launchedSession }
       };
     } catch (error) {
-      updateSessionCompletion(database.db, request.params.projectId, session.id, {
+      await updateSessionCompletion(database.db, request.params.projectId, session.id, {
         status: "failed",
         runtimeStatus: "failed",
         exitCode: 1,
         lastActivityAt: new Date().toISOString(),
         summary: error instanceof Error ? error.message : "Claude Code 启动失败"
       });
-      database.persist();
+      await database.persist();
       throw new HttpError(500, "session_start_failed", error instanceof Error ? error.message : "Claude Code 启动失败");
     }
   });
 
   server.patch<{ Params: ProjectSessionParams; Body: UpdateSessionRequest }>("/api/projects/:projectId/sessions/:sessionId", async (request): Promise<ApiResponse<SessionResponse>> => {
-    assertProjectExists(database, request.params.projectId);
-    const currentSession = getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+    await assertProjectExists(database, request.params.projectId);
+    const currentSession = await getProjectSession(database.db, request.params.projectId, request.params.sessionId);
 
     if (!currentSession) {
       throw new HttpError(404, "session_not_found", "会话不存在");
     }
 
     const updateRequest = normalizeUpdateRequest(request.body);
-    const session = updateSessionRecord(database.db, request.params.projectId, request.params.sessionId, {
+    const session = await updateSessionRecord(database.db, request.params.projectId, request.params.sessionId, {
       name: normalizeName(request.body?.name ?? currentSession.name, currentSession.source, currentSession.todoId),
       summary: normalizeSummary(request.body?.summary === undefined ? currentSession.summary : request.body.summary)
     });
@@ -167,14 +167,14 @@ export async function registerSessionRoutes(
     }
 
     if (updateRequest.applyResultToTodo) {
-      applySessionResultToTodo(database, request.params.projectId, session);
+      await applySessionResultToTodo(database, request.params.projectId, session);
     }
 
     if (updateRequest.applyResultToProject) {
-      applySessionResultToProject(database, request.params.projectId, session);
+      await applySessionResultToProject(database, request.params.projectId, session);
     }
 
-    database.persist();
+    await database.persist();
 
     return {
       ok: true,
@@ -183,15 +183,15 @@ export async function registerSessionRoutes(
   });
 
   server.post<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/stop", async (request): Promise<ApiResponse<StopSessionResponse>> => {
-    assertProjectExists(database, request.params.projectId);
-    const currentSession = getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+    await assertProjectExists(database, request.params.projectId);
+    const currentSession = await getProjectSession(database.db, request.params.projectId, request.params.sessionId);
 
     if (!currentSession) {
       throw new HttpError(404, "session_not_found", "会话不存在");
     }
 
-    runtimeManager.stopSession(request.params.projectId, request.params.sessionId);
-    const session = getProjectSession(database.db, request.params.projectId, request.params.sessionId) ?? currentSession;
+    await runtimeManager.stopSession(request.params.projectId, request.params.sessionId);
+    const session = (await getProjectSession(database.db, request.params.projectId, request.params.sessionId)) ?? currentSession;
 
     return {
       ok: true,
@@ -200,8 +200,8 @@ export async function registerSessionRoutes(
   });
 
   server.post<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/continue", async (request): Promise<ApiResponse<SessionResponse>> => {
-    assertProjectExists(database, request.params.projectId);
-    const currentSession = getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+    await assertProjectExists(database, request.params.projectId);
+    const currentSession = await getProjectSession(database.db, request.params.projectId, request.params.sessionId);
 
     if (!currentSession) {
       throw new HttpError(404, "session_not_found", "会话不存在");
@@ -228,7 +228,7 @@ export async function registerSessionRoutes(
         initialBuffer: currentSession.terminalBuffer ?? ""
       });
 
-      const launchedSession = updateSessionLaunch(database.db, request.params.projectId, currentSession.id, {
+      const launchedSession = await updateSessionLaunch(database.db, request.params.projectId, currentSession.id, {
         status: "running",
         runtimeStatus: runtime.runtimeStatus,
         worktreeId: currentSession.worktreeId,
@@ -239,7 +239,7 @@ export async function registerSessionRoutes(
         lastActivityAt: runtime.lastActivityAt,
         summary: currentSession.summary
       });
-      database.persist();
+      await database.persist();
 
       if (!launchedSession) {
         throw new Error("Failed to read launched session");
@@ -250,21 +250,21 @@ export async function registerSessionRoutes(
         data: { session: launchedSession }
       };
     } catch (error) {
-      updateSessionCompletion(database.db, request.params.projectId, currentSession.id, {
+      await updateSessionCompletion(database.db, request.params.projectId, currentSession.id, {
         status: "failed",
         runtimeStatus: "failed",
         exitCode: 1,
         lastActivityAt: new Date().toISOString(),
         summary: error instanceof Error ? error.message : "Claude Code 启动失败"
       });
-      database.persist();
+      await database.persist();
       throw new HttpError(500, "session_continue_failed", error instanceof Error ? error.message : "Claude Code 继续启动失败");
     }
   });
 
   server.get<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/terminal", async (request): Promise<ApiResponse<SessionTerminalSnapshotResponse>> => {
-    assertProjectExists(database, request.params.projectId);
-    const currentSession = getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+    await assertProjectExists(database, request.params.projectId);
+    const currentSession = await getProjectSession(database.db, request.params.projectId, request.params.sessionId);
 
     if (!currentSession) {
       throw new HttpError(404, "session_not_found", "会话不存在");
@@ -284,8 +284,8 @@ export async function registerSessionRoutes(
   });
 
   server.post<{ Params: ProjectSessionParams; Body: SessionInputRequest }>("/api/projects/:projectId/sessions/:sessionId/input", async (request): Promise<ApiResponse<SessionResponse>> => {
-    assertProjectExists(database, request.params.projectId);
-    const session = getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+    await assertProjectExists(database, request.params.projectId);
+    const session = await getProjectSession(database.db, request.params.projectId, request.params.sessionId);
 
     if (!session) {
       throw new HttpError(404, "session_not_found", "会话不存在");
@@ -306,8 +306,8 @@ export async function registerSessionRoutes(
   });
 
   server.post<{ Params: ProjectSessionParams; Body: SessionResizeRequest }>("/api/projects/:projectId/sessions/:sessionId/resize", async (request): Promise<ApiResponse<SessionResponse>> => {
-    assertProjectExists(database, request.params.projectId);
-    const session = getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+    await assertProjectExists(database, request.params.projectId);
+    const session = await getProjectSession(database.db, request.params.projectId, request.params.sessionId);
 
     if (!session) {
       throw new HttpError(404, "session_not_found", "会话不存在");
@@ -327,10 +327,10 @@ export async function registerSessionRoutes(
     };
   });
 
-  server.get<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/ws", { websocket: true }, (socket, request) => {
+  server.get<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/ws", { websocket: true }, async (socket, request) => {
     const sessionId = request.params.sessionId;
 
-    if (!getProjectSession(database.db, request.params.projectId, sessionId)) {
+    if (!(await getProjectSession(database.db, request.params.projectId, sessionId))) {
       socket.close(1008, "会话不存在");
       return;
     }
@@ -362,9 +362,9 @@ export async function registerSessionRoutes(
   });
 
   server.get<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/events", async (request, reply) => {
-    assertProjectExists(database, request.params.projectId);
+    await assertProjectExists(database, request.params.projectId);
 
-    if (!getProjectSession(database.db, request.params.projectId, request.params.sessionId)) {
+    if (!(await getProjectSession(database.db, request.params.projectId, request.params.sessionId))) {
       throw new HttpError(404, "session_not_found", "会话不存在");
     }
 
@@ -392,8 +392,8 @@ export async function registerSessionRoutes(
   });
 
   server.get<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId/history", async (request): Promise<ApiResponse<SessionHistoryResponse>> => {
-    assertProjectExists(database, request.params.projectId);
-    const session = getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+    await assertProjectExists(database, request.params.projectId);
+    const session = await getProjectSession(database.db, request.params.projectId, request.params.sessionId);
 
     if (!session) {
       throw new HttpError(404, "session_not_found", "会话不存在");
@@ -411,14 +411,14 @@ export async function registerSessionRoutes(
   });
 
   server.delete<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId", async (request): Promise<ApiResponse<DeleteSessionResponse>> => {
-    assertProjectExists(database, request.params.projectId);
-    const stoppedRuntime = runtimeManager.stopSession(request.params.projectId, request.params.sessionId);
+    await assertProjectExists(database, request.params.projectId);
+    const stoppedRuntime = await runtimeManager.stopSession(request.params.projectId, request.params.sessionId);
 
-    if (!deleteSessionRecord(database.db, request.params.projectId, request.params.sessionId)) {
+    if (!(await deleteSessionRecord(database.db, request.params.projectId, request.params.sessionId))) {
       throw new HttpError(404, "session_not_found", "会话不存在");
     }
 
-    database.persist();
+    await database.persist();
 
     return {
       ok: true,
@@ -428,9 +428,9 @@ export async function registerSessionRoutes(
 
   server.get<{ Querystring: { limit?: string } }>("/api/executions", async (request): Promise<ApiResponse<ExecutionsResponse>> => {
     const limit = request.query.limit ? Math.min(Math.max(Number(request.query.limit) || 50, 1), 200) : undefined;
-    const sessionItems = listExecutionSessions(database.db, limit);
+    const sessionItems = await listExecutionSessions(database.db, limit);
     const terminalItems = workspaceTerminalRuntimeManager.list();
-    const projectNames = new Map(database.db.exec("SELECT id, name FROM projects")[0]?.values.map((row) => [String(row[0]), String(row[1])]) ?? []);
+    const projectNames = await listProjectNameMap(database);
 
     const executions = [...sessionItems, ...terminalItems.map((item) => ({
       ...item,
@@ -445,8 +445,8 @@ export async function registerSessionRoutes(
   });
 
   server.get("/api/executions/running", async (): Promise<ApiResponse<ExecutionsResponse>> => {
-    const sessionItems = listRunningExecutionSessions(database.db);
-    const projectNames = new Map(database.db.exec("SELECT id, name FROM projects")[0]?.values.map((row) => [String(row[0]), String(row[1])]) ?? []);
+    const sessionItems = await listRunningExecutionSessions(database.db);
+    const projectNames = await listProjectNameMap(database);
     const terminalItems = workspaceTerminalRuntimeManager.listRunning().map((item) => ({
       ...item,
       projectName: item.projectId ? projectNames.get(item.projectId) ?? null : null
@@ -462,25 +462,25 @@ export async function registerSessionRoutes(
 
   server.get("/api/sessions/running", async (): Promise<ApiResponse<RunningSessionsResponse>> => ({
     ok: true,
-    data: { sessions: listRunningSessions(database.db) }
+    data: { sessions: await listRunningSessions(database.db) }
   }));
 
   server.get<{ Querystring: { limit?: string } }>("/api/sessions/recent", async (request): Promise<ApiResponse<RecentSessionsResponse>> => {
     const limit = Math.min(Math.max(Number(request.query.limit) || 10, 1), 50);
     return {
       ok: true,
-      data: { sessions: listRecentSessions(database.db, limit) }
+      data: { sessions: await listRecentSessions(database.db, limit) }
     };
   });
 }
 
-function assertProjectExists(database: DatabaseState, projectId: string) {
-  if (!getProject(database.db, projectId)) {
+async function assertProjectExists(database: DatabaseState, projectId: string) {
+  if (!(await getProject(database.db, projectId))) {
     throw new HttpError(404, "project_not_found", "项目不存在");
   }
 }
 
-function buildSessionInput(database: DatabaseState, projectId: string, body: CreateSessionRequest | undefined): SessionWriteInput {
+async function buildSessionInput(database: DatabaseState, projectId: string, body: CreateSessionRequest | undefined): Promise<SessionWriteInput> {
   if (!isObject(body)) {
     throw new HttpError(400, "validation_error", "请求体必须是 JSON 对象");
   }
@@ -490,11 +490,11 @@ function buildSessionInput(database: DatabaseState, projectId: string, body: Cre
   const promptDraftId = normalizeOptionalId(body.promptDraftId, "Prompt 草稿 ID 不合法");
   const requestedWorktreeName = normalizeRequestedWorktreeName(body.requestedWorktreeName);
 
-  if (todoId && !getProjectTodo(database.db, projectId, todoId)) {
+  if (todoId && !(await getProjectTodo(database.db, projectId, todoId))) {
     throw new HttpError(400, "todo_not_found", "待办不存在或不属于当前项目");
   }
 
-  if (promptDraftId && !getProjectPromptDraft(database.db, projectId, promptDraftId)) {
+  if (promptDraftId && !(await getProjectPromptDraft(database.db, projectId, promptDraftId))) {
     throw new HttpError(400, "prompt_draft_not_found", "Prompt 草稿不存在或不属于当前项目");
   }
 
@@ -536,18 +536,18 @@ function buildSessionResultSummary(session: SessionSummary): SessionResultSummar
   };
 }
 
-function maybeMarkTodoInProgress(database: DatabaseState, projectId: string, todoId: string | null) {
+async function maybeMarkTodoInProgress(database: DatabaseState, projectId: string, todoId: string | null) {
   if (!todoId) {
     return;
   }
 
-  const todo = getProjectTodo(database.db, projectId, todoId);
+  const todo = await getProjectTodo(database.db, projectId, todoId);
 
   if (!todo || (todo.status !== "draft" && todo.status !== "pending")) {
     return;
   }
 
-  updateTodo(database.db, projectId, todoId, {
+  await updateTodo(database.db, projectId, todoId, {
     projectId,
     title: todo.title,
     description: todo.description,
@@ -564,28 +564,28 @@ function assertSummaryPresent(summary: string | null) {
   }
 }
 
-function applySessionResultToTodo(database: DatabaseState, projectId: string, session: SessionSummary) {
+async function applySessionResultToTodo(database: DatabaseState, projectId: string, session: SessionSummary) {
   assertSummaryPresent(session.summary);
 
   if (!session.todoId) {
     throw new HttpError(400, "session_todo_missing", "当前会话没有关联任务");
   }
 
-  if (!getProjectTodo(database.db, projectId, session.todoId)) {
+  if (!(await getProjectTodo(database.db, projectId, session.todoId))) {
     throw new HttpError(404, "todo_not_found", "待办不存在或不属于当前项目");
   }
 
-  updateTodoLatestSessionResult(database.db, projectId, session.todoId, buildSessionResultSummary(session));
+  await updateTodoLatestSessionResult(database.db, projectId, session.todoId, buildSessionResultSummary(session));
 }
 
-function applySessionResultToProject(database: DatabaseState, projectId: string, session: SessionSummary) {
+async function applySessionResultToProject(database: DatabaseState, projectId: string, session: SessionSummary) {
   assertSummaryPresent(session.summary);
 
-  if (!getProject(database.db, projectId)) {
+  if (!(await getProject(database.db, projectId))) {
     throw new HttpError(404, "project_not_found", "项目不存在");
   }
 
-  updateProjectLatestSessionResult(database.db, projectId, buildSessionResultSummary(session));
+  await updateProjectLatestSessionResult(database.db, projectId, buildSessionResultSummary(session));
 }
 
 function normalizeUpdateRequest(body: UpdateSessionRequest | undefined) {
@@ -778,11 +778,11 @@ async function parseClaudeCodeHistory(cwd: string | undefined, sessionId: string
         const msg = record.message as JsonlUserMessage;
 
         if (Array.isArray(msg.content)) {
-          const hasToolResult = msg.content.some(c => c.type === "tool_result");
+          const hasToolResult = msg.content.some((c) => c.type === "tool_result");
           if (hasToolResult) {
             const blocks: SessionHistoryMessageBlock[] = msg.content
-              .filter(c => c.type === "tool_result")
-              .map(c => ({
+              .filter((c) => c.type === "tool_result")
+              .map((c) => ({
                 type: "tool_result" as const,
                 toolResult: typeof c.content === "string" ? c.content : JSON.stringify(c.content)
               }));
@@ -839,4 +839,9 @@ async function parseClaudeCodeHistory(cwd: string | undefined, sessionId: string
   }
 
   return messages;
+}
+
+async function listProjectNameMap(database: DatabaseState) {
+  const projects = await listProjects(database.db);
+  return new Map(projects.map((project) => [project.id, project.name]));
 }

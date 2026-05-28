@@ -21,7 +21,7 @@ import type { SkillMetadata } from "../skills/skill-loader.js";
 import { HttpError } from "../projects/http-error.js";
 import { getChatToolDefs, executeChatTool } from "./chat-tools.js";
 import type { ChatMessageWriteInput } from "./chat-repository.js";
-import type { Database } from "sql.js";
+import type { DatabaseExecutor } from "../db/mysql.js";
 
 export const MODEL = "claude-opus-4-7";
 export const MAX_TOKENS = 2400;
@@ -40,7 +40,7 @@ export type GenerateChatReplyInput = {
   chatSession: ChatSessionSummary;
   project: ProjectSummary | null;
   worktree: WorktreeSummary | null;
-  db: Database;
+  db: DatabaseExecutor;
 };
 
 export type GenerateChatReplyResult = {
@@ -55,7 +55,7 @@ export async function generateChatReply(input: GenerateChatReplyInput): Promise<
 
   const collected: ChatMessageWriteInput[] = [];
   const history = input.chatSession.messages ?? [];
-  let messages = toBetaMessages(history);
+  const messages = toBetaMessages(history);
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     const response = await anthropic.beta.messages.create({

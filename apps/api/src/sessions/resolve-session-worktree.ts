@@ -21,7 +21,7 @@ export async function resolveSessionWorktree(
     requestedWorktreeName: string | null;
   }
 ) {
-  const project = getProject(database.db, input.projectId);
+  const project = await getProject(database.db, input.projectId);
 
   if (!project) {
     throw new HttpError(404, "project_not_found", "项目不存在");
@@ -32,7 +32,7 @@ export async function resolveSessionWorktree(
   }
 
   if (input.worktreeId) {
-    const worktree = getProjectWorktree(database.db, input.projectId, input.worktreeId);
+    const worktree = await getProjectWorktree(database.db, input.projectId, input.worktreeId);
 
     if (!worktree) {
       throw new HttpError(400, "worktree_not_found", "Worktree 不存在或不属于当前项目");
@@ -41,8 +41,8 @@ export async function resolveSessionWorktree(
     const status = await readGitWorktreeStatus(worktree.path);
 
     if (status !== worktree.status) {
-      updateWorktreeStatus(database.db, worktree.id, status);
-      database.persist();
+      await updateWorktreeStatus(database.db, worktree.id, status);
+      await database.persist();
     }
 
     if (status === "missing" || status === "unknown") {
@@ -58,14 +58,14 @@ export async function resolveSessionWorktree(
   }
 
   if (input.requestedWorktreeName) {
-    const existing = findWorktreeByName(database.db, input.projectId, input.requestedWorktreeName);
+    const existing = await findWorktreeByName(database.db, input.projectId, input.requestedWorktreeName);
 
     if (existing) {
       const status = await readGitWorktreeStatus(existing.path);
 
       if (status !== existing.status) {
-        updateWorktreeStatus(database.db, existing.id, status);
-        database.persist();
+        await updateWorktreeStatus(database.db, existing.id, status);
+        await database.persist();
       }
 
       if (status === "missing" || status === "unknown") {
@@ -90,7 +90,7 @@ export async function resolveSessionWorktree(
       throw new HttpError(400, "validation_error", "Worktree 名称格式不正确");
     }
 
-    if (findWorktreeByBranch(database.db, input.projectId, branch) || (await branchExists(project.path, branch))) {
+    if ((await findWorktreeByBranch(database.db, input.projectId, branch)) || (await branchExists(project.path, branch))) {
       throw new HttpError(409, "worktree_branch_exists", "该项目下已存在使用该分支的 worktree");
     }
 
@@ -113,14 +113,14 @@ export async function resolveSessionWorktree(
     }
 
     const status = await readGitWorktreeStatus(worktreePath);
-    const worktree = createWorktreeRecord(database.db, {
+    const worktree = await createWorktreeRecord(database.db, {
       projectId: input.projectId,
       name,
       path: worktreePath,
       branch,
       status
     });
-    database.persist();
+    await database.persist();
 
     return {
       worktreeId: worktree.id,

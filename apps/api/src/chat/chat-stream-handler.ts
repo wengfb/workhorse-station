@@ -48,7 +48,7 @@ export class ChatStreamHandler {
 
   async processMessage(content: string, attachments: ChatAttachment[]): Promise<void> {
     try {
-      const session = getChatSession(this.database.db, this.chatSessionId);
+      const session = await getChatSession(this.database.db, this.chatSessionId);
       if (!session) {
         this.onEvent(createChatStreamEvent({
           type: "chat.error",
@@ -152,7 +152,7 @@ export class ChatStreamHandler {
 
         if (toolUseBlocks.length === 0) {
           const messageId = randomUUID();
-          appendChatMessage(this.database.db, {
+          await appendChatMessage(this.database.db, {
             id: messageId,
             chatSessionId: this.chatSessionId,
             role: "assistant",
@@ -162,7 +162,7 @@ export class ChatStreamHandler {
             toolCalls: [],
             toolResults: []
           });
-          this.database.persist();
+          await this.database.persist();
 
           messages.push({ role: "assistant", content: replyText });
           break;
@@ -217,7 +217,7 @@ export class ChatStreamHandler {
           }));
         }
 
-        appendChatMessage(this.database.db, {
+        await appendChatMessage(this.database.db, {
           id: randomUUID(),
           chatSessionId: this.chatSessionId,
           role: "assistant",
@@ -228,7 +228,7 @@ export class ChatStreamHandler {
           toolResults
         });
 
-        this.database.persist();
+        await this.database.persist();
 
         const assistantContent: unknown[] = [];
         if (replyText) {

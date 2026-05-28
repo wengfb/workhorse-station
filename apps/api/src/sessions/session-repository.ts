@@ -7,7 +7,8 @@ import type {
   SessionStatus,
   SessionSummary
 } from "@workhorse-station/shared";
-import type { Database } from "sql.js";
+import type { DatabaseExecutor, SqlParams } from "../db/mysql.js";
+import { execute, queryOne, queryRows } from "../db/mysql.js";
 
 export type SessionWriteInput = {
   id?: string;
@@ -54,30 +55,40 @@ type SessionRow = {
   updated_at: string;
 };
 
-export function listSessions(db: Database, projectId: string) {
+type OverviewSessionRow = SessionRow & {
+  project_name: string;
+};
+
+const SESSION_SELECT = `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, terminal_buffer, created_at, updated_at
+     FROM sessions`;
+
+const OVERVIEW_SESSION_SELECT = `SELECT s.id, s.project_id, s.worktree_id, s.todo_id, s.prompt_draft_id, s.requested_worktree_name, s.source, s.name, s.prompt, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.resolved_worktree_path, s.exit_code, s.last_activity_at, s.terminal_buffer, s.created_at, s.updated_at, p.name AS project_name
+     FROM sessions s
+     JOIN projects p ON s.project_id = p.id`;
+
+export async function listSessions(db: DatabaseExecutor, projectId: string) {
   return selectRows(
     db,
-    `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, terminal_buffer, created_at, updated_at
-     FROM sessions
+    `${SESSION_SELECT}
      WHERE project_id = ?
      ORDER BY updated_at DESC, created_at DESC`,
     [projectId]
   );
 }
 
-export function getProjectSession(db: Database, projectId: string, sessionId: string) {
+export async function getProjectSession(db: DatabaseExecutor, projectId: string, sessionId: string) {
   return selectOne(
     db,
-    `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, terminal_buffer, created_at, updated_at
-     FROM sessions
+    `${SESSION_SELECT}
      WHERE project_id = ? AND id = ?`,
     [projectId, sessionId]
   );
 }
 
-export function createSessionRecord(db: Database, input: SessionWriteInput) {
+export async function createSessionRecord(db: DatabaseExecutor, input: SessionWriteInput) {
   const id = input.id ?? randomUUID();
-  db.run(
+  await execute(
+    db,
     `INSERT INTO sessions (id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
@@ -101,7 +112,7 @@ export function createSessionRecord(db: Database, input: SessionWriteInput) {
     ]
   );
 
-  const session = getProjectSession(db, input.projectId, id);
+  const session = await getProjectSession(db, input.projectId, id);
 
   if (!session) {
     throw new Error("Failed to read created session");
@@ -110,8 +121,8 @@ export function createSessionRecord(db: Database, input: SessionWriteInput) {
   return session;
 }
 
-export function updateSessionRecord(
-  db: Database,
+export async function updateSessionRecord(
+  db: DatabaseExecutor,
   projectId: string,
   sessionId: string,
   updates: {
@@ -119,7 +130,8 @@ export function updateSessionRecord(
     summary: string | null;
   }
 ) {
-  db.run(
+  await execute(
+    db,
     `UPDATE sessions
      SET name = ?, summary = ?, updated_at = CURRENT_TIMESTAMP
      WHERE project_id = ? AND id = ?`,
@@ -129,8 +141,8 @@ export function updateSessionRecord(
   return getProjectSession(db, projectId, sessionId);
 }
 
-export function updateSessionLaunch(
-  db: Database,
+export async function updateSessionLaunch(
+  db: DatabaseExecutor,
   projectId: string,
   sessionId: string,
   updates: {
@@ -145,7 +157,8 @@ export function updateSessionLaunch(
     summary: string | null;
   }
 ) {
-  db.run(
+  await execute(
+    db,
     `UPDATE sessions
      SET status = ?, runtime_status = ?, worktree_id = ?, requested_worktree_name = ?, pid = ?, cwd = ?, resolved_worktree_path = ?, last_activity_at = ?, summary = ?, updated_at = CURRENT_TIMESTAMP
      WHERE project_id = ? AND id = ?`,
@@ -167,8 +180,8 @@ export function updateSessionLaunch(
   return getProjectSession(db, projectId, sessionId);
 }
 
-export function updateSessionRuntime(
-  db: Database,
+export async function updateSessionRuntime(
+  db: DatabaseExecutor,
   projectId: string,
   sessionId: string,
   updates: {
@@ -177,7 +190,8 @@ export function updateSessionRuntime(
     lastActivityAt: string | null;
   }
 ) {
-  db.run(
+  await execute(
+    db,
     `UPDATE sessions
      SET runtime_status = ?, pid = ?, last_activity_at = ?, updated_at = CURRENT_TIMESTAMP
      WHERE project_id = ? AND id = ?`,
@@ -187,8 +201,8 @@ export function updateSessionRuntime(
   return getProjectSession(db, projectId, sessionId);
 }
 
-export function updateSessionCompletion(
-  db: Database,
+export async function updateSessionCompletion(
+  db: DatabaseExecutor,
   projectId: string,
   sessionId: string,
   updates: {
@@ -199,7 +213,8 @@ export function updateSessionCompletion(
     summary: string | null;
   }
 ) {
-  db.run(
+  await execute(
+    db,
     `UPDATE sessions
      SET status = ?, runtime_status = ?, pid = NULL, exit_code = ?, last_activity_at = ?, summary = ?, updated_at = CURRENT_TIMESTAMP
      WHERE project_id = ? AND id = ?`,
@@ -209,21 +224,23 @@ export function updateSessionCompletion(
   return getProjectSession(db, projectId, sessionId);
 }
 
-export function reconcileSessionsOnStartup(db: Database) {
-  db.run(
+export async function reconcileSessionsOnStartup(db: DatabaseExecutor) {
+  await execute(
+    db,
     `UPDATE sessions
      SET status = 'completed', runtime_status = 'stopped', pid = NULL, updated_at = CURRENT_TIMESTAMP
      WHERE status IN ('running', 'queued') OR runtime_status IN ('starting', 'running', 'stopping')`
   );
 }
 
-export function updateSessionTerminalBuffer(
-  db: Database,
+export async function updateSessionTerminalBuffer(
+  db: DatabaseExecutor,
   projectId: string,
   sessionId: string,
   buffer: string
 ) {
-  db.run(
+  await execute(
+    db,
     `UPDATE sessions
      SET terminal_buffer = ?, updated_at = CURRENT_TIMESTAMP
      WHERE project_id = ? AND id = ?`,
@@ -231,38 +248,58 @@ export function updateSessionTerminalBuffer(
   );
 }
 
-export function deleteSessionRecord(db: Database, projectId: string, sessionId: string) {
-  db.run(`DELETE FROM sessions WHERE project_id = ? AND id = ?`, [projectId, sessionId]);
-  return db.getRowsModified() > 0;
+export async function deleteSessionRecord(db: DatabaseExecutor, projectId: string, sessionId: string) {
+  return (await execute(db, `DELETE FROM sessions WHERE project_id = ? AND id = ?`, [projectId, sessionId])) > 0;
 }
 
-function selectRows(db: Database, sql: string, params: string[]) {
-  const statement = db.prepare(sql, params);
-  const rows: SessionSummary[] = [];
-
-  try {
-    while (statement.step()) {
-      rows.push(mapSessionRow(statement.getAsObject() as SessionRow));
-    }
-  } finally {
-    statement.free();
-  }
-
-  return rows;
+export async function listRunningSessions(db: DatabaseExecutor): Promise<OverviewSessionSummary[]> {
+  const rows = await queryRows<OverviewSessionRow>(
+    db,
+    `${OVERVIEW_SESSION_SELECT}
+     WHERE s.status IN ('running', 'queued')
+     ORDER BY s.updated_at DESC`
+  );
+  return rows.map(mapOverviewSessionRow);
 }
 
-function selectOne(db: Database, sql: string, params: string[]) {
-  const statement = db.prepare(sql, params);
+export async function listRecentSessions(db: DatabaseExecutor, limit: number): Promise<OverviewSessionSummary[]> {
+  const rows = await queryRows<OverviewSessionRow>(
+    db,
+    `${OVERVIEW_SESSION_SELECT}
+     ORDER BY s.updated_at DESC
+     LIMIT ?`,
+    [limit]
+  );
+  return rows.map(mapOverviewSessionRow);
+}
 
-  try {
-    if (!statement.step()) {
-      return null;
-    }
+export async function listExecutionSessions(db: DatabaseExecutor, limit?: number): Promise<ExecutionListItem[]> {
+  const sql =
+    `${OVERVIEW_SESSION_SELECT}
+     ORDER BY s.updated_at DESC` +
+    (typeof limit === "number" ? " LIMIT ?" : "");
+  const rows = await queryRows<OverviewSessionRow>(db, sql, typeof limit === "number" ? [limit] : []);
+  return rows.map(mapExecutionSessionRow);
+}
 
-    return mapSessionRow(statement.getAsObject() as SessionRow);
-  } finally {
-    statement.free();
-  }
+export async function listRunningExecutionSessions(db: DatabaseExecutor): Promise<ExecutionListItem[]> {
+  const rows = await queryRows<OverviewSessionRow>(
+    db,
+    `${OVERVIEW_SESSION_SELECT}
+     WHERE s.status IN ('running', 'queued')
+     ORDER BY s.updated_at DESC`
+  );
+  return rows.map(mapExecutionSessionRow);
+}
+
+async function selectRows(db: DatabaseExecutor, sql: string, params: SqlParams) {
+  const rows = await queryRows<SessionRow>(db, sql, params);
+  return rows.map(mapSessionRow);
+}
+
+async function selectOne(db: DatabaseExecutor, sql: string, params: SqlParams) {
+  const row = await queryOne<SessionRow>(db, sql, params);
+  return row ? mapSessionRow(row) : null;
 }
 
 function mapSessionRow(row: SessionRow): SessionSummary {
@@ -288,87 +325,6 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
-}
-
-type OverviewSessionRow = SessionRow & {
-  project_name: string;
-};
-
-export function listRunningSessions(db: Database): OverviewSessionSummary[] {
-  const stmt = db.prepare(
-    `SELECT s.id, s.project_id, s.worktree_id, s.todo_id, s.prompt_draft_id, s.requested_worktree_name, s.source, s.name, s.prompt, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.resolved_worktree_path, s.exit_code, s.last_activity_at, s.created_at, s.updated_at, p.name AS project_name
-     FROM sessions s
-     JOIN projects p ON s.project_id = p.id
-     WHERE s.status IN ('running', 'queued')
-     ORDER BY s.updated_at DESC`
-  );
-  const rows: OverviewSessionSummary[] = [];
-  try {
-    while (stmt.step()) {
-      rows.push(mapOverviewSessionRow(stmt.getAsObject() as OverviewSessionRow));
-    }
-  } finally {
-    stmt.free();
-  }
-  return rows;
-}
-
-export function listRecentSessions(db: Database, limit: number): OverviewSessionSummary[] {
-  const stmt = db.prepare(
-    `SELECT s.id, s.project_id, s.worktree_id, s.todo_id, s.prompt_draft_id, s.requested_worktree_name, s.source, s.name, s.prompt, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.resolved_worktree_path, s.exit_code, s.last_activity_at, s.created_at, s.updated_at, p.name AS project_name
-     FROM sessions s
-     JOIN projects p ON s.project_id = p.id
-     ORDER BY s.updated_at DESC
-     LIMIT ?`,
-    [limit]
-  );
-  const rows: OverviewSessionSummary[] = [];
-  try {
-    while (stmt.step()) {
-      rows.push(mapOverviewSessionRow(stmt.getAsObject() as OverviewSessionRow));
-    }
-  } finally {
-    stmt.free();
-  }
-  return rows;
-}
-
-export function listExecutionSessions(db: Database, limit?: number): ExecutionListItem[] {
-  const sql =
-    `SELECT s.id, s.project_id, s.worktree_id, s.todo_id, s.prompt_draft_id, s.requested_worktree_name, s.source, s.name, s.prompt, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.resolved_worktree_path, s.exit_code, s.last_activity_at, s.created_at, s.updated_at, p.name AS project_name
-     FROM sessions s
-     JOIN projects p ON s.project_id = p.id
-     ORDER BY s.updated_at DESC` +
-    (typeof limit === "number" ? " LIMIT ?" : "");
-  const stmt = typeof limit === "number" ? db.prepare(sql, [limit]) : db.prepare(sql);
-  const rows: ExecutionListItem[] = [];
-  try {
-    while (stmt.step()) {
-      rows.push(mapExecutionSessionRow(stmt.getAsObject() as OverviewSessionRow));
-    }
-  } finally {
-    stmt.free();
-  }
-  return rows;
-}
-
-export function listRunningExecutionSessions(db: Database): ExecutionListItem[] {
-  const stmt = db.prepare(
-    `SELECT s.id, s.project_id, s.worktree_id, s.todo_id, s.prompt_draft_id, s.requested_worktree_name, s.source, s.name, s.prompt, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.resolved_worktree_path, s.exit_code, s.last_activity_at, s.created_at, s.updated_at, p.name AS project_name
-     FROM sessions s
-     JOIN projects p ON s.project_id = p.id
-     WHERE s.status IN ('running', 'queued')
-     ORDER BY s.updated_at DESC`
-  );
-  const rows: ExecutionListItem[] = [];
-  try {
-    while (stmt.step()) {
-      rows.push(mapExecutionSessionRow(stmt.getAsObject() as OverviewSessionRow));
-    }
-  } finally {
-    stmt.free();
-  }
-  return rows;
 }
 
 function mapOverviewSessionRow(row: OverviewSessionRow): OverviewSessionSummary {

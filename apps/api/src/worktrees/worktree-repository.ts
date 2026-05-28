@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WorktreeStatus, WorktreeSummary } from "@workhorse-station/shared";
-import type { Database } from "sql.js";
+import type { DatabaseExecutor } from "../db/mysql.js";
+import { execute, queryOne, queryRows } from "../db/mysql.js";
 
 type WorktreeRow = {
   id: string;
@@ -22,7 +23,7 @@ export type WorktreeWriteInput = {
   status: WorktreeStatus;
 };
 
-export function listWorktrees(db: Database, projectId: string) {
+export async function listWorktrees(db: DatabaseExecutor, projectId: string) {
   return selectRows(
     db,
     `SELECT id, project_id, name, path, branch, status, created_at, updated_at
@@ -33,7 +34,7 @@ export function listWorktrees(db: Database, projectId: string) {
   );
 }
 
-export function getProjectWorktree(db: Database, projectId: string, worktreeId: string) {
+export async function getProjectWorktree(db: DatabaseExecutor, projectId: string, worktreeId: string) {
   return selectOne(
     db,
     `SELECT id, project_id, name, path, branch, status, created_at, updated_at
@@ -43,7 +44,7 @@ export function getProjectWorktree(db: Database, projectId: string, worktreeId: 
   );
 }
 
-export function findWorktreeByName(db: Database, projectId: string, name: string) {
+export async function findWorktreeByName(db: DatabaseExecutor, projectId: string, name: string) {
   return selectOne(
     db,
     `SELECT id, project_id, name, path, branch, status, created_at, updated_at
@@ -53,7 +54,7 @@ export function findWorktreeByName(db: Database, projectId: string, name: string
   );
 }
 
-export function findWorktreeByBranch(db: Database, projectId: string, branch: string) {
+export async function findWorktreeByBranch(db: DatabaseExecutor, projectId: string, branch: string) {
   return selectOne(
     db,
     `SELECT id, project_id, name, path, branch, status, created_at, updated_at
@@ -63,15 +64,16 @@ export function findWorktreeByBranch(db: Database, projectId: string, branch: st
   );
 }
 
-export function createWorktreeRecord(db: Database, input: WorktreeWriteInput) {
+export async function createWorktreeRecord(db: DatabaseExecutor, input: WorktreeWriteInput) {
   const id = input.id ?? randomUUID();
-  db.run(
+  await execute(
+    db,
     `INSERT INTO worktrees (id, project_id, name, path, branch, status)
      VALUES (?, ?, ?, ?, ?, ?)`,
     [id, input.projectId, input.name, input.path, input.branch, input.status]
   );
 
-  const worktree = getProjectWorktree(db, input.projectId, id);
+  const worktree = await getProjectWorktree(db, input.projectId, id);
 
   if (!worktree) {
     throw new Error("Failed to read created worktree");
@@ -80,49 +82,30 @@ export function createWorktreeRecord(db: Database, input: WorktreeWriteInput) {
   return worktree;
 }
 
-export function updateWorktreeStatus(db: Database, id: string, status: WorktreeStatus) {
-  db.run(
-    `UPDATE worktrees
-     SET status = ?, updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
-    [status, id]
-  );
-
-  return db.getRowsModified() > 0;
+export async function updateWorktreeStatus(db: DatabaseExecutor, id: string, status: WorktreeStatus) {
+  return (
+    await execute(
+      db,
+      `UPDATE worktrees
+       SET status = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [status, id]
+    )
+  ) > 0;
 }
 
-export function deleteWorktreeRecord(db: Database, id: string) {
-  db.run("DELETE FROM worktrees WHERE id = ?", [id]);
-  return db.getRowsModified() > 0;
+export async function deleteWorktreeRecord(db: DatabaseExecutor, id: string) {
+  return (await execute(db, "DELETE FROM worktrees WHERE id = ?", [id])) > 0;
 }
 
-function selectRows(db: Database, sql: string, params: string[]) {
-  const statement = db.prepare(sql, params);
-  const rows: WorktreeSummary[] = [];
-
-  try {
-    while (statement.step()) {
-      rows.push(mapWorktreeRow(statement.getAsObject() as WorktreeRow));
-    }
-  } finally {
-    statement.free();
-  }
-
-  return rows;
+async function selectRows(db: DatabaseExecutor, sql: string, params: string[]) {
+  const rows = await queryRows<WorktreeRow>(db, sql, params);
+  return rows.map(mapWorktreeRow);
 }
 
-function selectOne(db: Database, sql: string, params: string[]) {
-  const statement = db.prepare(sql, params);
-
-  try {
-    if (!statement.step()) {
-      return null;
-    }
-
-    return mapWorktreeRow(statement.getAsObject() as WorktreeRow);
-  } finally {
-    statement.free();
-  }
+async function selectOne(db: DatabaseExecutor, sql: string, params: string[]) {
+  const row = await queryOne<WorktreeRow>(db, sql, params);
+  return row ? mapWorktreeRow(row) : null;
 }
 
 function mapWorktreeRow(row: WorktreeRow): WorktreeSummary {

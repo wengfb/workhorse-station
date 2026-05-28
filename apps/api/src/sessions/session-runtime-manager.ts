@@ -68,16 +68,6 @@ export class SessionRuntimeManager extends EventEmitter {
     const command = await resolveClaudeBinary(env);
     const pty = new SessionPty();
 
-    const flushToDb = () => {
-      if (state.buffer.length > state.lastFlushedLength) {
-        state.lastFlushedLength = state.buffer.length;
-        updateSessionTerminalBuffer(this.database.db, input.projectId, input.sessionId, state.buffer);
-        this.database.persist();
-      }
-    };
-
-    const flushTimer = setInterval(flushToDb, flushIntervalMs);
-
     const state: RuntimeSession = {
       sessionId: input.sessionId,
       projectId: input.projectId,
@@ -89,65 +79,83 @@ export class SessionRuntimeManager extends EventEmitter {
       lastActivityAt: null,
       pty,
       stopRequested: false,
-      flushTimer,
+      flushTimer: setInterval(() => {
+        void flushToDb();
+      }, flushIntervalMs),
       lastFlushedLength: 0
+    };
+
+    const flushToDb = async () => {
+      if (state.buffer.length > state.lastFlushedLength) {
+        state.lastFlushedLength = state.buffer.length;
+        await updateSessionTerminalBuffer(this.database.db, input.projectId, input.sessionId, state.buffer);
+        await this.database.persist();
+      }
     };
 
     this.sessions.set(input.sessionId, state);
     this.emit("event", createRuntimeEvent({ type: "session.runtime", sessionId: input.sessionId, runtimeStatus: state.runtimeStatus, cwd: state.cwd, pid: null }));
 
     pty.on("output", (data: string) => {
-      const nextBuffer = `${state.buffer}${data}`;
-      state.buffer = nextBuffer.length > maxBufferLength ? nextBuffer.slice(-maxBufferLength) : nextBuffer;
-      state.lastActivityAt = new Date().toISOString();
-      state.runtimeStatus = state.stopRequested ? "stopping" : "running";
-      updateSessionRuntime(this.database.db, input.projectId, input.sessionId, {
-        runtimeStatus: state.runtimeStatus,
-        pid: state.pid,
-        lastActivityAt: state.lastActivityAt
+      void (async () => {
+        const nextBuffer = `${state.buffer}${data}`;
+        state.buffer = nextBuffer.length > maxBufferLength ? nextBuffer.slice(-maxBufferLength) : nextBuffer;
+        state.lastActivityAt = new Date().toISOString();
+        state.runtimeStatus = state.stopRequested ? "stopping" : "running";
+        await updateSessionRuntime(this.database.db, input.projectId, input.sessionId, {
+          runtimeStatus: state.runtimeStatus,
+          pid: state.pid,
+          lastActivityAt: state.lastActivityAt
+        });
+        await this.database.persist();
+
+        if (state.buffer.length - state.lastFlushedLength >= flushThresholdBytes) {
+          state.lastFlushedLength = state.buffer.length;
+          await updateSessionTerminalBuffer(this.database.db, input.projectId, input.sessionId, state.buffer);
+          await this.database.persist();
+        }
+
+        this.emit("event", createRuntimeEvent({ type: "session.output", sessionId: input.sessionId, output: data, runtimeStatus: state.runtimeStatus, cwd: state.cwd, pid: state.pid }));
+      })().catch((error) => {
+        console.error("[SessionRuntime] output handler error:", error);
       });
-      this.database.persist();
-
-      if (state.buffer.length - state.lastFlushedLength >= flushThresholdBytes) {
-        state.lastFlushedLength = state.buffer.length;
-        updateSessionTerminalBuffer(this.database.db, input.projectId, input.sessionId, state.buffer);
-        this.database.persist();
-      }
-
-      this.emit("event", createRuntimeEvent({ type: "session.output", sessionId: input.sessionId, output: data, runtimeStatus: state.runtimeStatus, cwd: state.cwd, pid: state.pid }));
     });
 
     pty.on("exit", ({ exitCode }: { exitCode: number }) => {
-      clearInterval(state.flushTimer);
-      const stoppedByUser = state.stopRequested;
-      const currentSession = getProjectSession(this.database.db, input.projectId, input.sessionId);
-      const currentSummary = currentSession?.summary ?? null;
-      state.runtimeStatus = stoppedByUser || exitCode === 0 ? "stopped" : "failed";
-      state.lastActivityAt = new Date().toISOString();
+      void (async () => {
+        clearInterval(state.flushTimer);
+        const stoppedByUser = state.stopRequested;
+        const currentSession = await getProjectSession(this.database.db, input.projectId, input.sessionId);
+        const currentSummary = currentSession?.summary ?? null;
+        state.runtimeStatus = stoppedByUser || exitCode === 0 ? "stopped" : "failed";
+        state.lastActivityAt = new Date().toISOString();
 
-      updateSessionTerminalBuffer(this.database.db, input.projectId, input.sessionId, state.buffer);
+        await updateSessionTerminalBuffer(this.database.db, input.projectId, input.sessionId, state.buffer);
 
-      updateSessionCompletion(this.database.db, input.projectId, input.sessionId, {
-        status: stoppedByUser || exitCode === 0 ? "completed" : "failed",
-        runtimeStatus: state.runtimeStatus,
-        exitCode: stoppedByUser ? null : exitCode,
-        lastActivityAt: state.lastActivityAt,
-        summary:
-          stoppedByUser || exitCode === 0 ? currentSummary : currentSummary ?? `Claude Code 退出，exit code ${exitCode}`
-      });
-      this.database.persist();
-      this.emit(
-        "event",
-        createRuntimeEvent({
-          type: "session.exit",
-          sessionId: input.sessionId,
+        await updateSessionCompletion(this.database.db, input.projectId, input.sessionId, {
+          status: stoppedByUser || exitCode === 0 ? "completed" : "failed",
           runtimeStatus: state.runtimeStatus,
-          cwd: state.cwd,
-          pid: null,
-          exitCode: stoppedByUser ? null : exitCode
-        })
-      );
-      this.sessions.delete(input.sessionId);
+          exitCode: stoppedByUser ? null : exitCode,
+          lastActivityAt: state.lastActivityAt,
+          summary:
+            stoppedByUser || exitCode === 0 ? currentSummary : currentSummary ?? `Claude Code 退出，exit code ${exitCode}`
+        });
+        await this.database.persist();
+        this.emit(
+          "event",
+          createRuntimeEvent({
+            type: "session.exit",
+            sessionId: input.sessionId,
+            runtimeStatus: state.runtimeStatus,
+            cwd: state.cwd,
+            pid: null,
+            exitCode: stoppedByUser ? null : exitCode
+          })
+        );
+        this.sessions.delete(input.sessionId);
+      })().catch((error) => {
+        console.error("[SessionRuntime] exit handler error:", error);
+      });
     });
 
     const cliArgs = buildClaudeArgs(input.sessionId, input.prompt, input.resumeSessionId, input.forkSession);
@@ -162,12 +170,12 @@ export class SessionRuntimeManager extends EventEmitter {
     state.pid = pid;
     state.runtimeStatus = "running";
     state.lastActivityAt = new Date().toISOString();
-    updateSessionRuntime(this.database.db, input.projectId, input.sessionId, {
+    await updateSessionRuntime(this.database.db, input.projectId, input.sessionId, {
       runtimeStatus: state.runtimeStatus,
       pid: state.pid,
       lastActivityAt: state.lastActivityAt
     });
-    this.database.persist();
+    await this.database.persist();
     this.emit("event", createRuntimeEvent({ type: "session.started", sessionId: input.sessionId, runtimeStatus: state.runtimeStatus, cwd: state.cwd, pid: state.pid }));
 
     return {
@@ -200,7 +208,7 @@ export class SessionRuntimeManager extends EventEmitter {
     return true;
   }
 
-  stopSession(projectId: string, sessionId: string) {
+  async stopSession(projectId: string, sessionId: string) {
     const session = this.sessions.get(sessionId);
 
     if (!session) {
@@ -209,12 +217,12 @@ export class SessionRuntimeManager extends EventEmitter {
 
     session.stopRequested = true;
     session.runtimeStatus = "stopping";
-    updateSessionRuntime(this.database.db, projectId, sessionId, {
+    await updateSessionRuntime(this.database.db, projectId, sessionId, {
       runtimeStatus: session.runtimeStatus,
       pid: session.pid,
       lastActivityAt: new Date().toISOString()
     });
-    this.database.persist();
+    await this.database.persist();
     this.emit("event", createRuntimeEvent({ type: "session.runtime", sessionId, runtimeStatus: session.runtimeStatus, cwd: session.cwd, pid: session.pid }));
     session.pty.stop();
     return true;

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ChatArtifactSourceRef, CreateTodoRequest, SessionResultSummary, TodoStatus, TodoSummary } from "@workhorse-station/shared";
-import type { Database } from "sql.js";
+import type { DatabaseExecutor } from "../db/mysql.js";
+import { execute, queryCount, queryOne, queryRows } from "../db/mysql.js";
 
 type TodoRow = {
   id: string;
@@ -28,7 +29,7 @@ export type TodoWriteInput = Required<Pick<CreateTodoRequest, "title" | "status"
 const TODO_SELECT = `SELECT id, project_id, source_note_id, title, description, status, tags, latest_session_result, source_chat_suggestion_json, created_at, updated_at
      FROM todos`;
 
-export function listTodos(db: Database, projectId: string, opts?: { page?: number; pageSize?: number; search?: string; tags?: string[]; statuses?: TodoStatus[] }) {
+export async function listTodos(db: DatabaseExecutor, projectId: string, opts?: { page?: number; pageSize?: number; search?: string; tags?: string[]; statuses?: TodoStatus[] }) {
   const page = opts?.page ?? 1;
   const pageSize = opts?.pageSize ?? 12;
   const offset = (page - 1) * pageSize;
@@ -45,18 +46,9 @@ export function listTodos(db: Database, projectId: string, opts?: { page?: numbe
   );
 }
 
-export function countTodos(db: Database, projectId: string, opts?: { search?: string; tags?: string[]; statuses?: TodoStatus[] }) {
+export async function countTodos(db: DatabaseExecutor, projectId: string, opts?: { search?: string; tags?: string[]; statuses?: TodoStatus[] }) {
   const { where, params } = buildWhere(projectId, opts);
-  const sql = `SELECT COUNT(*) as count FROM todos ${where}`;
-  const stmt = db.prepare(sql, params);
-  try {
-    if (stmt.step()) {
-      return (stmt.getAsObject() as { count: number }).count;
-    }
-    return 0;
-  } finally {
-    stmt.free();
-  }
+  return queryCount(db, `SELECT COUNT(*) as count FROM todos ${where}`, params);
 }
 
 function buildWhere(projectId: string, opts?: { search?: string; tags?: string[]; statuses?: TodoStatus[] }): { where: string; params: string[] } {
@@ -84,7 +76,7 @@ function buildWhere(projectId: string, opts?: { search?: string; tags?: string[]
   return { where: `WHERE ${clauses.join(" AND ")}`, params };
 }
 
-export function getProjectTodo(db: Database, projectId: string, todoId: string) {
+export async function getProjectTodo(db: DatabaseExecutor, projectId: string, todoId: string) {
   return selectOne(
     db,
     `SELECT id, project_id, source_note_id, title, description, status, tags, latest_session_result, source_chat_suggestion_json, created_at, updated_at
@@ -94,15 +86,16 @@ export function getProjectTodo(db: Database, projectId: string, todoId: string) 
   );
 }
 
-export function createTodo(db: Database, input: TodoWriteInput) {
+export async function createTodo(db: DatabaseExecutor, input: TodoWriteInput) {
   const id = input.id ?? randomUUID();
-  db.run(
+  await execute(
+    db,
     `INSERT INTO todos (id, project_id, source_note_id, title, description, status, tags, latest_session_result, source_chat_suggestion_json)
      VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
     [id, input.projectId, input.sourceNoteId, input.title, input.description, input.status, JSON.stringify(input.tags), serializeSourceChatSuggestion(input.sourceChatSuggestion)]
   );
 
-  const todo = getProjectTodo(db, input.projectId, id);
+  const todo = await getProjectTodo(db, input.projectId, id);
 
   if (!todo) {
     throw new Error("Failed to read created todo");
@@ -111,8 +104,9 @@ export function createTodo(db: Database, input: TodoWriteInput) {
   return todo;
 }
 
-export function updateTodoLatestSessionResult(db: Database, projectId: string, todoId: string, latestSessionResult: SessionResultSummary | null) {
-  db.run(
+export async function updateTodoLatestSessionResult(db: DatabaseExecutor, projectId: string, todoId: string, latestSessionResult: SessionResultSummary | null) {
+  await execute(
+    db,
     `UPDATE todos
      SET latest_session_result = ?, updated_at = CURRENT_TIMESTAMP
      WHERE project_id = ? AND id = ?`,
@@ -122,8 +116,9 @@ export function updateTodoLatestSessionResult(db: Database, projectId: string, t
   return getProjectTodo(db, projectId, todoId);
 }
 
-export function updateTodo(db: Database, projectId: string, todoId: string, input: TodoWriteInput) {
-  db.run(
+export async function updateTodo(db: DatabaseExecutor, projectId: string, todoId: string, input: TodoWriteInput) {
+  await execute(
+    db,
     `UPDATE todos
      SET source_note_id = ?, title = ?, description = ?, status = ?, tags = ?, updated_at = CURRENT_TIMESTAMP
      WHERE project_id = ? AND id = ?`,
@@ -133,38 +128,18 @@ export function updateTodo(db: Database, projectId: string, todoId: string, inpu
   return getProjectTodo(db, projectId, todoId);
 }
 
-export function deleteTodo(db: Database, projectId: string, todoId: string) {
-  db.run("DELETE FROM todos WHERE project_id = ? AND id = ?", [projectId, todoId]);
-  return db.getRowsModified() > 0;
+export async function deleteTodo(db: DatabaseExecutor, projectId: string, todoId: string) {
+  return (await execute(db, "DELETE FROM todos WHERE project_id = ? AND id = ?", [projectId, todoId])) > 0;
 }
 
-function selectRows(db: Database, sql: string, params: string[]) {
-  const statement = db.prepare(sql, params);
-  const rows: TodoSummary[] = [];
-
-  try {
-    while (statement.step()) {
-      rows.push(mapTodoRow(statement.getAsObject() as TodoRow));
-    }
-  } finally {
-    statement.free();
-  }
-
-  return rows;
+async function selectRows(db: DatabaseExecutor, sql: string, params: string[]) {
+  const rows = await queryRows<TodoRow>(db, sql, params);
+  return rows.map(mapTodoRow);
 }
 
-function selectOne(db: Database, sql: string, params: string[]) {
-  const statement = db.prepare(sql, params);
-
-  try {
-    if (!statement.step()) {
-      return null;
-    }
-
-    return mapTodoRow(statement.getAsObject() as TodoRow);
-  } finally {
-    statement.free();
-  }
+async function selectOne(db: DatabaseExecutor, sql: string, params: string[]) {
+  const row = await queryOne<TodoRow>(db, sql, params);
+  return row ? mapTodoRow(row) : null;
 }
 
 function mapTodoRow(row: TodoRow): TodoSummary {

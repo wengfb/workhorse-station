@@ -24,8 +24,9 @@ export type MetaResponse = {
   phase: "Phase 2";
   database: {
     connected: boolean;
-    path: string;
-    fts5: boolean;
+    engine: "mysql";
+    host: string;
+    database: string;
   };
 };
 

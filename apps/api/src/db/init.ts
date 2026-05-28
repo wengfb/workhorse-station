@@ -1,251 +1,107 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import initSqlJs, { type Database } from "sql.js";
+import mysql, { type Pool } from "mysql2/promise";
+import { schemaStatements } from "./schema.js";
 
 export type DatabaseState = {
-  db: Database;
-  path: string;
+  db: Pool;
   connected: boolean;
   fts5: boolean;
-  persist: () => void;
-  close: () => void;
+  engine: "mysql";
+  host: string;
+  database: string;
+  persist: () => Promise<void>;
+  close: () => Promise<void>;
 };
 
-const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
-const defaultDatabasePath = path.join(projectRoot, "data/app.db");
+type DatabaseConfig = {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+};
 
-export async function initDatabase(databasePath = process.env.DATABASE_PATH ?? defaultDatabasePath): Promise<DatabaseState> {
-  const resolvedPath = path.isAbsolute(databasePath) ? databasePath : path.resolve(projectRoot, databasePath);
-  mkdirSync(path.dirname(resolvedPath), { recursive: true });
+export async function initDatabase(): Promise<DatabaseState> {
+  const config = readDatabaseConfig();
+  await ensureDatabaseExists(config);
 
-  const SQL = await initSqlJs();
-  const db = existsSync(resolvedPath) ? new SQL.Database(readFileSync(resolvedPath)) : new SQL.Database();
+  const pool = mysql.createPool({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: config.database,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+    charset: "utf8mb4",
+    dateStrings: true,
+    supportBigNumbers: true,
+    bigNumberStrings: true
+  });
 
-  db.exec("PRAGMA foreign_keys = ON;");
-  const fts5 = detectFts5(db);
-  createTables(db, fts5);
-
-  if (fts5) {
-    db.exec(`
-      INSERT INTO notes_fts(rowid, title, content, tags)
-      SELECT rowid, title, content, tags FROM notes
-      WHERE rowid NOT IN (SELECT rowid FROM notes_fts);
-    `);
-  }
-
-  const persist = () => {
-    writeFileSync(resolvedPath, Buffer.from(db.export()));
-  };
-
-  persist();
+  await ensureSchema(pool);
 
   return {
-    db,
-    path: resolvedPath,
+    db: pool,
     connected: true,
-    fts5,
-    persist,
-    close: () => {
-      persist();
-      db.close();
+    fts5: false,
+    engine: "mysql",
+    host: config.host,
+    database: config.database,
+    persist: async () => {},
+    close: async () => {
+      await pool.end();
     }
   };
 }
 
-function createTables(db: Database, fts5: boolean) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS migrations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
-      applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
+function readDatabaseConfig(): DatabaseConfig {
+  const url = process.env.DATABASE_URL?.trim();
 
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      path TEXT NOT NULL,
-      default_branch TEXT NOT NULL DEFAULT 'main',
-      description TEXT,
-      latest_session_result TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
+  if (url) {
+    const parsed = new URL(url);
+    return {
+      host: parsed.hostname || "127.0.0.1",
+      port: parsed.port ? Number(parsed.port) : 3306,
+      user: decodeURIComponent(parsed.username || "root"),
+      password: decodeURIComponent(parsed.password || ""),
+      database: decodeURIComponent(parsed.pathname.replace(/^\//, "") || "workhorse_station")
+    };
+  }
 
-    CREATE TABLE IF NOT EXISTS worktrees (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      path TEXT NOT NULL,
-      branch TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'clean',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-      UNIQUE (project_id, name)
-    );
-
-    CREATE TABLE IF NOT EXISTS notes (
-      id TEXT PRIMARY KEY,
-      project_id TEXT,
-      title TEXT NOT NULL,
-      content TEXT NOT NULL DEFAULT '',
-      tags TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
-    );
-
-    ${fts5 ? `
-    CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-      title, content, tags,
-      content=''
-    );
-    ` : ""}
-
-    CREATE TABLE IF NOT EXISTS todos (
-      id TEXT PRIMARY KEY,
-      project_id TEXT,
-      source_note_id TEXT,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'pending',
-      tags TEXT NOT NULL DEFAULT '[]',
-      latest_session_result TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
-      FOREIGN KEY (source_note_id) REFERENCES notes(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS skills (
-      id TEXT PRIMARY KEY,
-      project_id TEXT,
-      name TEXT NOT NULL,
-      scope TEXT NOT NULL DEFAULT 'global',
-      prompt TEXT NOT NULL DEFAULT '',
-      script TEXT,
-      parameters TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-      UNIQUE (project_id, name)
-    );
-
-    CREATE TABLE IF NOT EXISTS prompt_drafts (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      todo_id TEXT,
-      worktree_id TEXT,
-      requested_worktree_name TEXT,
-      source TEXT NOT NULL DEFAULT 'direct',
-      title TEXT NOT NULL,
-      prompt TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'draft',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE SET NULL,
-      FOREIGN KEY (worktree_id) REFERENCES worktrees(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      worktree_id TEXT,
-      todo_id TEXT,
-      prompt_draft_id TEXT,
-      requested_worktree_name TEXT,
-      source TEXT NOT NULL DEFAULT 'direct',
-      name TEXT NOT NULL DEFAULT '未命名会话',
-      prompt TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'draft',
-      runtime_status TEXT,
-      summary TEXT,
-      pid INTEGER,
-      cwd TEXT,
-      resolved_worktree_path TEXT,
-      exit_code INTEGER,
-      last_activity_at TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (worktree_id) REFERENCES worktrees(id) ON DELETE SET NULL,
-      FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE SET NULL,
-      FOREIGN KEY (prompt_draft_id) REFERENCES prompt_drafts(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS chat_sessions (
-      id TEXT PRIMARY KEY,
-      project_id TEXT,
-      worktree_id TEXT,
-      title TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
-      FOREIGN KEY (worktree_id) REFERENCES worktrees(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS chat_messages (
-      id TEXT PRIMARY KEY,
-      chat_session_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      attachments_json TEXT NOT NULL DEFAULT '[]',
-      artifact_suggestions_json TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (chat_session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
-    );
-  `);
-
-  ensureColumn(db, "sessions", "prompt_draft_id", "TEXT");
-  ensureColumn(db, "sessions", "requested_worktree_name", "TEXT");
-  ensureColumn(db, "sessions", "source", "TEXT NOT NULL DEFAULT 'direct'");
-  ensureColumn(db, "sessions", "name", "TEXT NOT NULL DEFAULT '未命名会话'");
-  ensureColumn(db, "sessions", "runtime_status", "TEXT");
-  ensureColumn(db, "sessions", "pid", "INTEGER");
-  ensureColumn(db, "sessions", "cwd", "TEXT");
-  ensureColumn(db, "sessions", "resolved_worktree_path", "TEXT");
-  ensureColumn(db, "sessions", "exit_code", "INTEGER");
-  ensureColumn(db, "sessions", "last_activity_at", "TEXT");
-  ensureColumn(db, "projects", "latest_session_result", "TEXT");
-  ensureColumn(db, "todos", "latest_session_result", "TEXT");
-  ensureColumn(db, "notes", "source_chat_suggestion_json", "TEXT");
-  ensureColumn(db, "todos", "source_chat_suggestion_json", "TEXT");
-  ensureColumn(db, "chat_messages", "tool_calls_json", "TEXT NOT NULL DEFAULT '[]'");
-  ensureColumn(db, "chat_messages", "tool_results_json", "TEXT NOT NULL DEFAULT '[]'");
-  ensureColumn(db, "prompt_drafts", "source_chat_suggestion_json", "TEXT");
-  ensureColumn(db, "sessions", "terminal_buffer", "TEXT");
+  return {
+    host: process.env.MYSQL_HOST?.trim() || "127.0.0.1",
+    port: Number(process.env.MYSQL_PORT ?? 3306),
+    user: process.env.MYSQL_USER?.trim() || "root",
+    password: process.env.MYSQL_PASSWORD ?? "",
+    database: process.env.MYSQL_DATABASE?.trim() || "workhorse_station"
+  };
 }
 
-function ensureColumn(db: Database, tableName: string, columnName: string, definition: string) {
-  const statement = db.prepare(`PRAGMA table_info(${tableName});`);
-  let exists = false;
+async function ensureDatabaseExists(config: DatabaseConfig) {
+  const connection = await mysql.createConnection({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    charset: "utf8mb4"
+  });
 
   try {
-    while (statement.step()) {
-      const row = statement.getAsObject() as { name?: unknown };
-
-      if (row.name === columnName) {
-        exists = true;
-        break;
-      }
-    }
+    await connection.query(
+      `CREATE DATABASE IF NOT EXISTS ${quoteIdentifier(config.database)} CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`
+    );
   } finally {
-    statement.free();
-  }
-
-  if (!exists) {
-    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition};`);
+    await connection.end();
   }
 }
 
-function detectFts5(db: Database) {
-  try {
-    db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS fts5_probe USING fts5(content);");
-    db.exec("DROP TABLE IF EXISTS fts5_probe;");
-    return true;
-  } catch {
-    return false;
+async function ensureSchema(pool: Pool) {
+  for (const statement of schemaStatements) {
+    await pool.query(statement);
   }
+}
+
+function quoteIdentifier(value: string) {
+  return `\`${value.replace(/`/g, "``")}\``;
 }

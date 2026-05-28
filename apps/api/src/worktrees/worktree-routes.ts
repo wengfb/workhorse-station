@@ -47,7 +47,7 @@ export async function registerWorktreeRoutes(server: FastifyInstance, database: 
   server.get<{ Params: ProjectWorktreeParams }>(
     "/api/projects/:projectId/worktrees",
     async (request): Promise<ApiResponse<WorktreesResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
 
       if (!project) {
         throw new HttpError(404, "project_not_found", "项目不存在");
@@ -56,13 +56,13 @@ export async function registerWorktreeRoutes(server: FastifyInstance, database: 
       const changed = await refreshWorktreeStatuses(database, project.id);
 
       if (changed) {
-        database.persist();
+        await database.persist();
       }
 
       return {
         ok: true,
         data: {
-          worktrees: listWorktrees(database.db, project.id)
+          worktrees: await listWorktrees(database.db, project.id)
         }
       };
     }
@@ -71,7 +71,7 @@ export async function registerWorktreeRoutes(server: FastifyInstance, database: 
   server.post<{ Params: ProjectWorktreeParams; Body: CreateWorktreeRequest }>(
     "/api/projects/:projectId/worktrees",
     async (request, reply): Promise<ApiResponse<WorktreeResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
 
       if (!project) {
         throw new HttpError(404, "project_not_found", "项目不存在");
@@ -87,11 +87,11 @@ export async function registerWorktreeRoutes(server: FastifyInstance, database: 
         throw new HttpError(400, "validation_error", "Worktree 名称格式不正确");
       }
 
-      if (findWorktreeByName(database.db, project.id, name)) {
+      if (await findWorktreeByName(database.db, project.id, name)) {
         throw new HttpError(409, "worktree_name_exists", "该项目下已存在同名 worktree");
       }
 
-      if (findWorktreeByBranch(database.db, project.id, branch)) {
+      if (await findWorktreeByBranch(database.db, project.id, branch)) {
         throw new HttpError(409, "worktree_branch_exists", "该项目下已存在使用该分支的 worktree");
       }
 
@@ -122,14 +122,14 @@ export async function registerWorktreeRoutes(server: FastifyInstance, database: 
       }
 
       const status = await readGitWorktreeStatus(worktreePath);
-      const worktree = createWorktreeRecord(database.db, {
+      const worktree = await createWorktreeRecord(database.db, {
         projectId: project.id,
         name,
         path: worktreePath,
         branch,
         status
       });
-      database.persist();
+      await database.persist();
       reply.status(201);
 
       return {
@@ -142,13 +142,13 @@ export async function registerWorktreeRoutes(server: FastifyInstance, database: 
   server.delete<{ Params: ProjectWorktreeDetailParams; Body: DeleteWorktreeRequest }>(
     "/api/projects/:projectId/worktrees/:worktreeId",
     async (request): Promise<ApiResponse<DeleteWorktreeResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
 
       if (!project) {
         throw new HttpError(404, "project_not_found", "项目不存在");
       }
 
-      const worktree = getProjectWorktree(database.db, project.id, request.params.worktreeId);
+      const worktree = await getProjectWorktree(database.db, project.id, request.params.worktreeId);
 
       if (!worktree) {
         throw new HttpError(404, "worktree_not_found", "Worktree 不存在");
@@ -170,8 +170,8 @@ export async function registerWorktreeRoutes(server: FastifyInstance, database: 
       const status = await readGitWorktreeStatus(worktreePath);
 
       if (status !== worktree.status) {
-        updateWorktreeStatus(database.db, worktree.id, status);
-        database.persist();
+        await updateWorktreeStatus(database.db, worktree.id, status);
+        await database.persist();
       }
 
       if (status === "dirty") {
@@ -214,8 +214,8 @@ export async function registerWorktreeRoutes(server: FastifyInstance, database: 
         throw new HttpError(500, "branch_delete_failed", "本地分支删除失败");
       }
 
-      deleteWorktreeRecord(database.db, worktree.id);
-      database.persist();
+      await deleteWorktreeRecord(database.db, worktree.id);
+      await database.persist();
 
       return {
         ok: true,
@@ -231,11 +231,11 @@ export async function registerWorktreeRoutes(server: FastifyInstance, database: 
 async function refreshWorktreeStatuses(database: DatabaseState, projectId: string) {
   let changed = false;
 
-  for (const worktree of listWorktrees(database.db, projectId)) {
+  for (const worktree of await listWorktrees(database.db, projectId)) {
     const status = await readGitWorktreeStatus(worktree.path);
 
     if (status !== worktree.status) {
-      updateWorktreeStatus(database.db, worktree.id, status);
+      await updateWorktreeStatus(database.db, worktree.id, status);
       changed = true;
     }
   }
@@ -276,7 +276,7 @@ function normalizeBranch(value: unknown, name: string) {
 
   const branch = value.trim();
 
-  if (!branch || branch.length > 120 || /[\s -]/.test(branch)) {
+  if (!branch || branch.length > 120 || /[\s\x00-\x1f]/.test(branch)) {
     throw new HttpError(400, "validation_error", "Worktree 分支名格式不正确");
   }
 
@@ -294,7 +294,7 @@ function normalizeBaseBranch(value: unknown, defaultBranch: string) {
 
   const baseBranch = value.trim();
 
-  if (!baseBranch || baseBranch.length > 120 || /[\s -]/.test(baseBranch)) {
+  if (!baseBranch || baseBranch.length > 120 || /[\s\x00-\x1f]/.test(baseBranch)) {
     throw new HttpError(400, "validation_error", "基准分支格式不正确");
   }
 

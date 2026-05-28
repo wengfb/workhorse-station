@@ -26,8 +26,7 @@ import { registerWorktreeRoutes } from "./worktrees/worktree-routes.js";
 const host = process.env.API_HOST ?? "0.0.0.0";
 const port = Number(process.env.API_PORT ?? 3002);
 const database = await initDatabase();
-reconcileSessionsOnStartup(database.db);
-database.persist();
+await reconcileSessionsOnStartup(database.db);
 const sessionRuntimeManager = new SessionRuntimeManager(database);
 const workspaceTerminalRuntimeManager = new WorkspaceTerminalRuntimeManager();
 
@@ -83,8 +82,9 @@ server.get("/api/meta", async (): Promise<ApiResponse<MetaResponse>> => ({
     phase: "Phase 2",
     database: {
       connected: database.connected,
-      path: database.path,
-      fts5: database.fts5
+      engine: database.engine,
+      host: database.host,
+      database: database.database
     }
   }
 }));
@@ -124,7 +124,7 @@ if (process.env.NODE_ENV === "production") {
 
 const close = async () => {
   await server.close();
-  database.close();
+  await database.close();
 };
 
 process.on("SIGINT", () => {

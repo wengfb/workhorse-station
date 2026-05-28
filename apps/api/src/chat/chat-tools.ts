@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { Database } from "sql.js";
 import { createProject, findProjectByPath, getProject, listProjects, updateProject } from "../projects/project-repository.js";
 import { normalizeProjectPath, validateDefaultBranch } from "../projects/project-path.js";
 import { createNote, listGlobalNotes, listNotes } from "../notes/note-repository.js";
@@ -9,6 +8,7 @@ import { createTodo, listTodos } from "../todos/todo-repository.js";
 import { createPromptDraft, listPromptDrafts } from "../prompt-drafts/prompt-draft-repository.js";
 import { listWorktrees } from "../worktrees/worktree-repository.js";
 import { loadChatSkill, type SkillMetadata, getChatSkillsRoot } from "../skills/skill-loader.js";
+import type { DatabaseExecutor } from "../db/mysql.js";
 
 type JsonSchema = {
   type: "object";
@@ -210,7 +210,7 @@ export function getToolConfirmation(name: string): "auto" | "confirm" {
   return toolDefMap.get(name)?.confirmation ?? "confirm";
 }
 
-export async function executeChatTool(db: Database, name: string, input: Record<string, unknown>): Promise<ToolResult> {
+export async function executeChatTool(db: DatabaseExecutor, name: string, input: Record<string, unknown>): Promise<ToolResult> {
   try {
     switch (name) {
       case "search_notes": {
@@ -219,8 +219,8 @@ export async function executeChatTool(db: Database, name: string, input: Record<
 
         const projectId = input.projectId ? String(input.projectId) : null;
         const notes = projectId
-          ? listNotes(db, projectId, { search: query })
-          : listGlobalNotes(db, { search: query });
+          ? await listNotes(db, projectId, { search: query })
+          : await listGlobalNotes(db, { search: query });
 
         if (!notes.length) {
           return { result: `未找到与"${query}"相关的笔记。`, isError: false };
@@ -250,7 +250,7 @@ export async function executeChatTool(db: Database, name: string, input: Record<
         if (title.length > 120) return { result: "笔记标题不能超过 120 个字符", isError: true };
         if (content.length > 20000) return { result: "笔记内容不能超过 20000 个字符", isError: true };
 
-        const note = createNote(db, {
+        const note = await createNote(db, {
           projectId,
           title,
           content,
@@ -266,7 +266,7 @@ export async function executeChatTool(db: Database, name: string, input: Record<
         const projectId = String(input.projectId ?? "").trim();
         if (!projectId) return { result: "请提供项目 ID", isError: true };
 
-        const todos = listTodos(db, projectId);
+        const todos = await listTodos(db, projectId);
 
         if (!todos.length) {
           return { result: "该项目暂无任务。", isError: false };
@@ -294,7 +294,7 @@ export async function executeChatTool(db: Database, name: string, input: Record<
         if (title.length > 120) return { result: "任务标题不能超过 120 个字符", isError: true };
         if (description.length > 20000) return { result: "任务描述不能超过 20000 个字符", isError: true };
 
-        const todo = createTodo(db, {
+        const todo = await createTodo(db, {
           projectId,
           title,
           description,
@@ -318,7 +318,7 @@ export async function executeChatTool(db: Database, name: string, input: Record<
         if (title.length > 120) return { result: "标题不能超过 120 个字符", isError: true };
         if (prompt.length > 40000) return { result: "Prompt 内容不能超过 40000 个字符", isError: true };
 
-        const draft = createPromptDraft(db, {
+        const draft = await createPromptDraft(db, {
           projectId,
           todoId: null,
           worktreeId: null,
@@ -334,7 +334,7 @@ export async function executeChatTool(db: Database, name: string, input: Record<
       }
 
       case "list_projects": {
-        const projects = listProjects(db);
+        const projects = await listProjects(db);
 
         if (!projects.length) {
           return { result: "暂无已注册的项目。", isError: false };
@@ -360,7 +360,7 @@ export async function executeChatTool(db: Database, name: string, input: Record<
           return { result: `路径验证失败: ${message}`, isError: true };
         }
 
-        const existing = findProjectByPath(db, normalized.path);
+        const existing = await findProjectByPath(db, normalized.path);
         if (existing) {
           return { result: `该代码目录已绑定到项目"${existing.name}"`, isError: true };
         }
@@ -370,7 +370,7 @@ export async function executeChatTool(db: Database, name: string, input: Record<
           return { result: "项目描述不能超过 1000 个字符", isError: true };
         }
 
-        const project = createProject(db, {
+        const project = await createProject(db, {
           name,
           path: normalized.path,
           defaultBranch: normalized.defaultBranch,
@@ -387,7 +387,7 @@ export async function executeChatTool(db: Database, name: string, input: Record<
         const projectId = String(input.projectId ?? "").trim();
         if (!projectId) return { result: "请提供项目 ID", isError: true };
 
-        const current = getProject(db, projectId);
+        const current = await getProject(db, projectId);
         if (!current) return { result: "项目不存在", isError: true };
 
         const hasName = input.name !== undefined && input.name !== null && input.name !== "";
@@ -422,12 +422,12 @@ export async function executeChatTool(db: Database, name: string, input: Record<
             return { result: `路径验证失败: ${message}`, isError: true };
           }
 
-          const existing = findProjectByPath(db, projectPath);
+          const existing = await findProjectByPath(db, projectPath);
           if (existing && existing.id !== projectId) {
             return { result: `该代码目录已绑定到项目"${existing.name}"`, isError: true };
           }
 
-          if (projectPath !== current.path && listWorktrees(db, projectId).length > 0) {
+          if (projectPath !== current.path && (await listWorktrees(db, projectId)).length > 0) {
             return { result: "该项目已有 worktree，请先删除 worktree 后再修改代码目录", isError: true };
           }
         } else if (hasBranch) {
@@ -451,7 +451,7 @@ export async function executeChatTool(db: Database, name: string, input: Record<
           }
         }
 
-        const updated = updateProject(db, projectId, {
+        const updated = await updateProject(db, projectId, {
           name,
           path: projectPath,
           defaultBranch,
@@ -467,7 +467,7 @@ export async function executeChatTool(db: Database, name: string, input: Record<
         const projectId = String(input.projectId ?? "").trim();
         if (!projectId) return { result: "请提供项目 ID", isError: true };
 
-        const worktrees = listWorktrees(db, projectId);
+        const worktrees = await listWorktrees(db, projectId);
 
         if (!worktrees.length) {
           return { result: "该项目暂无 worktree。", isError: false };
@@ -481,7 +481,7 @@ export async function executeChatTool(db: Database, name: string, input: Record<
         const projectId = String(input.projectId ?? "").trim();
         if (!projectId) return { result: "请提供项目 ID", isError: true };
 
-        const drafts = listPromptDrafts(db, projectId);
+        const drafts = await listPromptDrafts(db, projectId);
 
         if (!drafts.length) {
           return { result: "该项目暂无 Prompt 草稿。", isError: false };

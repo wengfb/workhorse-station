@@ -29,14 +29,18 @@ export async function registerTodoRoutes(server: FastifyInstance, database: Data
   server.get<{ Params: ProjectParams; Querystring: { page?: string; pageSize?: string; search?: string; tags?: string; statuses?: string } }>(
     "/api/projects/:projectId/todos",
     async (request): Promise<ApiResponse<TodosResponse>> => {
-      assertProjectExists(database, request.params.projectId);
+      await assertProjectExists(database, request.params.projectId);
       const opts = parseListQuery(request.query);
+      const [todos, total] = await Promise.all([
+        listTodos(database.db, request.params.projectId, opts),
+        countTodos(database.db, request.params.projectId, { search: opts.search, tags: opts.tags, statuses: opts.statuses })
+      ]);
 
       return {
         ok: true,
         data: {
-          todos: listTodos(database.db, request.params.projectId, opts),
-          total: countTodos(database.db, request.params.projectId, { search: opts.search, tags: opts.tags, statuses: opts.statuses }),
+          todos,
+          total,
           page: opts.page ?? 1,
           pageSize: opts.pageSize ?? 12
         }
@@ -47,10 +51,10 @@ export async function registerTodoRoutes(server: FastifyInstance, database: Data
   server.post<{ Params: ProjectParams; Body: CreateTodoRequest }>(
     "/api/projects/:projectId/todos",
     async (request, reply): Promise<ApiResponse<TodoResponse>> => {
-      assertProjectExists(database, request.params.projectId);
-      const input = buildTodoInput(database, request.params.projectId, request.body);
-      const todo = createTodo(database.db, input);
-      database.persist();
+      await assertProjectExists(database, request.params.projectId);
+      const input = await buildTodoInput(database, request.params.projectId, request.body);
+      const todo = await createTodo(database.db, input);
+      await database.persist();
       reply.status(201);
 
       return {
@@ -63,22 +67,22 @@ export async function registerTodoRoutes(server: FastifyInstance, database: Data
   server.patch<{ Params: ProjectTodoParams; Body: UpdateTodoRequest }>(
     "/api/projects/:projectId/todos/:todoId",
     async (request): Promise<ApiResponse<TodoResponse>> => {
-      assertProjectExists(database, request.params.projectId);
-      const currentTodo = getProjectTodo(database.db, request.params.projectId, request.params.todoId);
+      await assertProjectExists(database, request.params.projectId);
+      const currentTodo = await getProjectTodo(database.db, request.params.projectId, request.params.todoId);
 
       if (!currentTodo) {
         throw new HttpError(404, "todo_not_found", "待办不存在");
       }
 
-      const input = buildTodoInput(database, request.params.projectId, {
+      const input = await buildTodoInput(database, request.params.projectId, {
         title: request.body?.title ?? currentTodo.title,
         description: request.body?.description ?? currentTodo.description,
         status: request.body?.status ?? currentTodo.status,
         tags: request.body?.tags ?? currentTodo.tags,
         sourceNoteId: request.body?.sourceNoteId === undefined ? currentTodo.sourceNoteId : request.body.sourceNoteId
       });
-      const todo = updateTodo(database.db, request.params.projectId, request.params.todoId, input);
-      database.persist();
+      const todo = await updateTodo(database.db, request.params.projectId, request.params.todoId, input);
+      await database.persist();
 
       if (!todo) {
         throw new HttpError(404, "todo_not_found", "待办不存在");
@@ -94,13 +98,13 @@ export async function registerTodoRoutes(server: FastifyInstance, database: Data
   server.delete<{ Params: ProjectTodoParams }>(
     "/api/projects/:projectId/todos/:todoId",
     async (request): Promise<ApiResponse<DeleteTodoResponse>> => {
-      assertProjectExists(database, request.params.projectId);
+      await assertProjectExists(database, request.params.projectId);
 
-      if (!deleteTodo(database.db, request.params.projectId, request.params.todoId)) {
+      if (!(await deleteTodo(database.db, request.params.projectId, request.params.todoId))) {
         throw new HttpError(404, "todo_not_found", "待办不存在");
       }
 
-      database.persist();
+      await database.persist();
 
       return {
         ok: true,
@@ -110,20 +114,20 @@ export async function registerTodoRoutes(server: FastifyInstance, database: Data
   );
 }
 
-function assertProjectExists(database: DatabaseState, projectId: string) {
-  if (!getProject(database.db, projectId)) {
+async function assertProjectExists(database: DatabaseState, projectId: string) {
+  if (!(await getProject(database.db, projectId))) {
     throw new HttpError(404, "project_not_found", "项目不存在");
   }
 }
 
-function buildTodoInput(database: DatabaseState, projectId: string, body: CreateTodoRequest | undefined): TodoWriteInput {
+async function buildTodoInput(database: DatabaseState, projectId: string, body: CreateTodoRequest | undefined): Promise<TodoWriteInput> {
   if (!isObject(body)) {
     throw new HttpError(400, "validation_error", "请求体必须是 JSON 对象");
   }
 
   const sourceNoteId = normalizeSourceNoteId(body.sourceNoteId);
 
-  if (sourceNoteId && !getProjectNote(database.db, projectId, sourceNoteId)) {
+  if (sourceNoteId && !(await getProjectNote(database.db, projectId, sourceNoteId))) {
     throw new HttpError(400, "source_note_not_found", "来源笔记不存在或不属于当前项目");
   }
 

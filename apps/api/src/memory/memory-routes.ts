@@ -35,7 +35,6 @@ import {
   saveClaudeMd,
   updateMemory,
   updateRule,
-  validateName,
   writeMemoryIndex
 } from "./memory-fs.js";
 
@@ -50,8 +49,6 @@ type NameParams = {
 type ProjectNameParams = ProjectParams & NameParams;
 
 export async function registerMemoryRoutes(server: FastifyInstance, database: DatabaseState) {
-  // ─── CLAUDE.md ───
-
   server.get("/api/claude-md/global", async (): Promise<ApiResponse<ClaudeMdResponse>> => {
     const filePath = claudeMdGlobalPath();
     const content = await readClaudeMd(filePath);
@@ -78,7 +75,7 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
   server.get<{ Params: ProjectParams }>(
     "/api/projects/:projectId/claude-md",
     async (request): Promise<ApiResponse<ClaudeMdResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       const filePath = claudeMdProjectPath(project.path);
@@ -94,7 +91,7 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
   server.put<{ Params: ProjectParams; Body: UpdateClaudeMdRequest }>(
     "/api/projects/:projectId/claude-md",
     async (request): Promise<ApiResponse<ClaudeMdResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       const filePath = claudeMdProjectPath(project.path);
@@ -107,12 +104,10 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
     }
   );
 
-  // ─── Rules ───
-
   server.get<{ Params: ProjectParams }>(
     "/api/projects/:projectId/rules",
     async (request): Promise<ApiResponse<RulesResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       return {
@@ -125,7 +120,7 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
   server.get<{ Params: ProjectNameParams }>(
     "/api/projects/:projectId/rules/:name",
     async (request): Promise<ApiResponse<RuleResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       const rule = await readRule(project.path, request.params.name);
@@ -140,7 +135,7 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
   server.post<{ Params: ProjectParams; Body: CreateRuleRequest }>(
     "/api/projects/:projectId/rules",
     async (request, reply): Promise<ApiResponse<RuleResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       const rule = await createRule(project.path, request.body?.name, request.body?.content);
@@ -156,7 +151,7 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
   server.put<{ Params: ProjectNameParams; Body: UpdateRuleRequest }>(
     "/api/projects/:projectId/rules/:name",
     async (request): Promise<ApiResponse<RuleResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       const rule = await updateRule(project.path, request.params.name, request.body?.content ?? "");
@@ -171,7 +166,7 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
   server.delete<{ Params: ProjectNameParams; Body: DeleteRuleRequest }>(
     "/api/projects/:projectId/rules/:name",
     async (request): Promise<ApiResponse<{ deleted: true }>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       await deleteRule(project.path, request.params.name, request.body?.confirmName);
@@ -183,12 +178,10 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
     }
   );
 
-  // ─── Auto memory ───
-
   server.get<{ Params: ProjectParams }>(
     "/api/projects/:projectId/memory",
     async (request): Promise<ApiResponse<MemoriesResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       const result = await listMemories(project.path);
@@ -203,7 +196,7 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
   server.get<{ Params: ProjectNameParams }>(
     "/api/projects/:projectId/memory/:name",
     async (request): Promise<ApiResponse<MemoryResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       const memory = await readMemory(project.path, request.params.name);
@@ -218,7 +211,7 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
   server.post<{ Params: ProjectParams; Body: CreateMemoryRequest }>(
     "/api/projects/:projectId/memory",
     async (request, reply): Promise<ApiResponse<MemoryResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       const memory = await createMemory(project.path, {
@@ -239,7 +232,7 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
   server.put<{ Params: ProjectNameParams; Body: UpdateMemoryRequest }>(
     "/api/projects/:projectId/memory/:name",
     async (request): Promise<ApiResponse<MemoryResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       const memory = await updateMemory(project.path, request.params.name, {
@@ -259,7 +252,7 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
   server.delete<{ Params: ProjectNameParams; Body: DeleteMemoryRequest }>(
     "/api/projects/:projectId/memory/:name",
     async (request): Promise<ApiResponse<{ deleted: true }>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       await deleteMemory(project.path, request.params.name, request.body?.confirmName);
@@ -274,7 +267,7 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
   server.get<{ Params: ProjectParams }>(
     "/api/projects/:projectId/memory-index",
     async (request): Promise<ApiResponse<MemoryIndexResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       const entries = await readMemoryIndex(project.path);
@@ -289,11 +282,10 @@ export async function registerMemoryRoutes(server: FastifyInstance, database: Da
   server.put<{ Params: ProjectParams; Body: { entries: MemoryIndexEntry[] } }>(
     "/api/projects/:projectId/memory-index",
     async (request): Promise<ApiResponse<MemoryIndexResponse>> => {
-      const project = getProject(database.db, request.params.projectId);
+      const project = await getProject(database.db, request.params.projectId);
       if (!project) throw new HttpError(404, "project_not_found", "项目不存在");
 
       const entries = request.body?.entries ?? [];
-      validateName;
       await writeMemoryIndex(project.path, entries);
 
       return {

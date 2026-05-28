@@ -33,7 +33,6 @@ import {
   type ChatSessionWriteInput
 } from "./chat-repository.js";
 import { ChatStreamHandler, registerStreamHandler, getStreamHandler, unregisterStreamHandler } from "./chat-stream-handler.js";
-import { createChatStreamEvent } from "./chat-events.js";
 
 type ChatSessionParams = {
   chatSessionId: string;
@@ -48,18 +47,18 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
   server.get("/api/chat-sessions", async (): Promise<ApiResponse<ChatSessionsResponse>> => ({
     ok: true,
     data: {
-      chatSessions: listChatSessions(database.db)
+      chatSessions: await listChatSessions(database.db)
     }
   }));
 
   server.post<{ Body: CreateChatSessionRequest }>("/api/chat-sessions", async (request, reply): Promise<ApiResponse<ChatSessionResponse>> => {
-    const input = buildChatSessionInput(database, request.body);
+    const input = await buildChatSessionInput(database, request.body);
     const title = normalizeSessionTitle(request.body?.title);
-    const chatSession = createChatSession(database.db, {
+    const chatSession = await createChatSession(database.db, {
       ...input,
       title
     });
-    database.persist();
+    await database.persist();
     reply.status(201);
 
     return {
@@ -71,7 +70,7 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
   server.post<{ Params: ChatSessionParams; Body: CreateChatMessageRequest }>(
     "/api/chat-sessions/:chatSessionId/messages",
     async (request, reply) => {
-      const currentSession = getChatSession(database.db, request.params.chatSessionId);
+      const currentSession = await getChatSession(database.db, request.params.chatSessionId);
 
       if (!currentSession) {
         throw new HttpError(404, "chat_session_not_found", "聊天会话不存在");
@@ -84,17 +83,17 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
         throw new HttpError(400, "validation_error", "消息内容不能为空");
       }
 
-      const input = buildChatSessionInput(database, {
+      const input = await buildChatSessionInput(database, {
         projectId: request.body?.projectId ?? currentSession.projectId,
         worktreeId: request.body?.worktreeId ?? currentSession.worktreeId
       });
       const title = deriveSessionTitle(currentSession.title, content, attachments);
-      updateChatSessionContext(database.db, currentSession.id, {
+      await updateChatSessionContext(database.db, currentSession.id, {
         ...input,
         title
       });
 
-      appendChatMessage(database.db, {
+      await appendChatMessage(database.db, {
         chatSessionId: currentSession.id,
         role: "user",
         content,
@@ -103,10 +102,10 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
         toolCalls: [],
         toolResults: []
       });
-      database.persist();
+      await database.persist();
 
-      const project = input.projectId ? getProject(database.db, input.projectId) : null;
-      const worktree = input.projectId && input.worktreeId ? getProjectWorktree(database.db, input.projectId, input.worktreeId) : null;
+      const project = input.projectId ? await getProject(database.db, input.projectId) : null;
+      const worktree = input.projectId && input.worktreeId ? await getProjectWorktree(database.db, input.projectId, input.worktreeId) : null;
 
       reply.hijack();
       reply.raw.writeHead(200, {
@@ -151,13 +150,13 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
   server.post<{ Params: ChatSuggestionParams; Body: ApplyChatSuggestionRequest }>(
     "/api/chat-sessions/:chatSessionId/messages/:chatMessageId/suggestions/:suggestionId/apply",
     async (request): Promise<ApiResponse<ApplyChatSuggestionResponse>> => {
-      const chatSession = getChatSession(database.db, request.params.chatSessionId);
+      const chatSession = await getChatSession(database.db, request.params.chatSessionId);
 
       if (!chatSession) {
         throw new HttpError(404, "chat_session_not_found", "聊天会话不存在");
       }
 
-      const message = getChatSessionMessage(database.db, chatSession.id, request.params.chatMessageId);
+      const message = await getChatSessionMessage(database.db, chatSession.id, request.params.chatMessageId);
 
       if (!message || message.role !== "assistant") {
         throw new HttpError(404, "chat_message_not_found", "聊天建议消息不存在");
@@ -169,7 +168,7 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
         throw new HttpError(404, "chat_suggestion_not_found", "聊天建议不存在");
       }
 
-      const context = buildChatSessionInput(database, {
+      const context = await buildChatSessionInput(database, {
         projectId: request.body?.projectId ?? chatSession.projectId,
         worktreeId: request.body?.worktreeId ?? chatSession.worktreeId
       });
@@ -178,7 +177,7 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
         throw new HttpError(400, "project_required", "保存聊天建议前需先选择项目");
       }
 
-      const existingTarget = readAppliedSuggestionTarget(database, suggestion);
+      const existingTarget = await readAppliedSuggestionTarget(database, suggestion);
 
       if (existingTarget) {
         return {
@@ -197,16 +196,16 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
         chatMessageId: message.id,
         suggestionId: suggestion.id
       };
-      const target = createAppliedSuggestionTarget(database, suggestion, context.projectId, context.worktreeId, sourceChatSuggestion);
+      const target = await createAppliedSuggestionTarget(database, suggestion, context.projectId, context.worktreeId, sourceChatSuggestion);
       const savedSuggestion = markSuggestionSaved(suggestion, target.type, getAppliedTargetId(target), context.projectId, context.worktreeId);
       const nextSuggestions = message.artifactSuggestions.map((item) => (item.id === suggestion.id ? savedSuggestion : item));
-      updateChatMessageArtifactSuggestions(database.db, chatSession.id, message.id, nextSuggestions);
-      database.persist();
+      await updateChatMessageArtifactSuggestions(database.db, chatSession.id, message.id, nextSuggestions);
+      await database.persist();
 
       return {
         ok: true,
         data: {
-          chatSession: getChatSession(database.db, chatSession.id) ?? chatSession,
+          chatSession: (await getChatSession(database.db, chatSession.id)) ?? chatSession,
           suggestion: savedSuggestion,
           target,
           deduped: false
@@ -216,11 +215,11 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
   );
 
   server.delete<{ Params: ChatSessionParams }>("/api/chat-sessions/:chatSessionId", async (request): Promise<ApiResponse<DeleteChatSessionResponse>> => {
-    if (!deleteChatSession(database.db, request.params.chatSessionId)) {
+    if (!(await deleteChatSession(database.db, request.params.chatSessionId))) {
       throw new HttpError(404, "chat_session_not_found", "聊天会话不存在");
     }
 
-    database.persist();
+    await database.persist();
 
     return {
       ok: true,
@@ -238,13 +237,13 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
         throw new HttpError(400, "missing_from", "缺少 from 参数");
       }
 
-      const session = truncateChatMessages(database.db, chatSessionId, from);
+      const session = await truncateChatMessages(database.db, chatSessionId, from);
 
       if (!session) {
         throw new HttpError(404, "chat_session_not_found", "聊天会话不存在");
       }
 
-      database.persist();
+      await database.persist();
 
       return {
         ok: true,
@@ -272,38 +271,38 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
   );
 }
 
-function readAppliedSuggestionTarget(database: DatabaseState, suggestion: ChatArtifactSuggestion): AppliedChatSuggestionTarget | null {
+async function readAppliedSuggestionTarget(database: DatabaseState, suggestion: ChatArtifactSuggestion): Promise<AppliedChatSuggestionTarget | null> {
   if (suggestion.adoption?.status !== "saved" || !suggestion.adoption.targetType || !suggestion.adoption.targetId || !suggestion.adoption.projectId) {
     return null;
   }
 
   if (suggestion.adoption.targetType === "note") {
-    const note = getProjectNote(database.db, suggestion.adoption.projectId, suggestion.adoption.targetId);
+    const note = await getProjectNote(database.db, suggestion.adoption.projectId, suggestion.adoption.targetId);
     return note ? { type: "note", note } : null;
   }
 
   if (suggestion.adoption.targetType === "todo") {
-    const todo = getProjectTodo(database.db, suggestion.adoption.projectId, suggestion.adoption.targetId);
+    const todo = await getProjectTodo(database.db, suggestion.adoption.projectId, suggestion.adoption.targetId);
     return todo ? { type: "todo", todo } : null;
   }
 
-  const promptDraft = getProjectPromptDraft(database.db, suggestion.adoption.projectId, suggestion.adoption.targetId);
+  const promptDraft = await getProjectPromptDraft(database.db, suggestion.adoption.projectId, suggestion.adoption.targetId);
   return promptDraft ? { type: "prompt_draft", promptDraft } : null;
 }
 
-function createAppliedSuggestionTarget(
+async function createAppliedSuggestionTarget(
   database: DatabaseState,
   suggestion: ChatArtifactSuggestion,
   projectId: string,
   worktreeId: string | null,
   sourceChatSuggestion: ChatArtifactSourceRef
-): AppliedChatSuggestionTarget {
+): Promise<AppliedChatSuggestionTarget> {
   const title = normalizeSuggestionTitle(suggestion.title);
   const content = normalizeSuggestionContent(suggestion.content, suggestion.type === "prompt_draft" ? 40000 : 20000);
   const tags = normalizeSuggestionTags(suggestion.tags);
 
   if (suggestion.type === "note") {
-    const note = createNote(database.db, {
+    const note = await createNote(database.db, {
       projectId,
       title,
       content,
@@ -314,7 +313,7 @@ function createAppliedSuggestionTarget(
   }
 
   if (suggestion.type === "todo") {
-    const todo = createTodo(database.db, {
+    const todo = await createTodo(database.db, {
       projectId,
       title,
       description: normalizeSuggestionDescription(suggestion.description ?? content),
@@ -326,7 +325,7 @@ function createAppliedSuggestionTarget(
     return { type: "todo", todo };
   }
 
-  const promptDraft = createPromptDraft(database.db, {
+  const promptDraft = await createPromptDraft(database.db, {
     projectId,
     todoId: null,
     worktreeId,
@@ -453,7 +452,8 @@ function getAppliedTargetId(target: AppliedChatSuggestionTarget) {
 
   return target.promptDraft.id;
 }
-function buildChatSessionInput(database: DatabaseState, body: Pick<CreateChatSessionRequest, "projectId" | "worktreeId"> | undefined): ChatSessionWriteInput {
+
+async function buildChatSessionInput(database: DatabaseState, body: Pick<CreateChatSessionRequest, "projectId" | "worktreeId"> | undefined): Promise<ChatSessionWriteInput> {
   const projectId = normalizeOptionalId(body?.projectId, "项目 ID 不合法");
   const worktreeId = normalizeOptionalId(body?.worktreeId, "Worktree ID 不合法");
 
@@ -461,11 +461,11 @@ function buildChatSessionInput(database: DatabaseState, body: Pick<CreateChatSes
     throw new HttpError(400, "validation_error", "选择 worktree 时必须同时选择项目");
   }
 
-  if (projectId && !getProject(database.db, projectId)) {
+  if (projectId && !(await getProject(database.db, projectId))) {
     throw new HttpError(400, "project_not_found", "项目不存在");
   }
 
-  if (projectId && worktreeId && !getProjectWorktree(database.db, projectId, worktreeId)) {
+  if (projectId && worktreeId && !(await getProjectWorktree(database.db, projectId, worktreeId))) {
     throw new HttpError(400, "worktree_not_found", "Worktree 不存在或不属于当前项目");
   }
 

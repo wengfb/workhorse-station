@@ -8,7 +8,8 @@ import type {
   ChatToolCall,
   ChatToolResult
 } from "@workhorse-station/shared";
-import type { Database } from "sql.js";
+import type { DatabaseExecutor, SqlParams } from "../db/mysql.js";
+import { execute, queryOne, queryRows } from "../db/mysql.js";
 
 export type ChatSessionWriteInput = {
   id?: string;
@@ -47,24 +48,29 @@ type ChatMessageRow = {
   tool_calls_json: string;
   tool_results_json: string;
   created_at: string;
+  sequence: number | string;
 };
 
-export function listChatSessions(db: Database) {
-  const sessions = selectChatSessions(
+const CHAT_SESSION_SELECT = `SELECT id, project_id, worktree_id, title, created_at, updated_at
+     FROM chat_sessions`;
+
+const CHAT_MESSAGE_SELECT = `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, tool_calls_json, tool_results_json, created_at, sequence
+     FROM chat_messages`;
+
+export async function listChatSessions(db: DatabaseExecutor) {
+  const sessions = await selectChatSessions(
     db,
-    `SELECT id, project_id, worktree_id, title, created_at, updated_at
-     FROM chat_sessions
+    `${CHAT_SESSION_SELECT}
      ORDER BY updated_at DESC, created_at DESC`
   );
 
   return hydrateChatSessions(db, sessions);
 }
 
-export function getChatSession(db: Database, chatSessionId: string) {
-  const session = selectChatSession(
+export async function getChatSession(db: DatabaseExecutor, chatSessionId: string) {
+  const session = await selectChatSession(
     db,
-    `SELECT id, project_id, worktree_id, title, created_at, updated_at
-     FROM chat_sessions
+    `${CHAT_SESSION_SELECT}
      WHERE id = ?`,
     [chatSessionId]
   );
@@ -75,19 +81,20 @@ export function getChatSession(db: Database, chatSessionId: string) {
 
   return {
     ...session,
-    messages: listChatMessages(db, session.id)
+    messages: await listChatMessages(db, session.id)
   };
 }
 
-export function createChatSession(db: Database, input: ChatSessionWriteInput) {
+export async function createChatSession(db: DatabaseExecutor, input: ChatSessionWriteInput) {
   const id = input.id ?? randomUUID();
-  db.run(
+  await execute(
+    db,
     `INSERT INTO chat_sessions (id, project_id, worktree_id, title)
      VALUES (?, ?, ?, ?)`,
     [id, input.projectId, input.worktreeId, input.title]
   );
 
-  const chatSession = getChatSession(db, id);
+  const chatSession = await getChatSession(db, id);
 
   if (!chatSession) {
     throw new Error("Failed to read created chat session");
@@ -96,8 +103,9 @@ export function createChatSession(db: Database, input: ChatSessionWriteInput) {
   return chatSession;
 }
 
-export function updateChatSessionContext(db: Database, chatSessionId: string, input: ChatSessionWriteInput) {
-  db.run(
+export async function updateChatSessionContext(db: DatabaseExecutor, chatSessionId: string, input: ChatSessionWriteInput) {
+  await execute(
+    db,
     `UPDATE chat_sessions
      SET project_id = ?, worktree_id = ?, title = ?, updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
@@ -107,21 +115,32 @@ export function updateChatSessionContext(db: Database, chatSessionId: string, in
   return getChatSession(db, chatSessionId);
 }
 
-export function appendChatMessage(db: Database, input: ChatMessageWriteInput) {
+export async function appendChatMessage(db: DatabaseExecutor, input: ChatMessageWriteInput) {
   const id = input.id ?? randomUUID();
-  db.run(
+  await execute(
+    db,
     `INSERT INTO chat_messages (id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, tool_calls_json, tool_results_json)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, input.chatSessionId, input.role, input.content, JSON.stringify(input.attachments), JSON.stringify(input.artifactSuggestions), JSON.stringify(input.toolCalls), JSON.stringify(input.toolResults)]
+    [
+      id,
+      input.chatSessionId,
+      input.role,
+      input.content,
+      JSON.stringify(input.attachments),
+      JSON.stringify(input.artifactSuggestions),
+      JSON.stringify(input.toolCalls),
+      JSON.stringify(input.toolResults)
+    ]
   );
-  db.run(
+  await execute(
+    db,
     `UPDATE chat_sessions
      SET updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
     [input.chatSessionId]
   );
 
-  const message = getChatMessage(db, id);
+  const message = await getChatMessage(db, id);
 
   if (!message) {
     throw new Error("Failed to read created chat message");
@@ -130,91 +149,73 @@ export function appendChatMessage(db: Database, input: ChatMessageWriteInput) {
   return message;
 }
 
-export function deleteChatSession(db: Database, chatSessionId: string) {
-  db.run("DELETE FROM chat_sessions WHERE id = ?", [chatSessionId]);
-  return db.getRowsModified() > 0;
+export async function deleteChatSession(db: DatabaseExecutor, chatSessionId: string) {
+  return (await execute(db, "DELETE FROM chat_sessions WHERE id = ?", [chatSessionId])) > 0;
 }
 
-export function truncateChatMessages(db: Database, chatSessionId: string, fromMessageId: string) {
-  const stmt = db.prepare(
-    "SELECT rowid FROM chat_messages WHERE id = ? AND chat_session_id = ?",
+export async function truncateChatMessages(db: DatabaseExecutor, chatSessionId: string, fromMessageId: string) {
+  const target = await queryOne<{ sequence: number | string }>(
+    db,
+    "SELECT sequence FROM chat_messages WHERE id = ? AND chat_session_id = ?",
     [fromMessageId, chatSessionId]
   );
 
-  let targetRowid: number | null = null;
-
-  try {
-    if (stmt.step()) {
-      const row = stmt.getAsObject() as { rowid: number };
-      targetRowid = row.rowid;
-    }
-  } finally {
-    stmt.free();
-  }
-
-  if (targetRowid === null) {
+  if (!target) {
     return getChatSession(db, chatSessionId);
   }
 
-  db.run(
-    "DELETE FROM chat_messages WHERE chat_session_id = ? AND rowid >= ?",
-    [chatSessionId, targetRowid]
+  await execute(
+    db,
+    "DELETE FROM chat_messages WHERE chat_session_id = ? AND sequence >= ?",
+    [chatSessionId, Number(target.sequence)]
   );
-  db.run(
+  await execute(
+    db,
     "UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
     [chatSessionId]
   );
+
   return getChatSession(db, chatSessionId);
 }
 
-export function listChatMessages(db: Database, chatSessionId: string) {
-  const statement = db.prepare(
-    `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, tool_calls_json, tool_results_json, created_at
-     FROM chat_messages
+export async function listChatMessages(db: DatabaseExecutor, chatSessionId: string) {
+  const rows = await queryRows<ChatMessageRow>(
+    db,
+    `${CHAT_MESSAGE_SELECT}
      WHERE chat_session_id = ?
-     ORDER BY rowid ASC`,
+     ORDER BY sequence ASC`,
     [chatSessionId]
   );
-  const rows: ChatMessageSummary[] = [];
 
-  try {
-    while (statement.step()) {
-      rows.push(mapChatMessageRow(statement.getAsObject() as ChatMessageRow));
-    }
-  } finally {
-    statement.free();
-  }
-
-  return rows;
+  return rows.map(mapChatMessageRow);
 }
 
-export function getChatSessionMessage(db: Database, chatSessionId: string, messageId: string) {
-  const statement = db.prepare(
-    `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, tool_calls_json, tool_results_json, created_at
-     FROM chat_messages
+export async function getChatSessionMessage(db: DatabaseExecutor, chatSessionId: string, messageId: string) {
+  const row = await queryOne<ChatMessageRow>(
+    db,
+    `${CHAT_MESSAGE_SELECT}
      WHERE chat_session_id = ? AND id = ?`,
     [chatSessionId, messageId]
   );
 
-  try {
-    if (!statement.step()) {
-      return null;
-    }
-
-    return mapChatMessageRow(statement.getAsObject() as ChatMessageRow);
-  } finally {
-    statement.free();
-  }
+  return row ? mapChatMessageRow(row) : null;
 }
 
-export function updateChatMessageArtifactSuggestions(db: Database, chatSessionId: string, messageId: string, artifactSuggestions: ChatArtifactSuggestion[]) {
-  db.run(
+export async function updateChatMessageArtifactSuggestions(
+  db: DatabaseExecutor,
+  chatSessionId: string,
+  messageId: string,
+  artifactSuggestions: ChatArtifactSuggestion[]
+) {
+  await execute(
+    db,
     `UPDATE chat_messages
      SET artifact_suggestions_json = ?
      WHERE chat_session_id = ? AND id = ?`,
     [JSON.stringify(artifactSuggestions), chatSessionId, messageId]
   );
-  db.run(
+  await execute(
+    db,
     `UPDATE chat_sessions
      SET updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
@@ -224,59 +225,34 @@ export function updateChatMessageArtifactSuggestions(db: Database, chatSessionId
   return getChatSessionMessage(db, chatSessionId, messageId);
 }
 
-function getChatMessage(db: Database, messageId: string) {
-  const statement = db.prepare(
-    `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, tool_calls_json, tool_results_json, created_at
-     FROM chat_messages
+async function getChatMessage(db: DatabaseExecutor, messageId: string) {
+  const row = await queryOne<ChatMessageRow>(
+    db,
+    `${CHAT_MESSAGE_SELECT}
      WHERE id = ?`,
     [messageId]
   );
 
-  try {
-    if (!statement.step()) {
-      return null;
-    }
-
-    return mapChatMessageRow(statement.getAsObject() as ChatMessageRow);
-  } finally {
-    statement.free();
-  }
+  return row ? mapChatMessageRow(row) : null;
 }
 
-function hydrateChatSessions(db: Database, sessions: Omit<ChatSessionSummary, "messages">[]) {
-  return sessions.map((session) => ({
-    ...session,
-    messages: listChatMessages(db, session.id)
-  }));
+async function hydrateChatSessions(db: DatabaseExecutor, sessions: Omit<ChatSessionSummary, "messages">[]) {
+  return Promise.all(
+    sessions.map(async (session) => ({
+      ...session,
+      messages: await listChatMessages(db, session.id)
+    }))
+  );
 }
 
-function selectChatSessions(db: Database, sql: string, params: Array<string | null> = []) {
-  const statement = db.prepare(sql, params);
-  const rows: Omit<ChatSessionSummary, "messages">[] = [];
-
-  try {
-    while (statement.step()) {
-      rows.push(mapChatSessionRow(statement.getAsObject() as ChatSessionRow));
-    }
-  } finally {
-    statement.free();
-  }
-
-  return rows;
+async function selectChatSessions(db: DatabaseExecutor, sql: string, params: SqlParams = []) {
+  const rows = await queryRows<ChatSessionRow>(db, sql, params);
+  return rows.map(mapChatSessionRow);
 }
 
-function selectChatSession(db: Database, sql: string, params: Array<string | null>) {
-  const statement = db.prepare(sql, params);
-
-  try {
-    if (!statement.step()) {
-      return null;
-    }
-
-    return mapChatSessionRow(statement.getAsObject() as ChatSessionRow);
-  } finally {
-    statement.free();
-  }
+async function selectChatSession(db: DatabaseExecutor, sql: string, params: SqlParams) {
+  const row = await queryOne<ChatSessionRow>(db, sql, params);
+  return row ? mapChatSessionRow(row) : null;
 }
 
 function mapChatSessionRow(row: ChatSessionRow): Omit<ChatSessionSummary, "messages"> {

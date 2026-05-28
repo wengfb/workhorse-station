@@ -31,12 +31,12 @@ const sessionSources: SessionSource[] = ["direct", "todo"];
 
 export async function registerPromptDraftRoutes(server: FastifyInstance, database: DatabaseState) {
   server.get<{ Params: ProjectParams }>("/api/projects/:projectId/prompt-drafts", async (request): Promise<ApiResponse<PromptDraftsResponse>> => {
-    assertProjectExists(database, request.params.projectId);
+    await assertProjectExists(database, request.params.projectId);
 
     return {
       ok: true,
       data: {
-        promptDrafts: listPromptDrafts(database.db, request.params.projectId)
+        promptDrafts: await listPromptDrafts(database.db, request.params.projectId)
       }
     };
   });
@@ -44,10 +44,10 @@ export async function registerPromptDraftRoutes(server: FastifyInstance, databas
   server.post<{ Params: ProjectParams; Body: CreatePromptDraftPreviewRequest }>(
     "/api/projects/:projectId/prompt-drafts/preview",
     async (request): Promise<ApiResponse<PromptDraftPreviewResponse>> => {
-      const project = requireProject(database, request.params.projectId);
+      const project = await requireProject(database, request.params.projectId);
       const previewInput = normalizePreviewInput(request.body);
-      const todo = previewInput.todoId ? requireTodo(database, project.id, previewInput.todoId) : null;
-      const worktree = previewInput.worktreeId ? requireWorktree(database, project.id, previewInput.worktreeId) : null;
+      const todo = previewInput.todoId ? await requireTodo(database, project.id, previewInput.todoId) : null;
+      const worktree = previewInput.worktreeId ? await requireWorktree(database, project.id, previewInput.worktreeId) : null;
       const preview = buildPromptPreview({
         project,
         todo,
@@ -65,10 +65,10 @@ export async function registerPromptDraftRoutes(server: FastifyInstance, databas
   server.post<{ Params: ProjectParams; Body: CreatePromptDraftRequest }>(
     "/api/projects/:projectId/prompt-drafts",
     async (request, reply): Promise<ApiResponse<PromptDraftResponse>> => {
-      assertProjectExists(database, request.params.projectId);
-      const input = buildPromptDraftInput(database, request.params.projectId, request.body);
-      const promptDraft = createPromptDraft(database.db, input);
-      database.persist();
+      await assertProjectExists(database, request.params.projectId);
+      const input = await buildPromptDraftInput(database, request.params.projectId, request.body);
+      const promptDraft = await createPromptDraft(database.db, input);
+      await database.persist();
       reply.status(201);
 
       return {
@@ -81,14 +81,14 @@ export async function registerPromptDraftRoutes(server: FastifyInstance, databas
   server.patch<{ Params: ProjectPromptDraftParams; Body: UpdatePromptDraftRequest }>(
     "/api/projects/:projectId/prompt-drafts/:draftId",
     async (request): Promise<ApiResponse<PromptDraftResponse>> => {
-      assertProjectExists(database, request.params.projectId);
-      const currentPromptDraft = getProjectPromptDraft(database.db, request.params.projectId, request.params.draftId);
+      await assertProjectExists(database, request.params.projectId);
+      const currentPromptDraft = await getProjectPromptDraft(database.db, request.params.projectId, request.params.draftId);
 
       if (!currentPromptDraft) {
         throw new HttpError(404, "prompt_draft_not_found", "Prompt 草稿不存在");
       }
 
-      const input = buildPromptDraftInput(database, request.params.projectId, {
+      const input = await buildPromptDraftInput(database, request.params.projectId, {
         todoId: request.body?.todoId === undefined ? currentPromptDraft.todoId : request.body.todoId,
         worktreeId: request.body?.worktreeId === undefined ? currentPromptDraft.worktreeId : request.body.worktreeId,
         requestedWorktreeName:
@@ -98,8 +98,8 @@ export async function registerPromptDraftRoutes(server: FastifyInstance, databas
         prompt: request.body?.prompt ?? currentPromptDraft.prompt,
         status: request.body?.status ?? currentPromptDraft.status
       });
-      const promptDraft = updatePromptDraft(database.db, request.params.projectId, request.params.draftId, input);
-      database.persist();
+      const promptDraft = await updatePromptDraft(database.db, request.params.projectId, request.params.draftId, input);
+      await database.persist();
 
       if (!promptDraft) {
         throw new HttpError(404, "prompt_draft_not_found", "Prompt 草稿不存在");
@@ -113,14 +113,14 @@ export async function registerPromptDraftRoutes(server: FastifyInstance, databas
   );
 }
 
-function assertProjectExists(database: DatabaseState, projectId: string) {
-  if (!getProject(database.db, projectId)) {
+async function assertProjectExists(database: DatabaseState, projectId: string) {
+  if (!(await getProject(database.db, projectId))) {
     throw new HttpError(404, "project_not_found", "项目不存在");
   }
 }
 
-function requireProject(database: DatabaseState, projectId: string) {
-  const project = getProject(database.db, projectId);
+async function requireProject(database: DatabaseState, projectId: string) {
+  const project = await getProject(database.db, projectId);
 
   if (!project) {
     throw new HttpError(404, "project_not_found", "项目不存在");
@@ -129,8 +129,8 @@ function requireProject(database: DatabaseState, projectId: string) {
   return project;
 }
 
-function requireTodo(database: DatabaseState, projectId: string, todoId: string) {
-  const todo = getProjectTodo(database.db, projectId, todoId);
+async function requireTodo(database: DatabaseState, projectId: string, todoId: string) {
+  const todo = await getProjectTodo(database.db, projectId, todoId);
 
   if (!todo) {
     throw new HttpError(400, "todo_not_found", "待办不存在或不属于当前项目");
@@ -139,8 +139,8 @@ function requireTodo(database: DatabaseState, projectId: string, todoId: string)
   return todo;
 }
 
-function requireWorktree(database: DatabaseState, projectId: string, worktreeId: string) {
-  const worktree = getProjectWorktree(database.db, projectId, worktreeId);
+async function requireWorktree(database: DatabaseState, projectId: string, worktreeId: string) {
+  const worktree = await getProjectWorktree(database.db, projectId, worktreeId);
 
   if (!worktree) {
     throw new HttpError(400, "worktree_not_found", "Worktree 不存在或不属于当前项目");
@@ -149,7 +149,7 @@ function requireWorktree(database: DatabaseState, projectId: string, worktreeId:
   return worktree;
 }
 
-function buildPromptDraftInput(database: DatabaseState, projectId: string, body: CreatePromptDraftRequest | UpdatePromptDraftRequest | undefined): PromptDraftWriteInput {
+async function buildPromptDraftInput(database: DatabaseState, projectId: string, body: CreatePromptDraftRequest | UpdatePromptDraftRequest | undefined): Promise<PromptDraftWriteInput> {
   if (!isObject(body)) {
     throw new HttpError(400, "validation_error", "请求体必须是 JSON 对象");
   }
@@ -159,11 +159,11 @@ function buildPromptDraftInput(database: DatabaseState, projectId: string, body:
   const requestedWorktreeName = normalizeRequestedWorktreeName(body.requestedWorktreeName);
 
   if (todoId) {
-    requireTodo(database, projectId, todoId);
+    await requireTodo(database, projectId, todoId);
   }
 
   if (worktreeId) {
-    requireWorktree(database, projectId, worktreeId);
+    await requireWorktree(database, projectId, worktreeId);
   }
 
   return {
@@ -263,20 +263,20 @@ function normalizeRequestedWorktreeName(value: unknown) {
   }
 
   if (typeof value !== "string") {
-    throw new HttpError(400, "validation_error", "Worktree 名称不合法");
+    throw new HttpError(400, "validation_error", "请求 Worktree 名称不合法");
   }
 
-  const name = value.trim();
+  const trimmed = value.trim();
 
-  if (!name) {
+  if (!trimmed) {
     return null;
   }
 
-  if (name.length > 120) {
-    throw new HttpError(400, "validation_error", "Worktree 名称不能超过 120 个字符");
+  if (trimmed.length > 64 || !/^[A-Za-z0-9._-]+$/.test(trimmed)) {
+    throw new HttpError(400, "validation_error", "请求 Worktree 名称只能包含字母、数字、点、下划线和短横线");
   }
 
-  return name;
+  return trimmed;
 }
 
 function normalizeOptionalId(value: unknown, message: string) {

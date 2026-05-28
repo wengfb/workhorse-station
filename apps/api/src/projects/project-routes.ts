@@ -29,12 +29,12 @@ export async function registerProjectRoutes(server: FastifyInstance, database: D
   server.get("/api/projects", async (): Promise<ApiResponse<ProjectsResponse>> => ({
     ok: true,
     data: {
-      projects: listProjects(database.db)
+      projects: await listProjects(database.db)
     }
   }));
 
   server.get<{ Params: ProjectParams }>("/api/projects/:id", async (request): Promise<ApiResponse<ProjectResponse>> => {
-    const project = getProject(database.db, request.params.id);
+    const project = await getProject(database.db, request.params.id);
 
     if (!project) {
       throw new HttpError(404, "project_not_found", "项目不存在");
@@ -48,8 +48,8 @@ export async function registerProjectRoutes(server: FastifyInstance, database: D
 
   server.post<{ Body: CreateProjectRequest }>("/api/projects", async (request, reply): Promise<ApiResponse<ProjectResponse>> => {
     const input = await buildCreateInput(database, request.body);
-    const project = createProject(database.db, input);
-    database.persist();
+    const project = await createProject(database.db, input);
+    await database.persist();
     reply.status(201);
 
     return {
@@ -61,7 +61,7 @@ export async function registerProjectRoutes(server: FastifyInstance, database: D
   server.patch<{ Params: ProjectParams; Body: UpdateProjectRequest }>(
     "/api/projects/:id",
     async (request): Promise<ApiResponse<ProjectResponse>> => {
-      const currentProject = getProject(database.db, request.params.id);
+      const currentProject = await getProject(database.db, request.params.id);
 
       if (!currentProject) {
         throw new HttpError(404, "project_not_found", "项目不存在");
@@ -69,12 +69,12 @@ export async function registerProjectRoutes(server: FastifyInstance, database: D
 
       const input = await buildUpdateInput(database, currentProject, request.body);
 
-      if (input.path !== currentProject.path && listWorktrees(database.db, currentProject.id).length > 0) {
+      if (input.path !== currentProject.path && (await listWorktrees(database.db, currentProject.id)).length > 0) {
         throw new HttpError(409, "project_has_worktrees", "该项目已有 worktree，请先删除 worktree 后再修改代码目录");
       }
 
-      const project = updateProject(database.db, currentProject.id, input);
-      database.persist();
+      const project = await updateProject(database.db, currentProject.id, input);
+      await database.persist();
 
       if (!project) {
         throw new HttpError(404, "project_not_found", "项目不存在");
@@ -90,18 +90,18 @@ export async function registerProjectRoutes(server: FastifyInstance, database: D
   server.delete<{ Params: ProjectParams }>(
     "/api/projects/:id",
     async (request): Promise<ApiResponse<DeleteProjectResponse>> => {
-      const project = getProject(database.db, request.params.id);
+      const project = await getProject(database.db, request.params.id);
 
       if (!project) {
         throw new HttpError(404, "project_not_found", "项目不存在");
       }
 
-      if (listWorktrees(database.db, project.id).length > 0) {
+      if ((await listWorktrees(database.db, project.id)).length > 0) {
         throw new HttpError(409, "project_has_worktrees", "该项目已有 worktree，请先删除 worktree 后再删除项目记录");
       }
 
-      deleteProject(database.db, request.params.id);
-      database.persist();
+      await deleteProject(database.db, request.params.id);
+      await database.persist();
 
       return {
         ok: true,
@@ -118,7 +118,7 @@ async function buildCreateInput(database: DatabaseState, body: CreateProjectRequ
 
   const name = normalizeName(body.name);
   const normalizedPath = await normalizeProjectPath(body.path, body.defaultBranch);
-  assertPathAvailable(database, normalizedPath.path);
+  await assertPathAvailable(database, normalizedPath.path);
 
   return {
     name,
@@ -142,7 +142,7 @@ async function buildUpdateInput(
 
   if (body.path !== undefined) {
     const normalizedPath = await normalizeProjectPath(body.path, body.defaultBranch ?? currentProject.defaultBranch);
-    assertPathAvailable(database, normalizedPath.path, currentProject.id);
+    await assertPathAvailable(database, normalizedPath.path, currentProject.id);
 
     return {
       name,
@@ -160,8 +160,8 @@ async function buildUpdateInput(
   };
 }
 
-function assertPathAvailable(database: DatabaseState, projectPath: string, exceptProjectId?: string) {
-  const existingProject = findProjectByPath(database.db, projectPath);
+async function assertPathAvailable(database: DatabaseState, projectPath: string, exceptProjectId?: string) {
+  const existingProject = await findProjectByPath(database.db, projectPath);
 
   if (existingProject && existingProject.id !== exceptProjectId) {
     throw new HttpError(409, "project_path_exists", "该代码目录已绑定到其他项目");

@@ -11,7 +11,7 @@ import type { DatabaseState } from "../db/init.js";
 import { parseListQuery } from "../list-query.js";
 import { HttpError } from "../projects/http-error.js";
 import { getProject } from "../projects/project-repository.js";
-import { countGlobalNotes, countNotes, createNote, deleteGlobalNote, deleteNote, getGlobalNote, getProjectNote, listGlobalNotes, listNotes, setFts5Available, updateGlobalNote, updateNote, type NoteWriteInput } from "./note-repository.js";
+import { countGlobalNotes, countNotes, createNote, deleteGlobalNote, deleteNote, getGlobalNote, getProjectNote, listGlobalNotes, listNotes, updateGlobalNote, updateNote, type NoteWriteInput } from "./note-repository.js";
 
 type ProjectParams = {
   projectId: string;
@@ -22,11 +22,12 @@ type ProjectNoteParams = ProjectParams & {
 };
 
 export async function registerNoteRoutes(server: FastifyInstance, database: DatabaseState) {
-  setFts5Available(database.fts5);
-
   server.get<{ Querystring: { search?: string; tags?: string; page?: string; pageSize?: string } }>("/api/notes", async (request): Promise<ApiResponse<NotesResponse>> => {
     const opts = parseListQuery(request.query);
-    const [notes, total] = [listGlobalNotes(database.db, opts), countGlobalNotes(database.db, { search: opts.search, tags: opts.tags })];
+    const [notes, total] = await Promise.all([
+      listGlobalNotes(database.db, opts),
+      countGlobalNotes(database.db, { search: opts.search, tags: opts.tags })
+    ]);
     return {
       ok: true,
       data: {
@@ -40,8 +41,8 @@ export async function registerNoteRoutes(server: FastifyInstance, database: Data
 
   server.post<{ Body: CreateNoteRequest }>("/api/notes", async (request, reply): Promise<ApiResponse<NoteResponse>> => {
     const input = buildNoteInput(null, request.body);
-    const note = createNote(database.db, input);
-    database.persist();
+    const note = await createNote(database.db, input);
+    await database.persist();
     reply.status(201);
 
     return {
@@ -51,7 +52,7 @@ export async function registerNoteRoutes(server: FastifyInstance, database: Data
   });
 
   server.patch<{ Params: { noteId: string }; Body: UpdateNoteRequest }>("/api/notes/:noteId", async (request): Promise<ApiResponse<NoteResponse>> => {
-    const currentNote = getGlobalNote(database.db, request.params.noteId);
+    const currentNote = await getGlobalNote(database.db, request.params.noteId);
 
     if (!currentNote) {
       throw new HttpError(404, "note_not_found", "笔记不存在");
@@ -62,8 +63,8 @@ export async function registerNoteRoutes(server: FastifyInstance, database: Data
       content: request.body?.content ?? currentNote.content,
       tags: request.body?.tags ?? currentNote.tags
     });
-    const note = updateGlobalNote(database.db, request.params.noteId, input);
-    database.persist();
+    const note = await updateGlobalNote(database.db, request.params.noteId, input);
+    await database.persist();
 
     if (!note) {
       throw new HttpError(404, "note_not_found", "笔记不存在");
@@ -76,11 +77,11 @@ export async function registerNoteRoutes(server: FastifyInstance, database: Data
   });
 
   server.delete<{ Params: { noteId: string } }>("/api/notes/:noteId", async (request): Promise<ApiResponse<DeleteNoteResponse>> => {
-    if (!deleteGlobalNote(database.db, request.params.noteId)) {
+    if (!(await deleteGlobalNote(database.db, request.params.noteId))) {
       throw new HttpError(404, "note_not_found", "笔记不存在");
     }
 
-    database.persist();
+    await database.persist();
 
     return {
       ok: true,
@@ -89,12 +90,12 @@ export async function registerNoteRoutes(server: FastifyInstance, database: Data
   });
 
   server.get<{ Params: ProjectParams; Querystring: { search?: string; tags?: string; page?: string; pageSize?: string } }>("/api/projects/:projectId/notes", async (request): Promise<ApiResponse<NotesResponse>> => {
-    assertProjectExists(database, request.params.projectId);
+    await assertProjectExists(database, request.params.projectId);
     const opts = parseListQuery(request.query);
-    const [notes, total] = [
+    const [notes, total] = await Promise.all([
       listNotes(database.db, request.params.projectId, opts),
       countNotes(database.db, request.params.projectId, { search: opts.search, tags: opts.tags })
-    ];
+    ]);
 
     return {
       ok: true,
@@ -110,10 +111,10 @@ export async function registerNoteRoutes(server: FastifyInstance, database: Data
   server.post<{ Params: ProjectParams; Body: CreateNoteRequest }>(
     "/api/projects/:projectId/notes",
     async (request, reply): Promise<ApiResponse<NoteResponse>> => {
-      assertProjectExists(database, request.params.projectId);
+      await assertProjectExists(database, request.params.projectId);
       const input = buildNoteInput(request.params.projectId, request.body);
-      const note = createNote(database.db, input);
-      database.persist();
+      const note = await createNote(database.db, input);
+      await database.persist();
       reply.status(201);
 
       return {
@@ -126,8 +127,8 @@ export async function registerNoteRoutes(server: FastifyInstance, database: Data
   server.patch<{ Params: ProjectNoteParams; Body: UpdateNoteRequest }>(
     "/api/projects/:projectId/notes/:noteId",
     async (request): Promise<ApiResponse<NoteResponse>> => {
-      assertProjectExists(database, request.params.projectId);
-      const currentNote = getProjectNote(database.db, request.params.projectId, request.params.noteId);
+      await assertProjectExists(database, request.params.projectId);
+      const currentNote = await getProjectNote(database.db, request.params.projectId, request.params.noteId);
 
       if (!currentNote) {
         throw new HttpError(404, "note_not_found", "笔记不存在");
@@ -138,8 +139,8 @@ export async function registerNoteRoutes(server: FastifyInstance, database: Data
         content: request.body?.content ?? currentNote.content,
         tags: request.body?.tags ?? currentNote.tags
       });
-      const note = updateNote(database.db, request.params.projectId, request.params.noteId, input);
-      database.persist();
+      const note = await updateNote(database.db, request.params.projectId, request.params.noteId, input);
+      await database.persist();
 
       if (!note) {
         throw new HttpError(404, "note_not_found", "笔记不存在");
@@ -155,13 +156,13 @@ export async function registerNoteRoutes(server: FastifyInstance, database: Data
   server.delete<{ Params: ProjectNoteParams }>(
     "/api/projects/:projectId/notes/:noteId",
     async (request): Promise<ApiResponse<DeleteNoteResponse>> => {
-      assertProjectExists(database, request.params.projectId);
+      await assertProjectExists(database, request.params.projectId);
 
-      if (!deleteNote(database.db, request.params.projectId, request.params.noteId)) {
+      if (!(await deleteNote(database.db, request.params.projectId, request.params.noteId))) {
         throw new HttpError(404, "note_not_found", "笔记不存在");
       }
 
-      database.persist();
+      await database.persist();
 
       return {
         ok: true,
@@ -171,8 +172,8 @@ export async function registerNoteRoutes(server: FastifyInstance, database: Data
   );
 }
 
-function assertProjectExists(database: DatabaseState, projectId: string) {
-  if (!getProject(database.db, projectId)) {
+async function assertProjectExists(database: DatabaseState, projectId: string) {
+  if (!(await getProject(database.db, projectId))) {
     throw new HttpError(404, "project_not_found", "项目不存在");
   }
 }

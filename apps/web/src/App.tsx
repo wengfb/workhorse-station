@@ -657,7 +657,7 @@ export function App() {
     { title: "项目", value: String(projects.length), detail: "已接入项目 CRUD 和目录绑定" },
     { title: "Worktree", value: String(worktrees.length), detail: selectedProject ? "当前项目 worktree" : "选择项目后查看" },
     { title: "运行中会话", value: String(runningSessionCount), detail: "真实 Claude Code 会话与终端已接入" },
-    { title: "SQLite", value: databaseInfo?.connected ? "已连接" : "等待中", detail: databaseInfo ? `FTS5: ${databaseInfo.fts5 ? "可用" : "不可用"}` : "等待后端" }
+    { title: "MySQL", value: databaseInfo?.connected ? "已连接" : "等待中", detail: databaseInfo ? `${databaseInfo.engine} @ ${databaseInfo.host}/${databaseInfo.database}` : "等待后端" }
   ];
 
   async function reloadChatSessions(preferredChatId?: string | null) {
@@ -3624,9 +3624,9 @@ function HomeOverviewWorkspace({
           DB
         </span>
         <span className="text-slate-600">|</span>
-        <span className={`inline-flex items-center gap-1 ${databaseInfo?.fts5 ? "text-emerald-400" : "text-slate-500"}`}>
-          <span className={`inline-block h-1.5 w-1.5 rounded-full ${databaseInfo?.fts5 ? "bg-emerald-400" : "bg-slate-500"}`} />
-          FTS5
+        <span className={`inline-flex items-center gap-1 ${databaseInfo?.connected ? "text-emerald-400" : "text-slate-500"}`}>
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${databaseInfo?.connected ? "bg-emerald-400" : "bg-slate-500"}`} />
+          {databaseInfo?.engine?.toUpperCase() ?? "DB"}
         </span>
         {apiError ? (
           <>
@@ -5058,8 +5058,8 @@ function PlaceholderWorkspace({
         <div className="space-y-4 p-4 text-sm text-slate-300">
           <DetailRow label="当前阶段" value="Phase 2" />
           <DetailRow label="API 状态" value={apiConnected ? "已连接" : "未连接"} />
-          <DetailRow label="SQLite" value={databaseInfo?.connected ? "已初始化" : "等待后端"} />
-          <DetailRow label="FTS5" value={databaseInfo ? (databaseInfo.fts5 ? "可用" : "不可用") : "未知"} />
+          <DetailRow label="数据库" value={databaseInfo?.connected ? `${databaseInfo.engine} 已连接` : "等待后端"} />
+          <DetailRow label="实例" value={databaseInfo ? `${databaseInfo.host}/${databaseInfo.database}` : "未知"} />
           {apiError ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{apiError}</p> : null}
         </div>
       </section>

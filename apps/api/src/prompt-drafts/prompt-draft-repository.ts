@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { ChatArtifactSourceRef, CreatePromptDraftRequest, PromptDraftStatus, PromptDraftSummary, SessionSource, UpdatePromptDraftRequest } from "@workhorse-station/shared";
-import type { Database } from "sql.js";
+import type { ChatArtifactSourceRef, PromptDraftStatus, PromptDraftSummary, SessionSource } from "@workhorse-station/shared";
+import type { DatabaseExecutor } from "../db/mysql.js";
+import { execute, queryOne, queryRows } from "../db/mysql.js";
 
 export type PromptDraftWriteInput = {
   id?: string;
@@ -30,7 +31,7 @@ type PromptDraftRow = {
   updated_at: string;
 };
 
-export function listPromptDrafts(db: Database, projectId: string) {
+export async function listPromptDrafts(db: DatabaseExecutor, projectId: string) {
   return selectRows(
     db,
     `SELECT id, project_id, todo_id, worktree_id, requested_worktree_name, source, title, prompt, status, source_chat_suggestion_json, created_at, updated_at
@@ -41,7 +42,7 @@ export function listPromptDrafts(db: Database, projectId: string) {
   );
 }
 
-export function getProjectPromptDraft(db: Database, projectId: string, promptDraftId: string) {
+export async function getProjectPromptDraft(db: DatabaseExecutor, projectId: string, promptDraftId: string) {
   return selectOne(
     db,
     `SELECT id, project_id, todo_id, worktree_id, requested_worktree_name, source, title, prompt, status, source_chat_suggestion_json, created_at, updated_at
@@ -51,9 +52,10 @@ export function getProjectPromptDraft(db: Database, projectId: string, promptDra
   );
 }
 
-export function createPromptDraft(db: Database, input: PromptDraftWriteInput) {
+export async function createPromptDraft(db: DatabaseExecutor, input: PromptDraftWriteInput) {
   const id = input.id ?? randomUUID();
-  db.run(
+  await execute(
+    db,
     `INSERT INTO prompt_drafts (id, project_id, todo_id, worktree_id, requested_worktree_name, source, title, prompt, status, source_chat_suggestion_json)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
@@ -70,7 +72,7 @@ export function createPromptDraft(db: Database, input: PromptDraftWriteInput) {
     ]
   );
 
-  const promptDraft = getProjectPromptDraft(db, input.projectId, id);
+  const promptDraft = await getProjectPromptDraft(db, input.projectId, id);
 
   if (!promptDraft) {
     throw new Error("Failed to read created prompt draft");
@@ -79,8 +81,9 @@ export function createPromptDraft(db: Database, input: PromptDraftWriteInput) {
   return promptDraft;
 }
 
-export function updatePromptDraft(db: Database, projectId: string, promptDraftId: string, input: PromptDraftWriteInput) {
-  db.run(
+export async function updatePromptDraft(db: DatabaseExecutor, projectId: string, promptDraftId: string, input: PromptDraftWriteInput) {
+  await execute(
+    db,
     `UPDATE prompt_drafts
      SET todo_id = ?, worktree_id = ?, requested_worktree_name = ?, source = ?, title = ?, prompt = ?, status = ?, updated_at = CURRENT_TIMESTAMP
      WHERE project_id = ? AND id = ?`,
@@ -100,33 +103,14 @@ export function updatePromptDraft(db: Database, projectId: string, promptDraftId
   return getProjectPromptDraft(db, projectId, promptDraftId);
 }
 
-function selectRows(db: Database, sql: string, params: string[]) {
-  const statement = db.prepare(sql, params);
-  const rows: PromptDraftSummary[] = [];
-
-  try {
-    while (statement.step()) {
-      rows.push(mapPromptDraftRow(statement.getAsObject() as PromptDraftRow));
-    }
-  } finally {
-    statement.free();
-  }
-
-  return rows;
+async function selectRows(db: DatabaseExecutor, sql: string, params: string[]) {
+  const rows = await queryRows<PromptDraftRow>(db, sql, params);
+  return rows.map(mapPromptDraftRow);
 }
 
-function selectOne(db: Database, sql: string, params: string[]) {
-  const statement = db.prepare(sql, params);
-
-  try {
-    if (!statement.step()) {
-      return null;
-    }
-
-    return mapPromptDraftRow(statement.getAsObject() as PromptDraftRow);
-  } finally {
-    statement.free();
-  }
+async function selectOne(db: DatabaseExecutor, sql: string, params: string[]) {
+  const row = await queryOne<PromptDraftRow>(db, sql, params);
+  return row ? mapPromptDraftRow(row) : null;
 }
 
 function mapPromptDraftRow(row: PromptDraftRow): PromptDraftSummary {

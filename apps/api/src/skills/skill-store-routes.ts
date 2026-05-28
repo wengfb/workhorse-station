@@ -35,7 +35,7 @@ export async function registerSkillStoreRoutes(server: FastifyInstance, database
       let projectPath: string | undefined;
 
       if (request.query.projectId) {
-        const project = getProject(database.db, request.query.projectId);
+        const project = await getProject(database.db, request.query.projectId);
         if (project) projectPath = project.path;
       }
 
@@ -91,7 +91,7 @@ export async function registerSkillStoreRoutes(server: FastifyInstance, database
       let projectPath: string | undefined;
 
       if (request.body?.projectId) {
-        const project = getProject(database.db, request.body.projectId);
+        const project = await getProject(database.db, request.body.projectId);
         if (!project) {
           throw new HttpError(404, "project_not_found", "项目不存在");
         }
@@ -117,7 +117,7 @@ export async function registerSkillStoreRoutes(server: FastifyInstance, database
   server.post<{ Params: SkillParams; Body: SendStoreSkillToProjectRequest }>(
     "/api/skill-store/:name/to-project",
     async (request): Promise<ApiResponse<CopySkillResponse>> => {
-      const project = getProject(database.db, request.body?.targetProjectId ?? "");
+      const project = await getProject(database.db, request.body?.targetProjectId ?? "");
       if (!project) {
         throw new HttpError(404, "project_not_found", "项目不存在");
       }
