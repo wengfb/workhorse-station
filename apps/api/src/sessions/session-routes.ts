@@ -22,6 +22,7 @@ import type {
   SessionHistoryMessageBlock
 } from "@workhorse-station/shared";
 import type { DatabaseState } from "../db/init.js";
+import { formatMysqlDateTime } from "../db/mysql.js";
 import { getProject, listProjects, updateProjectLatestSessionResult } from "../projects/project-repository.js";
 import { HttpError } from "../projects/http-error.js";
 import { getProjectPromptDraft } from "../prompt-drafts/prompt-draft-repository.js";
@@ -140,7 +141,7 @@ export async function registerSessionRoutes(
         status: "failed",
         runtimeStatus: "failed",
         exitCode: 1,
-        lastActivityAt: new Date().toISOString(),
+        lastActivityAt: formatMysqlDateTime(),
         summary: error instanceof Error ? error.message : "Claude Code 启动失败"
       });
       await database.persist();
@@ -254,7 +255,7 @@ export async function registerSessionRoutes(
         status: "failed",
         runtimeStatus: "failed",
         exitCode: 1,
-        lastActivityAt: new Date().toISOString(),
+        lastActivityAt: formatMysqlDateTime(),
         summary: error instanceof Error ? error.message : "Claude Code 启动失败"
       });
       await database.persist();
