@@ -2132,8 +2132,10 @@ export function App() {
     }
   }
 
-  async function handleStopSession(session: SessionSummary) {
-    if (!selectedProject) {
+  async function handleStopSession(session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) {
+    const targetProjectId = session.projectId;
+
+    if (!targetProjectId) {
       return;
     }
 
@@ -2141,10 +2143,10 @@ export function App() {
     setSessionsError(null);
 
     try {
-      await stopSession(selectedProject.id, session.id);
+      await stopSession(targetProjectId, session.id);
       await Promise.all([
-        reloadSessions(selectedProject.id, session.id),
-        reloadExecutions({ kind: "session", id: session.id })
+        reloadExecutions({ kind: "session", id: session.id }),
+        selectedProjectId === targetProjectId ? reloadSessions(targetProjectId, session.id) : Promise.resolve()
       ]);
     } catch (error) {
       setSessionsError(formatError(error, "会话停止失败"));
@@ -2168,8 +2170,10 @@ export function App() {
     ]);
   }
 
-  async function handleRenameSession(session: SessionSummary) {
-    if (!selectedProject) {
+  async function handleRenameSession(session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) {
+    const targetProjectId = session.projectId;
+
+    if (!targetProjectId) {
       return;
     }
 
@@ -2183,10 +2187,10 @@ export function App() {
     setSessionsError(null);
 
     try {
-      const data = await updateSession(selectedProject.id, session.id, { name: nextName.trim() });
+      const data = await updateSession(targetProjectId, session.id, { name: nextName.trim() });
       await Promise.all([
-        reloadSessions(selectedProject.id, data.session.id),
-        reloadExecutions({ kind: "session", id: data.session.id })
+        reloadExecutions({ kind: "session", id: data.session.id }),
+        selectedProjectId === targetProjectId ? reloadSessions(targetProjectId, data.session.id) : Promise.resolve()
       ]);
     } catch (error) {
       setSessionsError(formatError(error, "会话重命名失败"));
@@ -2195,8 +2199,10 @@ export function App() {
     }
   }
 
-  async function handleDeleteSession(session: SessionSummary) {
-    if (!selectedProject) {
+  async function handleDeleteSession(session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) {
+    const targetProjectId = session.projectId;
+
+    if (!targetProjectId) {
       return;
     }
 
@@ -2210,14 +2216,14 @@ export function App() {
     setSessionsError(null);
 
     try {
-      await deleteSession(selectedProject.id, session.id);
+      await deleteSession(targetProjectId, session.id);
 
       const remainingSessions = sessions.filter((item) => item.id !== session.id);
       const nextSessionId = selectedSessionId === session.id ? remainingSessions[0]?.id ?? null : selectedSessionId;
       const nextExecution = nextSessionId ? { kind: "session" as const, id: nextSessionId } : null;
       await Promise.all([
-        reloadSessions(selectedProject.id, nextSessionId),
-        reloadExecutions(nextExecution)
+        reloadExecutions(nextExecution),
+        selectedProjectId === targetProjectId ? reloadSessions(targetProjectId, nextSessionId) : Promise.resolve()
       ]);
 
       if (selectedSessionId === session.id) {
@@ -2236,8 +2242,10 @@ export function App() {
     }
   }
 
-  async function handleContinueSession(session: SessionSummary) {
-    if (!selectedProject) {
+  async function handleContinueSession(session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) {
+    const targetProjectId = session.projectId;
+
+    if (!targetProjectId) {
       return;
     }
 
@@ -2245,12 +2253,15 @@ export function App() {
     setSessionsError(null);
 
     try {
-      const data = await continueSession(selectedProject.id, session.id);
+      const data = await continueSession(targetProjectId, session.id);
       setSelectedExecution({ kind: "session", id: data.session.id });
       setSelectedSessionId(data.session.id);
+      if (selectedProjectId !== targetProjectId) {
+        setSelectedProjectId(targetProjectId);
+      }
       await Promise.all([
-        reloadSessions(selectedProject.id, data.session.id),
-        reloadExecutions({ kind: "session", id: data.session.id })
+        reloadExecutions({ kind: "session", id: data.session.id }),
+        reloadSessions(targetProjectId, data.session.id)
       ]);
     } catch (error) {
       setSessionsError(formatError(error, "会话继续失败"));
@@ -2705,6 +2716,7 @@ export function App() {
           sessions={sessions}
           selectedSession={selectedSession}
           selectedProject={selectedProject}
+          projects={projects}
           todos={todos}
           worktrees={worktrees}
           workspaceTerminal={workspaceTerminal}

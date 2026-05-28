@@ -341,6 +341,7 @@ export function SessionModal({
   sessions,
   selectedSession,
   selectedProject,
+  projects,
   todos,
   worktrees,
   workspaceTerminal,
@@ -372,6 +373,7 @@ export function SessionModal({
   sessions: SessionSummary[];
   selectedSession: SessionSummary | null;
   selectedProject: ProjectSummary | null;
+  projects: ProjectSummary[];
   todos: TodoSummary[];
   worktrees: WorktreeSummary[];
   workspaceTerminal: WorkspaceTerminalSummary | null;
@@ -387,11 +389,11 @@ export function SessionModal({
   deletingWorkspaceTerminalId: string | null;
   continuingSessionId: string | null;
   onSelectExecution: (execution: ExecutionListItem) => void;
-  onRenameSession: (session: SessionSummary) => void;
-  onStopSession: (session: SessionSummary) => void;
-  onDeleteSession: (session: SessionSummary) => void;
+  onRenameSession: (session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) => void;
+  onStopSession: (session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) => void;
+  onDeleteSession: (session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) => void;
   onDeleteWorkspaceTerminal: (execution: Extract<ExecutionListItem, { kind: "workspace-terminal" }>) => void;
-  onContinueSession: (session: SessionSummary) => void;
+  onContinueSession: (session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) => void;
   onRuntimeEvent: (event: SessionStreamEvent) => void;
   onRestartWorkspaceTerminal: () => void;
   onStopWorkspaceTerminal: () => void;
@@ -401,8 +403,9 @@ export function SessionModal({
   const runtimeStatus = selectedSession?.runtimeStatus ?? null;
   const isWorkspaceTerminalSelected = selectedExecution?.kind === "workspace-terminal";
   const [searchQuery, setSearchQuery] = useState("");
+  const [projectFilter, setProjectFilter] = useState<string>("all");
   const [kindFilter, setKindFilter] = useState<ExecutionKindFilter>("all");
-  const [statusFilter, setStatusFilter] = useState<ExecutionStatusFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<ExecutionStatusFilter>("active");
   const [expandedActionKey, setExpandedActionKey] = useState<string | null>(null);
   const [view, setView] = useState<SessionView>("terminal");
   const [historyMessages, setHistoryMessages] = useState<SessionHistoryMessage[]>([]);
@@ -448,6 +451,10 @@ export function SessionModal({
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
     return executionItems.filter((execution) => {
+      if (projectFilter !== "all" && execution.projectId !== projectFilter) {
+        return false;
+      }
+
       if (kindFilter !== "all" && execution.kind !== kindFilter) {
         return false;
       }
@@ -470,7 +477,7 @@ export function SessionModal({
 
       return haystack.includes(normalizedQuery);
     });
-  }, [executionItems, kindFilter, searchQuery, sessions, statusFilter, todos, worktrees]);
+  }, [executionItems, kindFilter, projectFilter, searchQuery, sessions, statusFilter, todos, worktrees]);
 
   return (
     <ExecutionModalFrame
@@ -486,25 +493,37 @@ export function SessionModal({
               className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-slate-400"
               placeholder="搜索会话、终端、项目或 worktree"
             />
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <select
-                value={kindFilter}
-                onChange={(event) => setKindFilter(event.target.value as ExecutionKindFilter)}
-                className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-400"
+                value={projectFilter}
+                onChange={(event) => setProjectFilter(event.target.value)}
+                className="min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-400"
               >
-                <option value="all">全部类型</option>
-                <option value="session">Claude 会话</option>
-                <option value="workspace-terminal">普通终端</option>
+                <option value="all">全部项目</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
               </select>
               <select
                 value={statusFilter}
                 onChange={(event) => setStatusFilter(event.target.value as ExecutionStatusFilter)}
-                className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-400"
+                className="min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-400"
               >
                 <option value="all">全部状态</option>
                 <option value="active">运行中</option>
                 <option value="stopped">已停止</option>
                 <option value="failed">失败</option>
+              </select>
+              <select
+                value={kindFilter}
+                onChange={(event) => setKindFilter(event.target.value as ExecutionKindFilter)}
+                className="min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-400"
+              >
+                <option value="all">全部类型</option>
+                <option value="session">Claude 会话</option>
+                <option value="workspace-terminal">普通终端</option>
               </select>
             </div>
           </div>
@@ -515,19 +534,14 @@ export function SessionModal({
               const isSelected = selectedExecution?.kind === execution.kind && selectedExecution.id === execution.id;
               const isSession = execution.kind === "session";
               const session = isSession ? sessions.find((item) => item.id === execution.id) ?? null : null;
+              const sessionRecord = isSession ? session ?? execution : null;
               const worktree = session?.worktreeId ? worktrees.find((item) => item.id === session.worktreeId) ?? null : null;
               const secondaryText = isSession
                 ? [execution.projectName ?? "工作台根目录", worktree?.name ?? execution.requestedWorktreeName ?? "未绑定 Worktree"].join(" · ")
                 : [execution.projectName ?? "工作台根目录", execution.cwd ?? "普通终端"].join(" · ");
-              const sessionRuntimeStatus = session?.runtimeStatus ?? null;
-              const showSessionActions =
-                isSelected ||
-                sessionRuntimeStatus === "starting" ||
-                sessionRuntimeStatus === "running" ||
-                sessionRuntimeStatus === "stopping";
+              const sessionPrimaryAction = sessionRecord ? getSessionPrimaryAction(sessionRecord) : null;
               const executionKey = `${execution.kind}:${execution.id}`;
-              const showCollapsedActions = expandedActionKey === executionKey && !showSessionActions;
-              const showWorkspaceActions = !isSession && (isSelected || expandedActionKey === executionKey);
+              const isActionMenuOpen = expandedActionKey === executionKey;
 
               return (
                 <div
@@ -548,94 +562,68 @@ export function SessionModal({
                         <span className="shrink-0">{formatDateTime(execution.updatedAt)}</span>
                       </div>
                     </button>
-                    {isSession && session ? (
-                      showSessionActions ? (
-                        <div className="flex min-h-6 shrink-0 items-center gap-1 self-center">
-                          {(session.status === "completed" || session.status === "failed") && (
+                    {isSession && sessionRecord ? (
+                      <div className="flex min-h-6 shrink-0 items-center gap-1 self-center">
+                        {isSelected || isActionMenuOpen ? (
+                          <>
+                            {sessionPrimaryAction ? (
+                              sessionPrimaryAction === "continue" ? (
+                                <button
+                                  disabled={continuingSessionId === sessionRecord.id}
+                                  onClick={() => onContinueSession(sessionRecord)}
+                                  className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-1 text-[10px] text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {continuingSessionId === sessionRecord.id ? "继续中" : "继续"}
+                                </button>
+                              ) : (
+                                <button
+                                  disabled={updatingSessionId === sessionRecord.id || sessionRecord.runtimeStatus === "stopped" || sessionRecord.runtimeStatus === "failed"}
+                                  onClick={() => onStopSession(sessionRecord)}
+                                  className="rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-1 text-[10px] text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {updatingSessionId === sessionRecord.id ? "停止中" : "停止"}
+                                </button>
+                              )
+                            ) : null}
                             <button
-                              disabled={continuingSessionId === session.id}
-                              onClick={() => onContinueSession(session)}
-                              className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-1 text-[10px] text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={renamingSessionId === sessionRecord.id}
+                              onClick={() => onRenameSession(sessionRecord)}
+                              className="rounded-md border border-sky-400/30 bg-sky-400/10 px-1.5 py-1 text-[10px] text-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              {continuingSessionId === session.id ? "继续中" : "继续"}
+                              {renamingSessionId === sessionRecord.id ? "重命名中" : "重命名"}
                             </button>
-                          )}
-                          <button
-                            disabled={renamingSessionId === session.id}
-                            onClick={() => onRenameSession(session)}
-                            className="rounded-md border border-sky-400/30 bg-sky-400/10 px-1.5 py-1 text-[10px] text-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {renamingSessionId === session.id ? "重命名中" : "重命名"}
-                          </button>
-                          <button
-                            disabled={updatingSessionId === session.id || session.runtimeStatus === "stopped" || session.runtimeStatus === "failed"}
-                            onClick={() => onStopSession(session)}
-                            className="rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-1 text-[10px] text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {updatingSessionId === session.id ? "停止中" : "停止"}
-                          </button>
-                          <button
-                            disabled={deletingSessionId === session.id}
-                            onClick={() => onDeleteSession(session)}
-                            className="rounded-md border border-red-400/30 bg-red-500/10 px-1.5 py-1 text-[10px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {deletingSessionId === session.id ? "删除中" : "删除"}
-                          </button>
-                        </div>
-                      ) : showCollapsedActions ? (
-                        <div className="flex min-h-6 shrink-0 items-center gap-1 self-center">
-                          {(session.status === "completed" || session.status === "failed") && (
                             <button
-                              disabled={continuingSessionId === session.id}
-                              onClick={() => onContinueSession(session)}
-                              className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-1 text-[10px] text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={deletingSessionId === sessionRecord.id}
+                              onClick={() => onDeleteSession(sessionRecord)}
+                              className="rounded-md border border-red-400/30 bg-red-500/10 px-1.5 py-1 text-[10px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              {continuingSessionId === session.id ? "继续中" : "继续"}
+                              {deletingSessionId === sessionRecord.id ? "删除中" : "删除"}
                             </button>
-                          )}
-                          <button
-                            disabled={renamingSessionId === session.id}
-                            onClick={() => onRenameSession(session)}
-                            className="rounded-md border border-sky-400/30 bg-sky-400/10 px-1.5 py-1 text-[10px] text-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {renamingSessionId === session.id ? "重命名中" : "重命名"}
-                          </button>
-                          <button
-                            disabled={updatingSessionId === session.id || session.runtimeStatus === "stopped" || session.runtimeStatus === "failed"}
-                            onClick={() => onStopSession(session)}
-                            className="rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-1 text-[10px] text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {updatingSessionId === session.id ? "停止中" : "停止"}
-                          </button>
-                          <button
-                            disabled={deletingSessionId === session.id}
-                            onClick={() => onDeleteSession(session)}
-                            className="rounded-md border border-red-400/30 bg-red-500/10 px-1.5 py-1 text-[10px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {deletingSessionId === session.id ? "删除中" : "删除"}
-                          </button>
+                            {!isSelected ? (
+                              <button
+                                type="button"
+                                onClick={() => setExpandedActionKey(null)}
+                                className="-mr-1 flex h-6 shrink-0 items-center px-1 text-[12px] leading-none text-slate-400 hover:text-slate-200"
+                                aria-label="收起操作"
+                              >
+                                ⋮
+                              </button>
+                            ) : null}
+                          </>
+                        ) : (
                           <button
                             type="button"
-                            onClick={() => setExpandedActionKey(null)}
-                            className="-mr-1 flex h-6 shrink-0 items-center px-1 text-[12px] leading-none text-slate-400 hover:text-slate-200"
-                            aria-label="收起操作"
+                            onClick={() => setExpandedActionKey(executionKey)}
+                            className="-mr-1 flex h-6 shrink-0 items-center self-center px-1 text-[12px] leading-none text-slate-400 hover:text-slate-200"
+                            aria-label="展开操作"
                           >
                             ⋮
                           </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setExpandedActionKey(executionKey)}
-                          className="-mr-1 flex h-6 shrink-0 items-center self-center px-1 text-[12px] leading-none text-slate-400 hover:text-slate-200"
-                          aria-label="展开操作"
-                        >
-                          ⋮
-                        </button>
-                      )
+                        )}
+                      </div>
                     ) : null}
                     {!isSession ? (
-                      showWorkspaceActions ? (
+                      isSelected || isActionMenuOpen ? (
                         <div className="flex min-h-6 shrink-0 items-center gap-1 self-center">
                           <button
                             disabled={deletingWorkspaceTerminalId === execution.id}
@@ -949,6 +937,18 @@ function getExecutionStatusDotClass(execution: ExecutionListItem) {
   }
 
   return "bg-slate-500";
+}
+
+function getSessionPrimaryAction(session: Pick<SessionSummary, "status" | "runtimeStatus">): "continue" | "stop" | null {
+  if (session.status === "completed" || session.status === "failed") {
+    return "continue";
+  }
+
+  if (session.runtimeStatus === "starting" || session.runtimeStatus === "running" || session.runtimeStatus === "stopping") {
+    return "stop";
+  }
+
+  return null;
 }
 
 function formatSessionHistoryBlock(block: SessionHistoryMessage["content"][number]) {
