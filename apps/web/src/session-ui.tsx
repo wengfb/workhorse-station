@@ -940,12 +940,12 @@ function getExecutionStatusDotClass(execution: ExecutionListItem) {
 }
 
 function getSessionPrimaryAction(session: Pick<SessionSummary, "status" | "runtimeStatus">): "continue" | "stop" | null {
-  if (session.status === "completed" || session.status === "failed") {
-    return "continue";
-  }
-
   if (session.runtimeStatus === "starting" || session.runtimeStatus === "running" || session.runtimeStatus === "stopping") {
     return "stop";
+  }
+
+  if (session.status === "completed" || session.status === "failed") {
+    return "continue";
   }
 
   return null;
