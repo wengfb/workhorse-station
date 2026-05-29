@@ -41,7 +41,7 @@
 ## AI 约定
 - Claude SDK 负责聊天、流式输出、工具调用
 - skill、文件处理、待办生成、prompt 生成、项目 / worktree / 笔记逻辑都在程序层实现，再通过 tools 暴露给 Claude SDK 调用
-- Skill 管理只负责发现和操作整个文件夹，不解析或复制 Skill 目录内的提示词、脚本、参数等内容
+- Skill 管理只负责发现和操作整个文件夹；工作台内只直接编辑 Skill 目录下的 `SKILL.md` 文档，不解析或复制其他提示词、脚本、参数等内容
 - 文件处理标准 skill 负责 Excel / Word / PDF / 图片的导入、抽取、搜索、OCR、摘要
 
 ## 工作方式

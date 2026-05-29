@@ -11,9 +11,11 @@ import type {
   ProjectSkillResponse,
   ProjectSkillsResponse,
   RenameSkillRequest,
+  SkillDocumentResponse,
   SkillResponse,
   SkillsResponse,
-  StoreSkillResponse
+  StoreSkillResponse,
+  UpdateSkillDocumentRequest
 } from "@workhorse-station/shared";
 import type { DatabaseState } from "../db/init.js";
 import { HttpError } from "../projects/http-error.js";
@@ -29,8 +31,12 @@ import {
   deleteProjectSkill,
   listGlobalSkills,
   listProjectSkillView,
+  readGlobalSkillDocument,
+  readProjectSkillDocument,
   renameGlobalSkill,
-  renameProjectSkill
+  renameProjectSkill,
+  updateGlobalSkillDocument,
+  updateProjectSkillDocument
 } from "./skill-fs.js";
 import { getStoreSkillStatus } from "./skill-store.js";
 
@@ -61,8 +67,29 @@ export async function registerSkillRoutes(server: FastifyInstance, database: Dat
     return {
       ok: true,
       data: { skill }
-    }
+    };
   });
+
+  server.get<{ Params: SkillParams }>("/api/skills/:name/document", async (request): Promise<ApiResponse<SkillDocumentResponse>> => {
+    const document = await readGlobalSkillDocument(request.params.name);
+
+    return {
+      ok: true,
+      data: { document }
+    };
+  });
+
+  server.put<{ Params: SkillParams; Body: UpdateSkillDocumentRequest }>(
+    "/api/skills/:name/document",
+    async (request): Promise<ApiResponse<SkillDocumentResponse>> => {
+      const document = await updateGlobalSkillDocument(request.params.name, request.body?.content);
+
+      return {
+        ok: true,
+        data: { document }
+      };
+    }
+  );
 
   server.patch<{ Params: SkillParams; Body: RenameSkillRequest }>("/api/skills/:name", async (request): Promise<ApiResponse<SkillResponse>> => {
     const skill = await renameGlobalSkill(request.params.name, request.body?.newName);
@@ -150,6 +177,42 @@ export async function registerSkillRoutes(server: FastifyInstance, database: Dat
       return {
         ok: true,
         data: { skill }
+      };
+    }
+  );
+
+  server.get<{ Params: ProjectSkillParams }>(
+    "/api/projects/:projectId/skills/:name/document",
+    async (request): Promise<ApiResponse<SkillDocumentResponse>> => {
+      const project = await getProject(database.db, request.params.projectId);
+
+      if (!project) {
+        throw new HttpError(404, "project_not_found", "项目不存在");
+      }
+
+      const document = await readProjectSkillDocument(project.path, request.params.name);
+
+      return {
+        ok: true,
+        data: { document }
+      };
+    }
+  );
+
+  server.put<{ Params: ProjectSkillParams; Body: UpdateSkillDocumentRequest }>(
+    "/api/projects/:projectId/skills/:name/document",
+    async (request): Promise<ApiResponse<SkillDocumentResponse>> => {
+      const project = await getProject(database.db, request.params.projectId);
+
+      if (!project) {
+        throw new HttpError(404, "project_not_found", "项目不存在");
+      }
+
+      const document = await updateProjectSkillDocument(project.path, request.params.name, request.body?.content);
+
+      return {
+        ok: true,
+        data: { document }
       };
     }
   );

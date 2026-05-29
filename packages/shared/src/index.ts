@@ -154,6 +154,20 @@ export type DeleteSkillRequest = {
   confirmName: string;
 };
 
+export type SkillDocumentDetail = {
+  name: string;
+  path: string;
+  content: string;
+};
+
+export type SkillDocumentResponse = {
+  document: SkillDocumentDetail;
+};
+
+export type UpdateSkillDocumentRequest = {
+  content: string;
+};
+
 export type SkillTransferMode = "copy" | "move";
 
 export type CopyGlobalSkillRequest = {

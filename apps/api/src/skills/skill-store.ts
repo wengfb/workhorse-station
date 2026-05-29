@@ -1,12 +1,14 @@
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { StoreSkill, StoreSkillInstallStatus, StoreSkillStatus } from "@workhorse-station/shared";
+import type { SkillDocumentDetail, StoreSkill, StoreSkillInstallStatus, StoreSkillStatus } from "@workhorse-station/shared";
 import { HttpError } from "../projects/http-error.js";
 import { isPathInside } from "../worktrees/git-worktree.js";
 import { transferSkillDirectory, validateSkillName } from "./skill-fs.js";
 import { parseFrontmatter } from "./skill-frontmatter.js";
 import { getChatSkillsRoot } from "./skill-loader.js";
+
+const skillDocumentName = "SKILL.md";
 
 export function getStoreSkillRoot(): string {
   return path.join(os.homedir(), ".workhorse", "skills");
@@ -52,16 +54,8 @@ export async function createStoreSkill(nameInput: unknown, descriptionInput?: un
   await mkdir(root, { recursive: true });
   await mkdir(skillPath);
 
-  const mdContent = `---
-name: ${name}
-description: ${description || ""}
----
-
-# ${name}
-
-${description || ""}
-`;
-  await writeFile(path.join(skillPath, "SKILL.md"), mdContent);
+  const mdContent = `---\nname: ${name}\ndescription: ${description || ""}\n---\n\n# ${name}\n\n${description || ""}\n`;
+  await writeFile(path.join(skillPath, skillDocumentName), mdContent, "utf-8");
 
   return readStoreSkill(name);
 }
@@ -84,16 +78,7 @@ export async function renameStoreSkill(nameInput: unknown, newNameInput: unknown
   }
 
   await rename(sourcePath, targetPath);
-
-  // Update name in SKILL.md
-  const newMdPath = path.join(targetPath, "SKILL.md");
-  try {
-    const raw = await readFile(newMdPath, "utf-8");
-    const updated = raw.replace(/^name:\s*.*$/m, `name: ${newName}`);
-    await writeFile(newMdPath, updated);
-  } catch {
-    // SKILL.md might not exist yet, skip update
-  }
+  await syncDocumentName(targetPath, newName);
 
   return readStoreSkill(newName);
 }
@@ -113,6 +98,44 @@ export async function deleteStoreSkill(nameInput: unknown, confirmNameInput: unk
 
   await assertManagedDirectory(skillPath);
   await rm(skillPath, { recursive: true });
+}
+
+export async function readStoreSkillDocument(nameInput: unknown): Promise<SkillDocumentDetail> {
+  const name = validateSkillName(nameInput);
+  const root = getStoreSkillRoot();
+  const skillPath = resolvePath(root, name);
+
+  await assertManagedDirectory(skillPath);
+
+  const documentPath = path.join(skillPath, skillDocumentName);
+  const content = await readDocumentContent(documentPath, name);
+
+  return {
+    name,
+    path: documentPath,
+    content
+  };
+}
+
+export async function updateStoreSkillDocument(nameInput: unknown, contentInput: unknown): Promise<SkillDocumentDetail> {
+  const name = validateSkillName(nameInput);
+  const root = getStoreSkillRoot();
+  const skillPath = resolvePath(root, name);
+
+  await assertManagedDirectory(skillPath);
+
+  if (typeof contentInput !== "string") {
+    throw new HttpError(400, "validation_error", "Skill 文档内容不能为空");
+  }
+
+  const documentPath = path.join(skillPath, skillDocumentName);
+  await writeFile(documentPath, contentInput, "utf-8");
+
+  return {
+    name,
+    path: documentPath,
+    content: contentInput
+  };
 }
 
 export async function sendStoreSkillToProject(
@@ -197,7 +220,7 @@ async function readStoreSkill(name: string): Promise<StoreSkill> {
 
   await assertManagedDirectory(skillPath);
 
-  const mdPath = path.join(skillPath, "SKILL.md");
+  const mdPath = path.join(skillPath, skillDocumentName);
   let description = "";
 
   try {
@@ -289,6 +312,36 @@ async function assertManagedDirectory(skillPath: string): Promise<void> {
 
   if (!skillStat.isDirectory()) {
     throw new HttpError(400, "skill_not_directory", "Skill 路径不是文件夹");
+  }
+}
+
+async function syncDocumentName(skillPath: string, name: string) {
+  const documentPath = path.join(skillPath, skillDocumentName);
+
+  try {
+    const raw = await readFile(documentPath, "utf-8");
+    const updated = raw.match(/^name:\s*.*$/m) ? raw.replace(/^name:\s*.*$/m, `name: ${name}`) : `---\nname: ${name}\n---\n\n${raw}`;
+    await writeFile(documentPath, updated, "utf-8");
+  } catch (error) {
+    if (isNotFound(error)) {
+      const content = `---\nname: ${name}\ndescription: \n---\n\n# ${name}\n`;
+      await writeFile(documentPath, content, "utf-8");
+      return;
+    }
+    throw error;
+  }
+}
+
+async function readDocumentContent(documentPath: string, name: string) {
+  try {
+    return await readFile(documentPath, "utf-8");
+  } catch (error) {
+    if (isNotFound(error)) {
+      const content = `---\nname: ${name}\ndescription: \n---\n\n# ${name}\n`;
+      await writeFile(documentPath, content, "utf-8");
+      return content;
+    }
+    throw error;
   }
 }
 

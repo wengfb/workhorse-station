@@ -61,6 +61,7 @@ import type {
   SessionStreamEvent,
   SessionTerminalSnapshotResponse,
   SessionHistoryResponse,
+  SkillDocumentResponse,
   SkillResponse,
   SkillsResponse,
   StoreSkillResponse,
@@ -88,6 +89,7 @@ import type {
   UpdatePromptDraftRequest,
   UpdateRuleRequest,
   UpdateSessionRequest,
+  UpdateSkillDocumentRequest,
   UpdateTodoRequest,
   WorktreeResponse,
   WorktreesResponse,
@@ -264,6 +266,17 @@ export function createGlobalSkill(input: CreateSkillRequest) {
   });
 }
 
+export function getGlobalSkillDocument(name: string) {
+  return fetchJson<SkillDocumentResponse>(`/api/skills/${encodeURIComponent(name)}/document`);
+}
+
+export function updateGlobalSkillDocument(name: string, input: UpdateSkillDocumentRequest) {
+  return fetchJson<SkillDocumentResponse>(`/api/skills/${encodeURIComponent(name)}/document`, {
+    method: "PUT",
+    body: input
+  });
+}
+
 export function renameGlobalSkill(name: string, input: RenameSkillRequest) {
   return fetchJson<SkillResponse>(`/api/skills/${encodeURIComponent(name)}`, {
     method: "PATCH",
@@ -299,6 +312,17 @@ export function getProjectSkills(projectId: string) {
 export function createProjectSkill(projectId: string, input: CreateSkillRequest) {
   return fetchJson<ProjectSkillResponse>(`/api/projects/${projectId}/skills`, {
     method: "POST",
+    body: input
+  });
+}
+
+export function getProjectSkillDocument(projectId: string, name: string) {
+  return fetchJson<SkillDocumentResponse>(`/api/projects/${projectId}/skills/${encodeURIComponent(name)}/document`);
+}
+
+export function updateProjectSkillDocument(projectId: string, name: string, input: UpdateSkillDocumentRequest) {
+  return fetchJson<SkillDocumentResponse>(`/api/projects/${projectId}/skills/${encodeURIComponent(name)}/document`, {
+    method: "PUT",
     body: input
   });
 }
@@ -339,6 +363,17 @@ export function getStoreSkills(projectId?: string) {
 export function createStoreSkill(input: CreateStoreSkillRequest) {
   return fetchJson<StoreSkillResponse>("/api/skill-store", {
     method: "POST",
+    body: input
+  });
+}
+
+export function getStoreSkillDocument(name: string) {
+  return fetchJson<SkillDocumentResponse>(`/api/skill-store/${encodeURIComponent(name)}/document`);
+}
+
+export function updateStoreSkillDocument(name: string, input: UpdateSkillDocumentRequest) {
+  return fetchJson<SkillDocumentResponse>(`/api/skill-store/${encodeURIComponent(name)}/document`, {
+    method: "PUT",
     body: input
   });
 }

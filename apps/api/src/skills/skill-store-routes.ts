@@ -7,8 +7,10 @@ import type {
   InstallStoreSkillRequest,
   RenameStoreSkillRequest,
   SendStoreSkillToProjectRequest,
+  SkillDocumentResponse,
   StoreSkillResponse,
-  StoreSkillsResponse
+  StoreSkillsResponse,
+  UpdateSkillDocumentRequest
 } from "@workhorse-station/shared";
 import type { DatabaseState } from "../db/init.js";
 import { HttpError } from "../projects/http-error.js";
@@ -20,8 +22,10 @@ import {
   getStoreSkillStatus,
   installStoreSkill,
   listStoreSkillsWithStatus,
+  readStoreSkillDocument,
   renameStoreSkill,
-  sendStoreSkillToProject
+  sendStoreSkillToProject,
+  updateStoreSkillDocument
 } from "./skill-store.js";
 
 type SkillParams = {
@@ -56,6 +60,30 @@ export async function registerSkillStoreRoutes(server: FastifyInstance, database
       return {
         ok: true,
         data: { skill: status }
+      };
+    }
+  );
+
+  server.get<{ Params: SkillParams }>(
+    "/api/skill-store/:name/document",
+    async (request): Promise<ApiResponse<SkillDocumentResponse>> => {
+      const document = await readStoreSkillDocument(request.params.name);
+
+      return {
+        ok: true,
+        data: { document }
+      };
+    }
+  );
+
+  server.put<{ Params: SkillParams; Body: UpdateSkillDocumentRequest }>(
+    "/api/skill-store/:name/document",
+    async (request): Promise<ApiResponse<SkillDocumentResponse>> => {
+      const document = await updateStoreSkillDocument(request.params.name, request.body?.content);
+
+      return {
+        ok: true,
+        data: { document }
       };
     }
   );
