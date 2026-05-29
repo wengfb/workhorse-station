@@ -2678,7 +2678,12 @@ export function App() {
           projects={projects}
           selectedProject={selectedProject}
           loading={projectsLoading}
-          onToggle={() => setProjectMenuOpen((current) => !current)}
+          onOpenChange={setProjectMenuOpen}
+          onEnterCurrent={() => {
+            if (selectedProject) {
+              selectProject(selectedProject);
+            }
+          }}
           onEnter={(project) => selectProject(project)}
           onCreate={() => {
             setProjectMenuOpen(false);
@@ -3057,7 +3062,8 @@ function ProjectMenu({
   projects,
   selectedProject,
   loading,
-  onToggle,
+  onOpenChange,
+  onEnterCurrent,
   onEnter,
   onCreate
 }: {
@@ -3065,7 +3071,8 @@ function ProjectMenu({
   projects: ProjectSummary[];
   selectedProject: ProjectSummary | null;
   loading: boolean;
-  onToggle: () => void;
+  onOpenChange: (open: boolean) => void;
+  onEnterCurrent: () => void;
   onEnter: (project: ProjectSummary) => void;
   onCreate: () => void;
 }) {
@@ -3075,18 +3082,32 @@ function ProjectMenu({
     if (!open) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        onToggle();
+        onOpenChange(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open, onToggle]);
+  }, [open, onOpenChange]);
 
   return (
-    <div ref={containerRef} className="relative">
-      <button onClick={onToggle} className="min-w-44 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-slate-200 hover:bg-white/10">
-        <span className="block truncate">项目：{selectedProject?.name ?? "未选择"}</span>
-      </button>
+    <div ref={containerRef} className="relative min-w-44">
+      <div className="flex overflow-hidden rounded-lg border border-white/10 bg-white/5 text-sm text-slate-200">
+        <button
+          onClick={onEnterCurrent}
+          className="min-w-0 flex-1 px-3 py-2 text-left hover:bg-white/10"
+        >
+          <span className="block truncate">项目：{selectedProject?.name ?? "未选择"}</span>
+        </button>
+        <button
+          type="button"
+          aria-label={open ? "收起项目列表" : "展开项目列表"}
+          aria-expanded={open}
+          onClick={() => onOpenChange(!open)}
+          className="border-l border-white/10 px-3 py-2 text-slate-400 hover:bg-white/10 hover:text-slate-100"
+        >
+          <span className={`block text-xs transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
+        </button>
+      </div>
       {open ? (
         <div className="absolute left-0 top-full z-30 mt-2 w-80 overflow-hidden rounded-xl border border-white/10 bg-[#151821] shadow-2xl">
           <div className="border-b border-white/10 px-3 py-2 text-xs text-slate-500">项目列表</div>
