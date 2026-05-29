@@ -1,5 +1,20 @@
 # 开发进度
 
+## 2026-05-29：Windows 桌面端 UI 壳首切片
+
+### 已完成
+- 新增 `apps/desktop/` Electron 桌面端骨架，首版直接打开 `http://localhost:3001`。
+- 新增桌面端连接失败页：当 WSL 中的 `workhorse-station` 服务未就绪时，提供重试连接和浏览器打开入口。
+- 根 `package.json` 新增 `desktop:start` / `desktop:build` 脚本。
+- `.env.example`、`scripts/install.sh`、`scripts/update.sh` 补充 `localhost:3001` 单端口与 WSL systemd 服务说明。
+- `docs/dev-management-plan.md`、`docs/dev-management-mvp.md`、`docs/dev-management-tech-stack.md` 更新双端路线：保留 web 端，Windows 桌面端首版只做 UI 壳，后端继续运行在 WSL。
+
+### 待验证
+- `pnpm install`
+- `pnpm -r typecheck`
+- `pnpm -r build`
+- Windows 中启动 Electron，确认能打开 `http://localhost:3001`，并在服务未启动时显示错误页。
+
 ## 2026-05-25：会话继续——已停止会话原地续接
 
 ### 已完成

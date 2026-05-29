@@ -74,6 +74,14 @@
 ## 9. 推荐最终组合
 - 前端：React + Vite + TS + Tailwind + shadcn/ui + xterm.js
 - 后端：Fastify + SSE / WS
+- 桌面端：Electron（首版仅作为 Windows UI 壳，直接打开 `http://localhost:3001`）
 - 存储：SQLite + 文件系统
 - AI：Anthropic SDK + Zod + 自研轻量编排
 - 搜索：SQLite FTS5
+
+## 10. 双端运行策略
+- 浏览器版继续作为主开发与 AI 调试入口
+- Windows 桌面端首版不嵌入后端，不单独维护第二套前端
+- 后端继续运行在 WSL 中，通过安装脚本和 systemd 用户服务常驻启动
+- 浏览器版与桌面端统一通过 `http://localhost:3001` 访问同一套页面和 API
+- 桌面端启动前先探测 `http://localhost:3001/health`，服务未就绪时显示重试页

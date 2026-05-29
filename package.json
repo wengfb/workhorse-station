@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "pnpm --parallel --filter @workhorse-station/api --filter @workhorse-station/web dev",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "desktop:build": "pnpm --filter @workhorse-station/desktop build",
+    "desktop:start": "pnpm --filter @workhorse-station/desktop start"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

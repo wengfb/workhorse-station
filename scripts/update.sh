@@ -36,6 +36,7 @@ if systemctl --user is-active --quiet workhorse-station; then
   echo ""
   echo "更新完成，服务已重启"
   echo "访问: http://localhost:3001"
+  echo "浏览器版与 Windows 桌面端统一连接这个地址"
 else
   echo ""
   echo "警告: 服务启动失败，请查看日志:"

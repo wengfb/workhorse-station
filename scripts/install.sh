@@ -102,6 +102,8 @@ if systemctl --user is-active --quiet workhorse-station; then
   echo "=========================================="
   echo ""
   echo "  访问地址: http://localhost:3001"
+  echo "  浏览器版与 Windows 桌面端统一连接这个地址"
+  echo "  WSL 内的 systemd 用户服务需要保持运行"
   echo ""
   echo "  管理命令（在项目目录下执行）:"
   echo "    bash scripts/update.sh   更新到最新版本"
