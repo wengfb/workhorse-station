@@ -24,7 +24,9 @@ echo "[4/4] 更新并重启服务..."
 SERVICE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$SERVICE_DIR"
 SERVICE_FILE="$SERVICE_DIR/workhorse-station.service"
-sed "s|PROJECT_ROOT|$PROJECT_DIR|g" "$SCRIPT_DIR/workhorse-station.service" > "$SERVICE_FILE"
+USER_RUNTIME_DIR="/run/user/$(id -u)"
+sed -e "s|PROJECT_ROOT|$PROJECT_DIR|g" -e "s|USER_RUNTIME_DIR|$USER_RUNTIME_DIR|g" "$SCRIPT_DIR/workhorse-station.service" > "$SERVICE_FILE"
+systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR PULSE_SERVER DBUS_SESSION_BUS_ADDRESS || true
 systemctl --user daemon-reload
 systemctl --user restart workhorse-station
 

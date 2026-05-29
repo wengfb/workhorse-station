@@ -6,6 +6,11 @@ After=network.target
 Type=simple
 WorkingDirectory=PROJECT_ROOT
 EnvironmentFile=-PROJECT_ROOT/.env
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_RUNTIME_DIR=USER_RUNTIME_DIR
+Environment=PULSE_SERVER=unix:/mnt/wslg/PulseServer
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=USER_RUNTIME_DIR/bus
 ExecStart=/usr/bin/env node PROJECT_ROOT/apps/api/dist/server.js
 Restart=on-failure
 RestartSec=5

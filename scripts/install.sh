@@ -74,7 +74,8 @@ SERVICE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$SERVICE_DIR"
 
 SERVICE_FILE="$SERVICE_DIR/workhorse-station.service"
-sed "s|PROJECT_ROOT|$PROJECT_DIR|g" "$SCRIPT_DIR/workhorse-station.service" > "$SERVICE_FILE"
+USER_RUNTIME_DIR="/run/user/$(id -u)"
+sed -e "s|PROJECT_ROOT|$PROJECT_DIR|g" -e "s|USER_RUNTIME_DIR|$USER_RUNTIME_DIR|g" "$SCRIPT_DIR/workhorse-station.service" > "$SERVICE_FILE"
 echo "  服务文件已创建: $SERVICE_FILE"
 
 # ---------- 6. 启用开机自启 ----------
