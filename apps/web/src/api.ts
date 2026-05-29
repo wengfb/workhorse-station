@@ -130,9 +130,29 @@ export function streamChatMessage(
   chatSessionId: string,
   input: CreateChatMessageRequest,
   onEvent: (event: ChatStreamEvent) => void,
-  onError: (error: Error) => void
+  onError: (error: Error) => void,
+  onClose?: () => void
 ): () => void {
   const controller = new AbortController();
+  let completed = false;
+
+  const processSseChunk = (chunk: string) => {
+    const trimmed = chunk.trim();
+    if (!trimmed) return;
+
+    const match = trimmed.match(/^data:\s*(.+)$/s);
+    if (!match) return;
+
+    try {
+      const event = JSON.parse(match[1]) as ChatStreamEvent;
+      if (event.type === "chat.done" || event.type === "chat.error") {
+        completed = true;
+      }
+      onEvent(event);
+    } catch {
+      // Skip malformed JSON lines
+    }
+  };
 
   fetch(`/api/chat-sessions/${chatSessionId}/messages`, {
     method: "POST",
@@ -168,20 +188,21 @@ export function streamChatMessage(
           buffer = parts.pop() ?? "";
 
           for (const part of parts) {
-            const trimmed = part.trim();
-            if (!trimmed) continue;
-
-            const match = trimmed.match(/^data:\s*(.+)$/s);
-            if (match) {
-              try {
-                const event = JSON.parse(match[1]) as ChatStreamEvent;
-                onEvent(event);
-              } catch {
-                // Skip malformed JSON lines
-              }
-            }
+            processSseChunk(part);
           }
         }
+
+        buffer += decoder.decode();
+        if (buffer.trim()) {
+          processSseChunk(buffer);
+        }
+
+        if (!completed) {
+          onError(new Error("聊天流提前结束"));
+          return;
+        }
+
+        onClose?.();
       } catch (error) {
         if (error instanceof Error && error.name !== "AbortError") {
           onError(error);
@@ -652,8 +673,6 @@ export function getRecentSessions(limit?: number) {
   return fetchJson<RecentSessionsResponse>(`/api/sessions/recent${query}`);
 }
 
-// ─── CLAUDE.md ───
-
 export function getGlobalClaudeMd() {
   return fetchJson<ClaudeMdResponse>("/api/claude-md/global");
 }
@@ -675,8 +694,6 @@ export function updateProjectClaudeMd(projectId: string, input: UpdateClaudeMdRe
     body: input
   });
 }
-
-// ─── Rules ───
 
 export function getRules(projectId: string) {
   return fetchJson<RulesResponse>(`/api/projects/${projectId}/rules`);
@@ -706,8 +723,6 @@ export function deleteRule(projectId: string, name: string, input: DeleteRuleReq
     body: input
   });
 }
-
-// ─── Auto memory ───
 
 export function getMemories(projectId: string) {
   return fetchJson<MemoriesResponse>(`/api/projects/${projectId}/memory`);

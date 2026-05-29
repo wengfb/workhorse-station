@@ -748,6 +748,7 @@ export type ChatStreamEventType =
   | "chat.tool_use_pending"
   | "chat.tool_call"
   | "chat.tool_result"
+  | "chat.message_committed"
   | "chat.done"
   | "chat.error";
 
@@ -758,6 +759,7 @@ export type ChatStreamEvent = {
   text?: string;
   toolCall?: ChatToolCall;
   toolResult?: ChatToolResult;
+  chatMessage?: ChatMessageSummary;
   message?: string;
 };
 

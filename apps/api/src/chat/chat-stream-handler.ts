@@ -5,6 +5,7 @@ import type {
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import type {
   ChatAttachment,
+  ChatMessageSummary,
   ChatToolCall,
   ChatToolResult,
   ChatStreamEvent,
@@ -71,7 +72,8 @@ export class ChatStreamHandler {
       const tools: BetaToolUnion[] = toolDefs as BetaToolUnion[];
       const system = buildSystemPrompt(this.project, this.worktree, chatSkills);
 
-      for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS && this.active; iteration++) {
+      let iteration = 0;
+      for (; iteration < MAX_TOOL_ITERATIONS && this.active; iteration++) {
         const stream = anthropic.beta.messages.stream({
           model: MODEL,
           max_tokens: MAX_TOKENS,
@@ -151,9 +153,8 @@ export class ChatStreamHandler {
         if (!this.active) return;
 
         if (toolUseBlocks.length === 0) {
-          const messageId = randomUUID();
-          await appendChatMessage(this.database.db, {
-            id: messageId,
+          const assistantMessage = await appendChatMessage(this.database.db, {
+            id: randomUUID(),
             chatSessionId: this.chatSessionId,
             role: "assistant",
             content: replyText,
@@ -163,6 +164,7 @@ export class ChatStreamHandler {
             toolResults: []
           });
           await this.database.persist();
+          this.emitMessageCommitted(assistantMessage);
 
           messages.push({ role: "assistant", content: replyText });
           break;
@@ -193,8 +195,14 @@ export class ChatStreamHandler {
 
             if (!approved) {
               const skipResult = "用户拒绝了此工具调用";
-              toolResults.push({ toolCallId: tc.id, result: skipResult, isError: false });
+              const toolResult = { toolCallId: tc.id, result: skipResult, isError: false };
+              toolResults.push(toolResult);
               toolResultContent.push({ type: "tool_result", tool_use_id: tc.id, content: skipResult, is_error: false });
+              this.onEvent(createChatStreamEvent({
+                type: "chat.tool_result",
+                chatSessionId: this.chatSessionId,
+                toolResult
+              }));
               continue;
             }
           }
@@ -207,17 +215,18 @@ export class ChatStreamHandler {
           }));
 
           const result = await executeChatTool(this.database.db, tc.name, tc.input);
-          toolResults.push({ toolCallId: tc.id, result: result.result, isError: result.isError });
+          const toolResult = { toolCallId: tc.id, result: result.result, isError: result.isError };
+          toolResults.push(toolResult);
           toolResultContent.push({ type: "tool_result", tool_use_id: tc.id, content: result.result, is_error: result.isError });
 
           this.onEvent(createChatStreamEvent({
             type: "chat.tool_result",
             chatSessionId: this.chatSessionId,
-            toolResult: { toolCallId: tc.id, result: result.result, isError: result.isError }
+            toolResult
           }));
         }
 
-        await appendChatMessage(this.database.db, {
+        const assistantMessage = await appendChatMessage(this.database.db, {
           id: randomUUID(),
           chatSessionId: this.chatSessionId,
           role: "assistant",
@@ -229,6 +238,7 @@ export class ChatStreamHandler {
         });
 
         await this.database.persist();
+        this.emitMessageCommitted(assistantMessage);
 
         const assistantContent: unknown[] = [];
         if (replyText) {
@@ -248,10 +258,21 @@ export class ChatStreamHandler {
         }
       }
 
-      this.onEvent(createChatStreamEvent({
-        type: "chat.done",
-        chatSessionId: this.chatSessionId
-      }));
+      if (this.active && iteration >= MAX_TOOL_ITERATIONS) {
+        this.onEvent(createChatStreamEvent({
+          type: "chat.error",
+          chatSessionId: this.chatSessionId,
+          message: `工具调用轮次已达到上限（${MAX_TOOL_ITERATIONS}）`
+        }));
+        return;
+      }
+
+      if (this.active) {
+        this.onEvent(createChatStreamEvent({
+          type: "chat.done",
+          chatSessionId: this.chatSessionId
+        }));
+      }
     } catch (error) {
       console.error("[ChatStream] processMessage error:", error);
       this.onEvent(createChatStreamEvent({
@@ -278,6 +299,14 @@ export class ChatStreamHandler {
       pending.resolve(false);
     }
     this.pendingConfirmations.clear();
+  }
+
+  private emitMessageCommitted(chatMessage: ChatMessageSummary): void {
+    this.onEvent(createChatStreamEvent({
+      type: "chat.message_committed",
+      chatSessionId: this.chatSessionId,
+      chatMessage
+    }));
   }
 
   private waitForConfirmation(toolCallId: string): Promise<boolean> {

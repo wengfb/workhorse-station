@@ -6,8 +6,10 @@ import type {
   AppliedChatSuggestionTarget,
   ChatArtifactSuggestion,
   ChatArtifactSourceRef,
+  ChatMessageSummary,
   ChatSessionResponse,
   ChatSessionsResponse,
+  ChatStreamEvent,
   ConfirmToolRequest,
   CreateChatMessageRequest,
   CreateChatSessionRequest,
@@ -42,6 +44,27 @@ type ChatSuggestionParams = ChatSessionParams & {
   chatMessageId: string;
   suggestionId: string;
 };
+
+type ChatSseEvent = ChatStreamEvent;
+
+type ChatSseWriter = (event: ChatSseEvent) => void;
+
+function createSseEventWriter(reply: { raw: { writable: boolean; write: (chunk: string) => void } }): ChatSseWriter {
+  return (event) => {
+    if (reply.raw.writable) {
+      reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+    }
+  };
+}
+
+function createMessageCommittedEvent(chatSessionId: string, chatMessage: ChatMessageSummary): ChatStreamEvent {
+  return {
+    type: "chat.message_committed",
+    chatSessionId,
+    chatMessage,
+    timestamp: new Date().toISOString()
+  };
+}
 
 export async function registerChatRoutes(server: FastifyInstance, database: DatabaseState) {
   server.get("/api/chat-sessions", async (): Promise<ApiResponse<ChatSessionsResponse>> => ({
@@ -93,7 +116,7 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
         title
       });
 
-      await appendChatMessage(database.db, {
+      const userMessage = await appendChatMessage(database.db, {
         chatSessionId: currentSession.id,
         role: "user",
         content,
@@ -107,6 +130,8 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
       const project = input.projectId ? await getProject(database.db, input.projectId) : null;
       const worktree = input.projectId && input.worktreeId ? await getProjectWorktree(database.db, input.projectId, input.worktreeId) : null;
 
+      const emitEvent = createSseEventWriter(reply);
+
       reply.hijack();
       reply.raw.writeHead(200, {
         "Content-Type": "text/event-stream",
@@ -115,16 +140,14 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
       });
       reply.raw.write("\n");
 
+      emitEvent(createMessageCommittedEvent(currentSession.id, userMessage));
+
       const handler = new ChatStreamHandler(
         currentSession.id,
         database,
         project,
         worktree,
-        (event) => {
-          if (reply.raw.writable) {
-            reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
-          }
-        }
+        emitEvent
       );
 
       registerStreamHandler(currentSession.id, handler);

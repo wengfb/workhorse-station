@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import React, { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   ExecutionListItem,
   ChatArtifactSuggestion,
@@ -99,7 +99,6 @@ import {
   renameGlobalSkill,
   renameProjectSkill,
   renameStoreSkill,
-  sendChatMessage,
   sendStoreSkillToProject,
   getProjectSkillDocument,
   updateProjectSkillDocument,
@@ -215,6 +214,15 @@ type StreamingBlock =
   | { type: "text"; text: string }
   | { type: "tool"; toolCall: ChatToolCall; result?: ChatToolResult };
 
+type ChatStreamPendingMessage = {
+  id: string;
+  chatSessionId: string;
+  role: "user" | "assistant";
+  content: string;
+  attachments: ChatAttachment[];
+  createdAt: string;
+};
+
 const topModes: Array<{ id: HomeMode; label: string; description: string }> = [
   { id: "chat", label: "聊天", description: "左侧聊天会话列表，右侧简洁聊天区" },
   { id: "overview", label: "工作台", description: "管理全局笔记、Skill、项目、聊天和运行中会话" }
@@ -257,6 +265,8 @@ export function App() {
   const [streamingBlocks, setStreamingBlocks] = useState<StreamingBlock[]>([]);
   const streamAbortRef = useRef<(() => void) | null>(null);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
+  const [pendingChatMessages, setPendingChatMessages] = useState<ChatStreamPendingMessage[]>([]);
+  const [chatScrollSignal, setChatScrollSignal] = useState(0);
   const [activeProjectTab, setActiveProjectTab] = useState<ProjectTab>("todos");
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
@@ -359,6 +369,7 @@ export function App() {
   const globalNotesList = useGlobalNotesList({ formatError });
   const projectNotesList = useProjectNotesList({ projectId: selectedProjectId, formatError });
   const projectTodosList = useProjectTodosList({ projectId: selectedProjectId, formatError });
+
 
   useEffect(() => {
     let cancelled = false;
@@ -691,6 +702,66 @@ export function App() {
     { title: "运行中会话", value: String(runningSessionCount), detail: "真实 Claude Code 会话与终端已接入" },
     { title: "MySQL", value: databaseInfo?.connected ? "已连接" : "等待中", detail: databaseInfo ? `${databaseInfo.engine} @ ${databaseInfo.host}/${databaseInfo.database}` : "等待后端" }
   ];
+
+  const visibleChatMessages = selectedChat
+    ? buildVisibleChatMessages(selectedChat, pendingChatMessages.filter((message) => message.chatSessionId === selectedChat.id))
+    : [];
+
+  const isStreamingSelectedChat = Boolean(streamingChatId && selectedChat?.id === streamingChatId);
+
+  function updateChatSessionState(chatSessionId: string, updater: (session: ChatSessionSummary) => ChatSessionSummary) {
+    setChatSessions((prev) => {
+      const index = prev.findIndex((session) => session.id === chatSessionId);
+      if (index === -1) {
+        return prev;
+      }
+
+      const current = prev[index]!;
+      const next = updater(current);
+      const remaining = prev.filter((session) => session.id !== chatSessionId);
+      return [next, ...remaining];
+    });
+  }
+
+  function queuePendingChatMessage(message: ChatStreamPendingMessage) {
+    setPendingChatMessages((prev) => [...prev.filter((item) => item.id !== message.id), message]);
+  }
+
+  function removePendingChatMessage(messageId: string) {
+    setPendingChatMessages((prev) => prev.filter((item) => item.id !== messageId));
+  }
+
+  function commitChatMessage(chatMessage: ChatMessageSummary) {
+    updateChatSessionState(chatMessage.chatSessionId, (session) => ({
+      ...session,
+      messages: upsertChatMessage(session.messages, chatMessage),
+      updatedAt: chatMessage.createdAt
+    }));
+  }
+
+  function requestChatScrollToBottom() {
+    setChatScrollSignal((prev) => prev + 1);
+  }
+
+  function pushLocalChatError(chatSessionId: string, rawMessage: string) {
+    const formatted = formatChatStreamError(rawMessage);
+    const createdAt = new Date().toISOString();
+
+    queuePendingChatMessage({
+      id: `local-error-${crypto.randomUUID()}`,
+      chatSessionId,
+      role: "assistant",
+      content: `::chat-error::${JSON.stringify(formatted)}`,
+      attachments: [],
+      createdAt
+    });
+    updateChatSessionState(chatSessionId, (session) => ({
+      ...session,
+      updatedAt: createdAt
+    }));
+    setChatError(formatted.summary);
+    requestChatScrollToBottom();
+  }
 
   async function reloadChatSessions(preferredChatId?: string | null) {
     setChatLoading(true);
@@ -1881,7 +1952,8 @@ export function App() {
         projectId: selectedProject?.id ?? null,
         worktreeId: selectedWorktree?.id ?? null
       });
-      await reloadChatSessions(data.chatSession.id);
+      setChatSessions((prev) => [data.chatSession, ...prev.filter((session) => session.id !== data.chatSession.id)]);
+      setSelectedChatId(data.chatSession.id);
       setChatDraft("");
       setChatFile(null);
     } catch (error) {
@@ -1929,6 +2001,7 @@ export function App() {
           worktreeId: selectedWorktree?.id ?? null
         });
         targetChatId = created.chatSession.id;
+        setChatSessions((prev) => [created.chatSession, ...prev.filter((session) => session.id !== created.chatSession.id)]);
         setSelectedChatId(created.chatSession.id);
       } catch (error) {
         setChatError(formatError(error, "聊天会话创建失败"));
@@ -1951,6 +2024,23 @@ export function App() {
       }
     }
 
+    const pendingUserMessage: ChatStreamPendingMessage = {
+      id: `pending-user-${crypto.randomUUID()}`,
+      chatSessionId: targetChatId,
+      role: "user",
+      content,
+      attachments,
+      createdAt: new Date().toISOString()
+    };
+
+    queuePendingChatMessage(pendingUserMessage);
+
+    updateChatSessionState(targetChatId, (session) => ({
+      ...session,
+      title: deriveChatSessionTitle(session.title, content, attachments),
+      updatedAt: pendingUserMessage.createdAt
+    }));
+
     setSendingChat(true);
     setChatError(null);
     setChatDraft("");
@@ -1958,6 +2048,7 @@ export function App() {
     setEditingMessageId(null);
     setStreamingChatId(targetChatId);
     setStreamingBlocks([]);
+    requestChatScrollToBottom();
 
     streamAbortRef.current?.();
     const abort = streamChatMessage(
@@ -1981,7 +2072,7 @@ export function App() {
             break;
           case "chat.tool_use_pending":
             if (event.toolCall) {
-              setStreamingBlocks((prev) => [...prev, { type: "tool", toolCall: { ...event.toolCall!, status: "pending_confirmation" } }]);
+              setStreamingBlocks((prev) => [...prev, { type: "tool", toolCall: event.toolCall as ChatToolCall }]);
             }
             break;
           case "chat.tool_call":
@@ -2006,23 +2097,42 @@ export function App() {
               );
             }
             break;
+          case "chat.message_committed":
+            if (event.chatMessage) {
+              commitChatMessage(event.chatMessage);
+              if (event.chatMessage.role === "user") {
+                setPendingChatMessages((prev) => prev.filter((message) => !(message.chatSessionId === event.chatMessage!.chatSessionId && message.role === "user" && message.content === event.chatMessage!.content)));
+              } else {
+                setStreamingBlocks([]);
+              }
+            }
+            break;
           case "chat.done":
             setStreamingChatId(null);
             setSendingChat(false);
-            reloadChatSessions(event.chatSessionId);
+            setStreamingBlocks([]);
+            removePendingChatMessage(pendingUserMessage.id);
+            void reloadChatSessions(event.chatSessionId);
             break;
           case "chat.error":
-            setChatError(event.message ?? "流式响应出错");
             setStreamingChatId(null);
             setSendingChat(false);
-            reloadChatSessions(event.chatSessionId);
+            setStreamingBlocks([]);
+            removePendingChatMessage(pendingUserMessage.id);
+            pushLocalChatError(event.chatSessionId, event.message ?? "流式响应出错");
+            void reloadChatSessions(event.chatSessionId);
             break;
         }
       },
       (error: Error) => {
-        setChatError(formatError(error, "消息发送失败"));
         setStreamingChatId(null);
         setSendingChat(false);
+        setStreamingBlocks([]);
+        removePendingChatMessage(pendingUserMessage.id);
+        pushLocalChatError(targetChatId, formatError(error, "消息发送失败"));
+      },
+      () => {
+        removePendingChatMessage(pendingUserMessage.id);
       }
     );
 
@@ -2622,6 +2732,9 @@ export function App() {
             creatingChat={creatingChat}
             sendingChat={sendingChat}
             deletingChatId={deletingChatId}
+            chatScrollSignal={chatScrollSignal}
+            visibleChatMessages={visibleChatMessages}
+            isStreamingSelectedChat={isStreamingSelectedChat}
             onChatSelect={(session) => { streamAbortRef.current?.(); setStreamingChatId(null); setSelectedChatId(session.id); }}
             onCreateChat={() => void createChatSessionRecord()}
             onChatDraftChange={setChatDraft}
@@ -3031,6 +3144,9 @@ function HomeWorkspace({
   creatingChat,
   sendingChat,
   deletingChatId,
+  chatScrollSignal,
+  visibleChatMessages,
+  isStreamingSelectedChat,
   onChatSelect,
   onCreateChat,
   onChatDraftChange,
@@ -3119,6 +3235,9 @@ function HomeWorkspace({
   creatingChat: boolean;
   sendingChat: boolean;
   deletingChatId: string | null;
+  chatScrollSignal: number;
+  visibleChatMessages: ChatMessageSummary[];
+  isStreamingSelectedChat: boolean;
   onChatSelect: (session: ChatSessionSummary) => void;
   onCreateChat: () => void;
   onChatDraftChange: (value: string) => void;
@@ -3204,6 +3323,9 @@ function HomeWorkspace({
           editingMessageId={editingMessageId}
           onStartEditMessage={onStartEditMessage}
           onCancelEditMessage={onCancelEditMessage}
+          visibleMessages={visibleChatMessages}
+          isStreaming={isStreamingSelectedChat}
+          scrollSignal={chatScrollSignal}
         />
       ) : (
         <HomeOverviewWorkspace
@@ -3299,7 +3421,10 @@ function HomeChatWorkspace({
   onDelete,
   onConfirmTool,
   onStartEditMessage,
-  onCancelEditMessage
+  onCancelEditMessage,
+  visibleMessages,
+  isStreaming,
+  scrollSignal
 }: {
   selectedProject: ProjectSummary | null;
   selectedWorktree: WorktreeSummary | null;
@@ -3324,40 +3449,32 @@ function HomeChatWorkspace({
   onConfirmTool: (toolCallId: string, approved: boolean) => void;
   onStartEditMessage: (messageId: string, content: string) => void;
   onCancelEditMessage: () => void;
+  visibleMessages: ChatMessageSummary[];
+  isStreaming: boolean;
+  scrollSignal: number;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const prevMessageCountRef = useRef(0);
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set());
+  const autoScrollRef = useRef(true);
+
+  const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
+    messagesEndRef.current?.scrollIntoView({ block: "end", behavior });
+  };
 
   useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    const currentCount = selectedChat?.messages.length ?? 0;
-    const isNewMessage = currentCount > prevMessageCountRef.current;
-    prevMessageCountRef.current = currentCount;
-
-    // Always scroll when a new message arrives (user sent or assistant replied)
-    if (isNewMessage) {
-      container.scrollTop = container.scrollHeight;
-      return;
+    if (autoScrollRef.current) {
+      scrollToBottom();
     }
-  }, [selectedChat?.messages]);
+  }, [visibleMessages.length, streamingBlocks, isStreaming]);
 
   useEffect(() => {
-    if (!streamingBlocks.length) return;
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    // During streaming, only follow if user is near the bottom
-    const threshold = 150;
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceFromBottom > threshold) return;
-
-    container.scrollTop = container.scrollHeight;
-  }, [streamingBlocks]);
+    if (scrollSignal > 0) {
+      autoScrollRef.current = true;
+      requestAnimationFrame(() => scrollToBottom());
+    }
+  }, [scrollSignal]);
 
   useEffect(() => {
     if (editingMessageId && textareaRef.current) {
@@ -3407,216 +3524,40 @@ function HomeChatWorkspace({
         <div className="mx-auto w-full max-w-[768px] px-4 py-3 text-xs text-slate-500">
           上下文：{selectedProject?.name ?? "未选择项目"} / {selectedWorktree?.name ?? "未选择 worktree"} · 可直接让我搜索笔记、创建任务或保存 Prompt
         </div>
-        <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto">
+        <div
+          ref={scrollContainerRef}
+          className="min-h-0 flex-1 overflow-auto"
+          onScroll={(event) => {
+            const container = event.currentTarget;
+            const threshold = 150;
+            const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+            autoScrollRef.current = distanceFromBottom <= threshold;
+          }}
+        >
           <div className="mx-auto w-full max-w-[768px] space-y-4 p-4 sm:p-6">
             {loading ? <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6 text-center text-sm text-slate-500">聊天会话加载中...</div> : null}
             {!loading && error ? <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div> : null}
             {!loading && !selectedChat ? <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-500">新建或选择一个聊天会话。</div> : null}
-            {selectedChat?.messages.map((message) => (
-              <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`space-y-3 rounded-2xl px-4 py-3 text-sm ${message.role === "user" ? "max-w-[82%] bg-slate-100 text-slate-950" : "w-full text-slate-200"} ${message.role === "user" && !streamingChatId ? "cursor-pointer" : ""}`}
-                  onDoubleClick={message.role === "user" && !streamingChatId ? () => onStartEditMessage(message.id, message.content) : undefined}
-                >
-                  {editingMessageId === message.id ? (
-                    <div className="space-y-2">
-                      <textarea
-                        ref={textareaRef}
-                        value={draft}
-                        onChange={(event) => onDraftChange(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" && !event.shiftKey) {
-                            event.preventDefault();
-                            const form = event.currentTarget.closest("form");
-                            if (form) form.requestSubmit();
-                          } else if (event.key === "Escape") {
-                            onCancelEditMessage();
-                          }
-                        }}
-                        className="w-full resize-none rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm text-slate-950 outline-none"
-                        rows={3}
-                        autoFocus
-                      />
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={onCancelEditMessage}
-                          className="rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-200"
-                        >
-                          取消
-                        </button>
-                        <span className="text-[11px] text-slate-400">Enter 发送 · Shift+Enter 换行 · Esc 取消</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <MarkdownContent content={message.content} />
-                  )}
-                  {message.attachments.length ? (
-                    <div className="space-y-2 border-t border-white/10 pt-3 text-xs text-slate-400">
-                      {message.attachments.map((attachment) => (
-                        <div key={`${message.id}-${attachment.name}`} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                          <div className="truncate font-medium text-slate-200">{attachment.name}</div>
-                          <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-500">
-                            <span>{attachment.mimeType}</span>
-                            <span>{formatFileSize(attachment.size)}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  {message.toolCalls.length ? (
-                    <div className="space-y-2 border-t border-white/10 pt-3">
-                      {message.toolCalls.map((tc) => {
-                        const result = message.toolResults.find(tr => tr.toolCallId === tc.id);
-                        const isExpanded = expandedToolCalls.has(tc.id);
-                        const isLong = result && result.result.length > 80;
-                        const showExpanded = result && (result.isError || !isLong || isExpanded);
-
-                        return (
-                          <div key={tc.id} className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs">
-                            <div className="flex items-center gap-2">
-                              <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300">{toolLabel(tc.name)}</span>
-                              <span className="truncate font-medium text-slate-100">{formatToolSummary(tc.name, tc.input)}</span>
-                            </div>
-                            {result ? (
-                              <div className={`mt-2 border-t pt-2 ${result.isError ? "border-red-500/20" : "border-emerald-500/10"}`}>
-                                {showExpanded ? (
-                                  <div className={result.isError ? "text-red-300" : "text-slate-400"}>
-                                    {result.isError ? "❌ " : "✅ "}{result.result}
-                                    {isLong && !result.isError ? (
-                                      <button onClick={() => {
-                                        setExpandedToolCalls(prev => {
-                                          const next = new Set(prev);
-                                          next.delete(tc.id);
-                                          return next;
-                                        });
-                                      }} className="ml-1 text-emerald-400 hover:text-emerald-300">收起</button>
-                                    ) : null}
-                                  </div>
-                                ) : (
-                                  <div className="text-slate-400">
-                                    {result.result.slice(0, 80)}...
-                                    <button onClick={() => {
-                                      setExpandedToolCalls(prev => new Set([...prev, tc.id]));
-                                    }} className="ml-1 text-emerald-400 hover:text-emerald-300">展开</button>
-                                  </div>
-                                )}
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                  {message.role === "user" && message.toolResults.length ? (
-                    <div className="space-y-1 border-t border-white/10 pt-3">
-                      {message.toolResults.map((tr) => (
-                        <div key={tr.toolCallId} className={`text-xs ${tr.isError ? "text-red-300" : "text-emerald-300"}`}>
-                          {tr.isError ? "❌ " : "✅ "}{tr.result}
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  {message.artifactSuggestions.length ? (
-                    <div className="space-y-2 border-t border-white/10 pt-3">
-                      {message.artifactSuggestions.map((suggestion) => {
-                        const saved = suggestion.adoption?.status === "saved";
-
-                        return (
-                          <div key={suggestion.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-slate-300">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <div className="font-medium text-slate-100">{suggestion.title}</div>
-                                <div className="mt-1 text-slate-500">{suggestion.type === "note" ? "笔记草稿" : suggestion.type === "todo" ? "任务草稿" : "Prompt 草稿"}</div>
-                              </div>
-                              {saved ? <span className="shrink-0 rounded-md border border-white/10 px-2 py-1 text-[11px] text-emerald-300">已保存</span> : null}
-                            </div>
-                            {saved ? <div className="mt-2 text-[11px] text-emerald-300">已保存到 {formatSuggestionTargetLabel(suggestion.type)}</div> : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
+            {visibleMessages.map((message) => (
+              <ChatMessageBubble
+                key={message.id}
+                message={message}
+                draft={draft}
+                editingMessageId={editingMessageId}
+                textareaRef={textareaRef}
+                expandedToolCalls={expandedToolCalls}
+                setExpandedToolCalls={setExpandedToolCalls}
+                streamingChatId={streamingChatId}
+                onDraftChange={onDraftChange}
+                onCancelEditMessage={onCancelEditMessage}
+                onConfirmTool={onConfirmTool}
+                onStartEditMessage={onStartEditMessage}
+              />
             ))}
-            {streamingChatId && selectedChat?.id === streamingChatId ? (
+            {isStreaming ? (
               <div className="flex justify-start">
                 <div className="w-full space-y-3 rounded-2xl px-4 py-3 text-sm text-slate-200">
-                  {streamingBlocks.length === 0 ? (
-                    <div className="text-slate-500">...</div>
-                  ) : (
-                    streamingBlocks.map((block, idx) => {
-                      if (block.type === "text") {
-                        return <MarkdownContent key={`text-${idx}`} content={block.text} />;
-                      }
-                      const tc = block.toolCall;
-                      const result = block.result;
-                      const isExecuted = tc.status === "executed" || tc.status === "approved";
-                      const isExpanded = expandedToolCalls.has(tc.id);
-                      const isLong = result && result.result.length > 80;
-                      const showExpanded = result && (result.isError || !isLong || isExpanded);
-
-                      return (
-                        <div key={tc.id} className={`rounded-xl border p-3 text-xs ${tc.status === "pending_confirmation" ? "border-amber-500/30 bg-amber-500/10" : tc.status === "rejected" ? "border-red-500/20 bg-red-500/5" : "border-emerald-500/20 bg-emerald-500/5"}`}>
-                          <div className="flex items-center gap-2">
-                            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${tc.status === "pending_confirmation" ? "bg-amber-500/15 text-amber-300" : tc.status === "rejected" ? "bg-red-500/15 text-red-300" : "bg-emerald-500/15 text-emerald-300"}`}>
-                              {toolLabel(tc.name)}
-                            </span>
-                            <span className="truncate font-medium text-slate-100">
-                              {formatToolSummary(tc.name, tc.input)}
-                            </span>
-                            {tc.status === "pending_confirmation" ? (
-                              <span className="ml-auto shrink-0 text-[11px] text-amber-400">等待确认</span>
-                            ) : tc.status === "rejected" ? (
-                              <span className="ml-auto shrink-0 text-[11px] text-red-400">已拒绝</span>
-                            ) : null}
-                          </div>
-                          {tc.status === "pending_confirmation" ? (
-                            <div className="mt-2 flex gap-2">
-                              <button
-                                onClick={() => onConfirmTool(tc.id, true)}
-                                className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/20"
-                              >
-                                执行
-                              </button>
-                              <button
-                                onClick={() => onConfirmTool(tc.id, false)}
-                                className="rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-[11px] text-red-300 hover:bg-red-500/20"
-                              >
-                                拒绝
-                              </button>
-                            </div>
-                          ) : null}
-                          {isExecuted && result ? (
-                            <div className={`mt-2 border-t pt-2 ${result.isError ? "border-red-500/20" : "border-emerald-500/10"}`}>
-                              {showExpanded ? (
-                                <div className={result.isError ? "text-red-300" : "text-slate-400"}>
-                                  {result.isError ? "❌ " : "✅ "}{result.result}
-                                  {isLong && !result.isError ? (
-                                    <button onClick={() => {
-                                      setExpandedToolCalls(prev => {
-                                        const next = new Set(prev);
-                                        next.delete(tc.id);
-                                        return next;
-                                      });
-                                    }} className="ml-1 text-emerald-400 hover:text-emerald-300">收起</button>
-                                  ) : null}
-                                </div>
-                              ) : (
-                                <div className="text-slate-400">
-                                  {result.result.slice(0, 80)}...
-                                  <button onClick={() => {
-                                    setExpandedToolCalls(prev => new Set([...prev, tc.id]));
-                                  }} className="ml-1 text-emerald-400 hover:text-emerald-300">展开</button>
-                                </div>
-                              )}
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })
-                  )}
+                  {streamingBlocks.length === 0 ? <ChatStreamingPlaceholder /> : streamingBlocks.map((block, idx) => renderStreamingBlock(block, idx, expandedToolCalls, setExpandedToolCalls, onConfirmTool))}
                 </div>
               </div>
             ) : null}
@@ -3676,6 +3617,261 @@ function HomeChatWorkspace({
       </form>
     </section>
   );
+}
+
+function ChatMessageBubble({
+  message,
+  draft,
+  editingMessageId,
+  textareaRef,
+  expandedToolCalls,
+  setExpandedToolCalls,
+  streamingChatId,
+  onDraftChange,
+  onCancelEditMessage,
+  onConfirmTool,
+  onStartEditMessage
+}: {
+  message: ChatMessageSummary;
+  draft: string;
+  editingMessageId: string | null;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  expandedToolCalls: Set<string>;
+  setExpandedToolCalls: React.Dispatch<React.SetStateAction<Set<string>>>;
+  streamingChatId: string | null;
+  onDraftChange: (value: string) => void;
+  onCancelEditMessage: () => void;
+  onConfirmTool: (toolCallId: string, approved: boolean) => void;
+  onStartEditMessage: (messageId: string, content: string) => void;
+}) {
+  return (
+    <div className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`space-y-3 rounded-2xl px-4 py-3 text-sm ${message.role === "user" ? "max-w-[82%] bg-slate-100 text-slate-950" : "w-full text-slate-200"} ${message.role === "user" && !streamingChatId ? "cursor-pointer" : ""}`}
+        onDoubleClick={message.role === "user" && !streamingChatId ? () => onStartEditMessage(message.id, message.content) : undefined}
+      >
+        {editingMessageId === message.id ? (
+          <div className="space-y-2">
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(event) => onDraftChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  const form = event.currentTarget.closest("form");
+                  if (form) form.requestSubmit();
+                } else if (event.key === "Escape") {
+                  onCancelEditMessage();
+                }
+              }}
+              className="w-full resize-none rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm text-slate-950 outline-none"
+              rows={3}
+              autoFocus
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button type="button" onClick={onCancelEditMessage} className="rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-200">
+                取消
+              </button>
+              <span className="text-[11px] text-slate-400">Enter 发送 · Shift+Enter 换行 · Esc 取消</span>
+            </div>
+          </div>
+        ) : message.content.startsWith("::chat-error::") ? (
+          <ChatErrorBubble payload={message.content.slice("::chat-error::".length)} />
+        ) : (
+          <MarkdownContent content={message.content} />
+        )}
+        {message.attachments.length ? (
+          <div className="space-y-2 border-t border-white/10 pt-3 text-xs text-slate-400">
+            {message.attachments.map((attachment) => (
+              <div key={`${message.id}-${attachment.name}`} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                <div className="truncate font-medium text-slate-200">{attachment.name}</div>
+                <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                  <span>{attachment.mimeType}</span>
+                  <span>{formatFileSize(attachment.size)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {message.toolCalls.length ? (
+          <div className="space-y-2 border-t border-white/10 pt-3">
+            {message.toolCalls.map((tc) => renderToolCallBlock(tc, message.toolResults.find((tr) => tr.toolCallId === tc.id), expandedToolCalls, setExpandedToolCalls, onConfirmTool))}
+          </div>
+        ) : null}
+        {message.role === "user" && message.toolResults.length ? (
+          <div className="space-y-1 border-t border-white/10 pt-3">
+            {message.toolResults.map((tr) => (
+              <div key={tr.toolCallId} className={`text-xs ${tr.isError ? "text-red-300" : "text-emerald-300"}`}>
+                {tr.isError ? "❌ " : "✅ "}{tr.result}
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {message.artifactSuggestions.length ? (
+          <div className="space-y-2 border-t border-white/10 pt-3">
+            {message.artifactSuggestions.map((suggestion) => {
+              const saved = suggestion.adoption?.status === "saved";
+
+              return (
+                <div key={suggestion.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-slate-300">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium text-slate-100">{suggestion.title}</div>
+                      <div className="mt-1 text-slate-500">{suggestion.type === "note" ? "笔记草稿" : suggestion.type === "todo" ? "任务草稿" : "Prompt 草稿"}</div>
+                    </div>
+                    {saved ? <span className="shrink-0 rounded-md border border-white/10 px-2 py-1 text-[11px] text-emerald-300">已保存</span> : null}
+                  </div>
+                  {saved ? <div className="mt-2 text-[11px] text-emerald-300">已保存到 {formatSuggestionTargetLabel(suggestion.type)}</div> : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ChatErrorBubble({ payload }: { payload: string }) {
+  let parsed: { summary?: string; raw?: string } | null = null;
+
+  try {
+    parsed = JSON.parse(payload) as { summary?: string; raw?: string };
+  } catch {
+    parsed = null;
+  }
+
+  const raw = parsed?.raw || payload || "流式响应出错";
+
+  return (
+    <div className="flex items-start gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-100">
+      <span className="mt-0.5 text-red-300" aria-hidden="true">!</span>
+      <div className="min-w-0 whitespace-pre-wrap break-all text-xs leading-relaxed text-red-100/90">{raw}</div>
+    </div>
+  );
+}
+
+function renderStreamingBlock(
+  block: StreamingBlock,
+  idx: number,
+  expandedToolCalls: Set<string>,
+  setExpandedToolCalls: React.Dispatch<React.SetStateAction<Set<string>>>,
+  onConfirmTool: (toolCallId: string, approved: boolean) => void
+) {
+  if (block.type === "text") {
+    return <MarkdownContent key={`text-${idx}`} content={block.text} />;
+  }
+
+  return renderToolCallBlock(block.toolCall, block.result, expandedToolCalls, setExpandedToolCalls, onConfirmTool);
+}
+
+function renderToolCallBlock(
+  tc: ChatToolCall,
+  result: ChatToolResult | undefined,
+  expandedToolCalls: Set<string>,
+  setExpandedToolCalls: React.Dispatch<React.SetStateAction<Set<string>>>,
+  onConfirmTool: (toolCallId: string, approved: boolean) => void
+) {
+  const isExecuted = tc.status === "executed" || tc.status === "approved";
+  const isExpanded = expandedToolCalls.has(tc.id);
+  const isLong = result && result.result.length > 80;
+  const showExpanded = result && (result.isError || !isLong || isExpanded);
+
+  return (
+    <div key={tc.id} className={`rounded-xl border p-3 text-xs ${tc.status === "pending_confirmation" ? "border-amber-500/30 bg-amber-500/10" : tc.status === "rejected" ? "border-red-500/20 bg-red-500/5" : "border-emerald-500/20 bg-emerald-500/5"}`}>
+      <div className="flex items-center gap-2">
+        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${tc.status === "pending_confirmation" ? "bg-amber-500/15 text-amber-300" : tc.status === "rejected" ? "bg-red-500/15 text-red-300" : "bg-emerald-500/15 text-emerald-300"}`}>
+          {toolLabel(tc.name)}
+        </span>
+        <span className="truncate font-medium text-slate-100">{formatToolSummary(tc.name, tc.input)}</span>
+        {tc.status === "pending_confirmation" ? <span className="ml-auto shrink-0 text-[11px] text-amber-400">等待确认</span> : tc.status === "rejected" ? <span className="ml-auto shrink-0 text-[11px] text-red-400">已拒绝</span> : null}
+      </div>
+      {tc.status === "pending_confirmation" ? (
+        <div className="mt-2 flex gap-2">
+          <button onClick={() => onConfirmTool(tc.id, true)} className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/20">
+            执行
+          </button>
+          <button onClick={() => onConfirmTool(tc.id, false)} className="rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-[11px] text-red-300 hover:bg-red-500/20">
+            拒绝
+          </button>
+        </div>
+      ) : null}
+      {isExecuted && result ? (
+        <div className={`mt-2 border-t pt-2 ${result.isError ? "border-red-500/20" : "border-emerald-500/10"}`}>
+          {showExpanded ? (
+            <div className={result.isError ? "text-red-300" : "text-slate-400"}>
+              {result.isError ? "❌ " : "✅ "}{result.result}
+              {isLong && !result.isError ? (
+                <button onClick={() => {
+                  setExpandedToolCalls((prev) => {
+                    const next = new Set(prev);
+                    next.delete(tc.id);
+                    return next;
+                  });
+                }} className="ml-1 text-emerald-400 hover:text-emerald-300">收起</button>
+              ) : null}
+            </div>
+          ) : (
+            <div className="text-slate-400">
+              {result.result.slice(0, 80)}...
+              <button onClick={() => setExpandedToolCalls((prev) => new Set([...prev, tc.id]))} className="ml-1 text-emerald-400 hover:text-emerald-300">展开</button>
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ChatStreamingPlaceholder() {
+  return (
+    <div className="space-y-2 animate-in fade-in text-slate-400">
+      <div className="flex gap-1.5">
+        <span className="h-2 w-2 rounded-full bg-slate-500 animate-pulse [animation-delay:0ms]" />
+        <span className="h-2 w-2 rounded-full bg-slate-500 animate-pulse [animation-delay:150ms]" />
+        <span className="h-2 w-2 rounded-full bg-slate-500 animate-pulse [animation-delay:300ms]" />
+      </div>
+      <div className="space-y-2">
+        <div className="h-3 w-32 rounded-full bg-white/8 animate-pulse" />
+        <div className="h-3 w-56 rounded-full bg-white/8 animate-pulse [animation-delay:150ms]" />
+      </div>
+    </div>
+  );
+}
+
+function buildVisibleChatMessages(session: ChatSessionSummary, pendingMessages: ChatStreamPendingMessage[]): ChatMessageSummary[] {
+  const pendingSummaries = pendingMessages.map((message) => ({
+    id: message.id,
+    chatSessionId: message.chatSessionId,
+    role: message.role,
+    content: message.content,
+    attachments: message.attachments,
+    artifactSuggestions: [],
+    toolCalls: [],
+    toolResults: [],
+    createdAt: message.createdAt
+  } satisfies ChatMessageSummary));
+
+  return [...session.messages, ...pendingSummaries].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+function upsertChatMessage(messages: ChatMessageSummary[], nextMessage: ChatMessageSummary) {
+  const existingIndex = messages.findIndex((message) => message.id === nextMessage.id);
+  if (existingIndex >= 0) {
+    return messages.map((message, index) => index === existingIndex ? nextMessage : message);
+  }
+
+  return [...messages, nextMessage].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+function deriveChatSessionTitle(currentTitle: string, content: string, attachments: ChatAttachment[]) {
+  if (currentTitle !== "新聊天") {
+    return currentTitle;
+  }
+
+  const candidate = content || attachments[0]?.name || "新聊天";
+  return candidate.trim().slice(0, 40) || "新聊天";
 }
 
 const workbenchTabs: Array<{ id: WorkbenchTab; label: string }> = [
@@ -6879,6 +7075,22 @@ function formatToolSummary(name: string, input: Record<string, unknown>) {
 
 function formatError(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+function formatChatStreamError(rawMessage: string) {
+  const raw = rawMessage || "流式响应出错";
+
+  if (raw.startsWith("400 ")) {
+    return {
+      summary: raw,
+      raw
+    };
+  }
+
+  return {
+    summary: raw,
+    raw
+  };
 }
 
 function formatTodoTime(todo: TodoSummary) {
