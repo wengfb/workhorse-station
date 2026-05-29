@@ -1696,6 +1696,9 @@ export function App() {
     setTodosError(null);
 
     try {
+      if (newStatus === "completed" && !todoStatuses.includes("completed")) {
+        setTodoStatuses([...todoStatuses, "completed"]);
+      }
       await updateTodo(selectedProject.id, todo.id, { status: newStatus });
       await projectTodosList.refresh(todo.id);
     } catch (error) {
@@ -5925,7 +5928,7 @@ function TodoPanel({
                         <option key={opt.value} value={opt.value} className="bg-[#1a1d28] text-slate-200">{opt.label}</option>
                       ))}
                     </select>
-                    <span className="text-[11px] text-slate-500">{formatDateTime(todo.updatedAt)}</span>
+                    <span className="text-[11px] text-slate-500">{formatTodoTime(todo)}</span>
                   </div>
                   <div
                     role="button"
@@ -6063,6 +6066,12 @@ function TodoPanel({
               />
             </Field>
             {linkedNote ? <p className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">当前关联笔记：{linkedNote.title}</p> : null}
+            {selectedTodo ? (
+              <div className="flex flex-wrap gap-3 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">
+                <span>创建于：{formatDateTime(selectedTodo.createdAt)}</span>
+                <span>{selectedTodo.status === "completed" ? "完成于" : "更新于"}：{formatDateTime((selectedTodo.status === "completed" ? selectedTodo.completedAt : selectedTodo.updatedAt) ?? selectedTodo.updatedAt)}</span>
+              </div>
+            ) : null}
             {selectedTodo?.latestSessionResult ? (
               <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs text-emerald-50">
                 <div className="font-medium text-emerald-100">最新会话结果</div>
@@ -6696,6 +6705,12 @@ function formatToolSummary(name: string, input: Record<string, unknown>) {
 
 function formatError(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+function formatTodoTime(todo: TodoSummary) {
+  const label = todo.status === "completed" ? "完成于" : "更新于";
+  const value = todo.status === "completed" ? todo.completedAt ?? todo.updatedAt : todo.updatedAt;
+  return `${label} ${formatDateTime(value)}`;
 }
 
 function formatDateTime(value: string) {

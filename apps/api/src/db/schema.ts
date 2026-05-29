@@ -48,10 +48,12 @@ export const schemaStatements = [
     tags TEXT NOT NULL,
     latest_session_result TEXT NULL,
     source_chat_suggestion_json TEXT NULL,
+    completed_at DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_todos_project_id (project_id),
     KEY idx_todos_source_note_id (source_note_id),
+    KEY idx_todos_completed_at (completed_at),
     CONSTRAINT fk_todos_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
     CONSTRAINT fk_todos_source_note FOREIGN KEY (source_note_id) REFERENCES notes(id) ON DELETE SET NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,

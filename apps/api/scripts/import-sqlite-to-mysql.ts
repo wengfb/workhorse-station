@@ -32,6 +32,7 @@ const TABLES: TableSpec[] = [
       "status",
       "tags",
       "latest_session_result",
+      "completed_at",
       "created_at",
       "updated_at",
       "source_chat_suggestion_json"

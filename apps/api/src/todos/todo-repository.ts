@@ -13,6 +13,7 @@ type TodoRow = {
   tags: string;
   latest_session_result: string | null;
   source_chat_suggestion_json: string | null;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -26,7 +27,7 @@ export type TodoWriteInput = Required<Pick<CreateTodoRequest, "title" | "status"
   sourceChatSuggestion: ChatArtifactSourceRef | null;
 };
 
-const TODO_SELECT = `SELECT id, project_id, source_note_id, title, description, status, tags, latest_session_result, source_chat_suggestion_json, created_at, updated_at
+const TODO_SELECT = `SELECT id, project_id, source_note_id, title, description, status, tags, latest_session_result, source_chat_suggestion_json, completed_at, created_at, updated_at
      FROM todos`;
 
 export async function listTodos(db: DatabaseExecutor, projectId: string, opts?: { page?: number; pageSize?: number; search?: string; tags?: string[]; statuses?: TodoStatus[] }) {
@@ -79,7 +80,7 @@ function buildWhere(projectId: string, opts?: { search?: string; tags?: string[]
 export async function getProjectTodo(db: DatabaseExecutor, projectId: string, todoId: string) {
   return selectOne(
     db,
-    `SELECT id, project_id, source_note_id, title, description, status, tags, latest_session_result, source_chat_suggestion_json, created_at, updated_at
+    `SELECT id, project_id, source_note_id, title, description, status, tags, latest_session_result, source_chat_suggestion_json, completed_at, created_at, updated_at
      FROM todos
      WHERE project_id = ? AND id = ?`,
     [projectId, todoId]
@@ -90,9 +91,19 @@ export async function createTodo(db: DatabaseExecutor, input: TodoWriteInput) {
   const id = input.id ?? randomUUID();
   await execute(
     db,
-    `INSERT INTO todos (id, project_id, source_note_id, title, description, status, tags, latest_session_result, source_chat_suggestion_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-    [id, input.projectId, input.sourceNoteId, input.title, input.description, input.status, JSON.stringify(input.tags), serializeSourceChatSuggestion(input.sourceChatSuggestion)]
+    `INSERT INTO todos (id, project_id, source_note_id, title, description, status, tags, latest_session_result, source_chat_suggestion_json, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+    [
+      id,
+      input.projectId,
+      input.sourceNoteId,
+      input.title,
+      input.description,
+      input.status,
+      JSON.stringify(input.tags),
+      serializeSourceChatSuggestion(input.sourceChatSuggestion),
+      input.status === "completed" ? currentTimestamp() : null
+    ]
   );
 
   const todo = await getProjectTodo(db, input.projectId, id);
@@ -117,12 +128,25 @@ export async function updateTodoLatestSessionResult(db: DatabaseExecutor, projec
 }
 
 export async function updateTodo(db: DatabaseExecutor, projectId: string, todoId: string, input: TodoWriteInput) {
+  const currentTodo = await getProjectTodo(db, projectId, todoId);
+
+  if (!currentTodo) {
+    return null;
+  }
+
+  const nextCompletedAt =
+    input.status === "completed"
+      ? currentTodo.status === "completed"
+        ? currentTodo.completedAt
+        : currentTimestamp()
+      : null;
+
   await execute(
     db,
     `UPDATE todos
-     SET source_note_id = ?, title = ?, description = ?, status = ?, tags = ?, updated_at = CURRENT_TIMESTAMP
+     SET source_note_id = ?, title = ?, description = ?, status = ?, tags = ?, completed_at = ?, updated_at = CURRENT_TIMESTAMP
      WHERE project_id = ? AND id = ?`,
-    [input.sourceNoteId, input.title, input.description, input.status, JSON.stringify(input.tags), projectId, todoId]
+    [input.sourceNoteId, input.title, input.description, input.status, JSON.stringify(input.tags), nextCompletedAt, projectId, todoId]
   );
 
   return getProjectTodo(db, projectId, todoId);
@@ -153,6 +177,7 @@ function mapTodoRow(row: TodoRow): TodoSummary {
     tags: parseTags(row.tags),
     latestSessionResult: parseLatestSessionResult(row.latest_session_result),
     sourceChatSuggestion: parseSourceChatSuggestion(row.source_chat_suggestion_json),
+    completedAt: row.completed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -195,4 +220,8 @@ function parseSourceChatSuggestion(raw: string | null): ChatArtifactSourceRef | 
   } catch {
     return null;
   }
+}
+
+function currentTimestamp() {
+  return new Date().toISOString().slice(0, 19).replace("T", " ");
 }

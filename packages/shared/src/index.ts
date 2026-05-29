@@ -307,6 +307,7 @@ export type TodoSummary = {
   tags: string[];
   latestSessionResult: SessionResultSummary | null;
   sourceChatSuggestion: ChatArtifactSourceRef | null;
+  completedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };

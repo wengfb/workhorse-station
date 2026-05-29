@@ -100,6 +100,40 @@ async function ensureSchema(pool: Pool) {
   for (const statement of schemaStatements) {
     await pool.query(statement);
   }
+
+  if (!(await hasColumn(pool, "todos", "completed_at"))) {
+    await pool.query("ALTER TABLE todos ADD COLUMN completed_at DATETIME NULL AFTER source_chat_suggestion_json");
+  }
+
+  if (!(await hasIndex(pool, "todos", "idx_todos_completed_at"))) {
+    await pool.query("ALTER TABLE todos ADD INDEX idx_todos_completed_at (completed_at)");
+  }
+
+  await pool.query(`
+    UPDATE todos
+    SET completed_at = updated_at
+    WHERE status = 'completed' AND completed_at IS NULL
+  `);
+}
+
+async function hasColumn(pool: Pool, tableName: string, columnName: string) {
+  const [rows] = await pool.query<[{ count: number }] & mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) AS count
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`,
+    [tableName, columnName]
+  );
+  return Number(rows[0]?.count ?? 0) > 0;
+}
+
+async function hasIndex(pool: Pool, tableName: string, indexName: string) {
+  const [rows] = await pool.query<[{ count: number }] & mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) AS count
+     FROM information_schema.statistics
+     WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?`,
+    [tableName, indexName]
+  );
+  return Number(rows[0]?.count ?? 0) > 0;
 }
 
 function quoteIdentifier(value: string) {

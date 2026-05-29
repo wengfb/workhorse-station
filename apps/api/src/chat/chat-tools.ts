@@ -275,7 +275,9 @@ export async function executeChatTool(db: DatabaseExecutor, name: string, input:
         const lines = todos.map((t) => {
           const statusLabel = { draft: "草稿", pending: "待开始", in_progress: "进行中", completed: "已完成" }[t.status];
           const tags = t.tags.length ? ` [${t.tags.join(", ")}]` : "";
-          return `- [${statusLabel}] ${t.title}${tags}`;
+          const time = t.status === "completed" ? t.completedAt : t.updatedAt;
+          const timeLabel = t.status === "completed" ? "完成于" : "更新于";
+          return `- [${statusLabel}] ${t.title}${tags} (${timeLabel}${time ?? "-"})`;
         });
 
         return { result: `共 ${todos.length} 条任务：\n${lines.join("\n")}`, isError: false };
