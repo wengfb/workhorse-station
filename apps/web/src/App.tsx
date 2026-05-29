@@ -136,6 +136,13 @@ import {
 } from "./api";
 import { SessionModal as SessionModalPanel, CreateSessionModal, SessionsWorkspace as SessionsWorkspacePanel, type SessionEditorDraft } from "./session-ui";
 
+type ApiState = {
+  health: HealthResponse | null;
+  meta: MetaResponse | null;
+  loading: boolean;
+  error: string | null;
+};
+
 type SkillDocumentEditorState = {
   open: boolean;
   title: string;
@@ -1245,6 +1252,9 @@ export function App() {
       setSkillOperationName(null);
     }
   }
+
+  async function handleCreateGlobalSkill() {
+    const name = await prompt("请输入全局 Skill 文件夹名");
 
     if (!name) {
       return;
@@ -3131,7 +3141,8 @@ function HomeWorkspace({
   onCreateGlobalSkill: () => void;
   onRenameGlobalSkill: (skill: SkillSummary) => void;
   onDeleteGlobalSkill: (skill: SkillSummary) => void;
-  onEditDocument: (skill: SkillSummary) => void;
+  onCopyGlobalSkillToProject: (skill: SkillSummary) => void;
+  onEditGlobalSkillDocument: (skill: SkillSummary) => void;
   storeSkills: StoreSkillStatus[];
   storeSkillsLoading: boolean;
   storeSkillsError: string | null;
@@ -3139,6 +3150,7 @@ function HomeWorkspace({
   onCreateStoreSkill: (name: string, description: string) => void;
   onRenameStoreSkill: (skill: StoreSkillStatus) => void;
   onDeleteStoreSkill: (skill: StoreSkillStatus) => void;
+  onInstallStoreSkill: (skill: StoreSkillStatus, target: "claude-code" | "chat") => void;
   onEditStoreSkillDocument: (skill: StoreSkillStatus) => void;
   chatSkills: ChatSkill[];
   chatSkillsLoading: boolean;
@@ -3723,6 +3735,7 @@ function HomeOverviewWorkspace({
   onRenameStoreSkill,
   onDeleteStoreSkill,
   onInstallStoreSkill,
+  onSendStoreSkillToProject,
   onEditStoreSkillDocument,
   chatSkillsData = [],
   chatSkillsLoadingData = false,
@@ -3787,6 +3800,7 @@ function HomeOverviewWorkspace({
   onRenameStoreSkill?: (skill: StoreSkillStatus) => void;
   onDeleteStoreSkill?: (skill: StoreSkillStatus) => void;
   onInstallStoreSkill?: (skill: StoreSkillStatus, target: "claude-code" | "chat") => void;
+  onSendStoreSkillToProject?: (skill: StoreSkillStatus) => void;
   onEditStoreSkillDocument: (skill: StoreSkillStatus) => void;
   chatSkillsData?: ChatSkill[];
   chatSkillsLoadingData?: boolean;
@@ -3901,7 +3915,7 @@ function HomeOverviewWorkspace({
           onRename={onRenameSkill}
           onDelete={onDeleteSkill}
           onCopyToProject={onCopyToProject}
-          onEditDocument={handleEditGlobalSkillDocument}
+          onEditDocument={onEditDocument}
           onRefresh={onRefreshGlobalSkills ?? (() => {})}
         />
       ) : activeTab === "skill-store" ? (
@@ -3914,7 +3928,7 @@ function HomeOverviewWorkspace({
           onRename={onRenameStoreSkill ?? (() => undefined)}
           onDelete={onDeleteStoreSkill ?? (() => undefined)}
           onInstall={onInstallStoreSkill ?? (() => undefined)}
-          onSendToProject={handleSendStoreSkillToProject}
+          onSendToProject={onSendStoreSkillToProject ?? (() => undefined)}
           onEditDocument={onEditStoreSkillDocument ?? (() => undefined)}
           onRefreshStore={onRefreshStoreSkills ?? (() => {})}
           chatSkills={chatSkillsData}
@@ -4109,6 +4123,7 @@ function ProjectWorkspacePage({
   onRenameProjectSkill,
   onDeleteProjectSkill,
   onCopyProjectSkillToGlobal,
+  onAddProjectSkillToStore,
   onEditProjectSkillDocument,
   onOpenSession,
   onOpenWorkspaceTerminal,
@@ -4371,6 +4386,7 @@ function ProjectWorkspacePage({
           onRename={onRenameProjectSkill}
           onDelete={onDeleteProjectSkill}
           onCopyToGlobal={onCopyProjectSkillToGlobal}
+          onAddProjectSkillToStore={onAddProjectSkillToStore}
           onEditDocument={onEditProjectSkillDocument}
           onRefresh={onRefreshProjectSkills ?? (() => {})}
         />
@@ -4804,6 +4820,7 @@ function ProjectSkillPanel({
   onRename,
   onDelete,
   onCopyToGlobal,
+  onAddProjectSkillToStore,
   onEditDocument,
   onRefresh
 }: {
@@ -4818,6 +4835,7 @@ function ProjectSkillPanel({
   onRename: (skill: ProjectSkillSummary) => void;
   onDelete: (skill: ProjectSkillSummary) => void;
   onCopyToGlobal: (skill: ProjectSkillSummary) => void;
+  onAddProjectSkillToStore: (skill: ProjectSkillSummary) => void;
   onEditDocument: (skill: ProjectSkillSummary) => void;
   onRefresh: () => void;
 }) {
@@ -4905,9 +4923,6 @@ function ProjectSkillPanel({
               </button>
               <button disabled={operationName === selectedSkill.name} onClick={() => onEditDocument(selectedSkill)} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200 disabled:opacity-50">
                 编辑文档
-              </button>
-              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onAddProjectSkillToStore(selectedSkill)} className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100 disabled:opacity-50">
-                添加到技能仓库
               </button>
               <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onAddProjectSkillToStore(selectedSkill)} className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100 disabled:opacity-50">
                 添加到技能仓库
