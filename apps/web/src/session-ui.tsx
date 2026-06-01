@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type {
   ExecutionListItem,
   ProjectSummary,
   PromptDraftSummary,
-  SessionSource,
   SessionHistoryMessage,
+  SessionRuntimeStatus,
+  SessionSource,
   SessionStatus,
   SessionStreamEvent,
   SessionSummary,
@@ -13,8 +14,14 @@ import type {
   WorkspaceTerminalStreamEvent,
   WorkspaceTerminalSummary
 } from "@workhorse-station/shared";
-import { getSessionHistory } from "./api";
-import { SessionTerminal } from "./session-terminal";
+import {
+  createSessionWebSocket,
+  createWorkspaceTerminalWebSocket,
+  getSessionHistory,
+  getSessionTerminal,
+  getWorkspaceTerminal
+} from "./api";
+import { PtyTerminal, type PtyTerminalSnapshot } from "./pty-terminal";
 import { WorkspaceTerminal } from "./workspace-terminal";
 import { Select } from "./components/ui/Select";
 
@@ -33,6 +40,16 @@ export type SessionEditorDraft = {
 type ExecutionKindFilter = "all" | ExecutionListItem["kind"];
 type ExecutionStatusFilter = "all" | "active" | "stopped" | "failed";
 type SessionView = "terminal" | "history";
+type ExecutionTerminalCache = Record<string, PtyTerminalSnapshot>;
+
+type SessionModalTerminalSource = {
+  executionKey: string;
+  runtimeStatus: SessionRuntimeStatus | null;
+  loadSnapshot: () => Promise<PtyTerminalSnapshot>;
+  createSocket: () => WebSocket;
+  onSessionRuntimeEvent?: (event: SessionStreamEvent) => void;
+  onWorkspaceTerminalRuntimeEvent?: (event: WorkspaceTerminalStreamEvent) => void;
+} | null;
 
 export function SessionsWorkspace({
   selectedProject,
@@ -338,6 +355,7 @@ export function ExecutionModalFrame({
 export function SessionModal({
   executionItems,
   selectedExecution,
+  executionTerminalCache,
   sessions,
   selectedSession,
   selectedProject,
@@ -363,6 +381,7 @@ export function SessionModal({
   onDeleteWorkspaceTerminal,
   onContinueSession,
   onRuntimeEvent,
+  onBufferChange,
   onRestartWorkspaceTerminal,
   onStopWorkspaceTerminal,
   onWorkspaceTerminalRuntimeEvent,
@@ -370,6 +389,7 @@ export function SessionModal({
 }: {
   executionItems: ExecutionListItem[];
   selectedExecution: ExecutionListItem | null;
+  executionTerminalCache: ExecutionTerminalCache;
   sessions: SessionSummary[];
   selectedSession: SessionSummary | null;
   selectedProject: ProjectSummary | null;
@@ -395,6 +415,7 @@ export function SessionModal({
   onDeleteWorkspaceTerminal: (execution: Extract<ExecutionListItem, { kind: "workspace-terminal" }>) => void;
   onContinueSession: (session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) => void;
   onRuntimeEvent: (event: SessionStreamEvent) => void;
+  onBufferChange: (execution: ExecutionListItem | null, snapshot: PtyTerminalSnapshot) => void;
   onRestartWorkspaceTerminal: () => void;
   onStopWorkspaceTerminal: () => void;
   onWorkspaceTerminalRuntimeEvent: (event: WorkspaceTerminalStreamEvent) => void;
@@ -478,6 +499,49 @@ export function SessionModal({
       return haystack.includes(normalizedQuery);
     });
   }, [executionItems, kindFilter, projectFilter, searchQuery, sessions, statusFilter, todos, worktrees]);
+
+  const selectedExecutionKey = selectedExecution ? `${selectedExecution.kind}:${selectedExecution.id}` : null;
+  const selectedExecutionSnapshot = selectedExecutionKey ? executionTerminalCache[selectedExecutionKey] ?? null : null;
+
+  const terminalSource = useMemo<SessionModalTerminalSource>(() => {
+    if (!selectedExecution) {
+      return null;
+    }
+
+    if (selectedExecution.kind === "workspace-terminal" && workspaceTerminal) {
+      return {
+        executionKey: `workspace-terminal:${workspaceTerminal.id}`,
+        runtimeStatus: workspaceTerminal.runtimeStatus,
+        loadSnapshot: () => getWorkspaceTerminal(workspaceTerminal.id),
+        createSocket: () => createWorkspaceTerminalWebSocket(workspaceTerminal.id),
+        onWorkspaceTerminalRuntimeEvent
+      };
+    }
+
+    if (!selectedSession || !selectedProject) {
+      return null;
+    }
+
+    return {
+      executionKey: `session:${selectedSession.id}`,
+      runtimeStatus,
+      loadSnapshot: () => getSessionTerminal(selectedProject.id, selectedSession.id),
+      createSocket: () => createSessionWebSocket(selectedProject.id, selectedSession.id),
+      onSessionRuntimeEvent: onRuntimeEvent
+    };
+  }, [onRuntimeEvent, onWorkspaceTerminalRuntimeEvent, runtimeStatus, selectedExecution, selectedProject, selectedSession, workspaceTerminal]);
+
+  const handleTerminalRuntimeEvent = useCallback(
+    (event: SessionStreamEvent | WorkspaceTerminalStreamEvent) => {
+      if ("sessionId" in event) {
+        terminalSource?.onSessionRuntimeEvent?.(event);
+        return;
+      }
+
+      terminalSource?.onWorkspaceTerminalRuntimeEvent?.(event);
+    },
+    [terminalSource]
+  );
 
   return (
     <ExecutionModalFrame
@@ -664,13 +728,30 @@ export function SessionModal({
         </>
       }
       content={
-        isWorkspaceTerminalSelected && workspaceTerminal ? (
-          <>
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 p-3">
-              <div className="text-sm text-slate-300">普通终端</div>
-              <div className="flex items-center gap-2">
-                <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">{workspaceTerminal.runtimeStatus}</span>
-                {workspaceTerminal.runtimeStatus === "starting" || workspaceTerminal.runtimeStatus === "running" || workspaceTerminal.runtimeStatus === "stopping" ? (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 p-3">
+            <div className="flex items-center gap-2">
+              {isWorkspaceTerminalSelected ? (
+                <div className="text-sm text-slate-300">普通终端</div>
+              ) : (
+                [
+                  { id: "terminal", label: "操作终端" },
+                  { id: "history", label: "会话历史" }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setView(tab.id as SessionView)}
+                    className={`rounded-md px-3 py-1.5 text-sm ${view === tab.id ? "bg-white text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-slate-100"}`}
+                  >
+                    {tab.label}
+                  </button>
+                ))
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">{terminalSource?.runtimeStatus ?? runtimeStatus ?? workspaceTerminal?.runtimeStatus ?? "stopped"}</span>
+              {isWorkspaceTerminalSelected && workspaceTerminal ? (
+                workspaceTerminal.runtimeStatus === "starting" || workspaceTerminal.runtimeStatus === "running" || workspaceTerminal.runtimeStatus === "stopping" ? (
                   <button
                     onClick={onStopWorkspaceTerminal}
                     disabled={stoppingWorkspaceTerminal}
@@ -686,53 +767,33 @@ export function SessionModal({
                   >
                     {openingWorkspaceTerminal ? "打开中..." : "重新打开终端"}
                   </button>
-                )}
-              </div>
-            </div>
-            <div className="min-h-0 flex-1 p-3">
-              <WorkspaceTerminal
-                terminalId={workspaceTerminal.id}
-                runtimeStatus={workspaceTerminal.runtimeStatus}
-                onRuntimeEvent={onWorkspaceTerminalRuntimeEvent}
-                className="h-full min-h-[320px] w-full rounded-xl border border-white/10 bg-black"
-              />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 p-3">
-              <div className="flex items-center gap-2">
-                {[
-                  { id: "terminal", label: "操作终端" },
-                  { id: "history", label: "会话历史" }
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setView(tab.id as SessionView)}
-                    className={`rounded-md px-3 py-1.5 text-sm ${view === tab.id ? "bg-white text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-slate-100"}`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-              <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">{runtimeStatus ?? "stopped"}</span>
-            </div>
-            <div className="min-h-0 flex-1 p-3">
-              {view === "terminal" ? (
-                selectedSession && selectedProject ? (
-                  <SessionTerminal
-                    projectId={selectedProject.id}
-                    sessionId={selectedSession.id}
-                    runtimeStatus={runtimeStatus}
-                    onRuntimeEvent={onRuntimeEvent}
-                    className="h-full min-h-[320px] w-full rounded-xl border border-white/10 bg-black"
-                  />
-                ) : (
-                  <section className="flex h-full min-h-[320px] items-center justify-center rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">
-                    请先选择一个 Claude 会话。
-                  </section>
                 )
-              ) : selectedSession ? (
+              ) : null}
+            </div>
+          </div>
+          <div className="relative min-h-0 flex-1 p-3">
+            {terminalSource ? (
+              <div className={view === "history" && !isWorkspaceTerminalSelected ? "pointer-events-none invisible absolute inset-3" : "h-full"}>
+                <PtyTerminal<SessionStreamEvent | WorkspaceTerminalStreamEvent>
+                  sourceKey={terminalSource.executionKey}
+                  runtimeStatus={terminalSource.runtimeStatus}
+                  loadSnapshot={terminalSource.loadSnapshot}
+                  createSocket={terminalSource.createSocket}
+                  cachedSnapshot={selectedExecutionSnapshot}
+                  onBufferChange={(snapshot) => onBufferChange(selectedExecution, snapshot)}
+                  onRuntimeEvent={handleTerminalRuntimeEvent}
+                  className="h-full min-h-[320px] w-full rounded-xl border border-white/10 bg-black"
+                  visible={view === "terminal" || isWorkspaceTerminalSelected}
+                />
+              </div>
+            ) : (
+              <section className="flex h-full min-h-[320px] items-center justify-center rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">
+                请先选择一个 Claude 会话。
+              </section>
+            )}
+
+            {!isWorkspaceTerminalSelected && view === "history" ? (
+              selectedSession ? (
                 <section className="h-full min-h-[320px] overflow-auto rounded-xl border border-white/10 bg-black/30 p-4">
                   {historyLoading ? (
                     <div className="text-sm text-slate-400">会话历史加载中...</div>
@@ -763,10 +824,10 @@ export function SessionModal({
                 <section className="flex h-full min-h-[320px] items-center justify-center rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">
                   请先选择一个 Claude 会话。
                 </section>
-              )}
-            </div>
-          </>
-        )
+              )
+            ) : null}
+          </div>
+        </>
       }
     />
   );

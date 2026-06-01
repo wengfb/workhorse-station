@@ -1,16 +1,32 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { SessionRuntimeStatus } from "@workhorse-station/shared";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { Eraser, RefreshCw } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 
-type PtyTerminalProps<TEvent extends { output?: string }> = {
+type PtyTerminalEvent = {
+  output?: string;
+  runtimeStatus?: SessionRuntimeStatus | null;
+  cwd?: string | null;
+};
+
+export type PtyTerminalSnapshot = {
+  buffer: string;
   runtimeStatus: SessionRuntimeStatus | null;
-  loadSnapshot: () => Promise<{ buffer: string }>;
+  cwd: string | null;
+};
+
+type PtyTerminalProps<TEvent extends PtyTerminalEvent> = {
+  sourceKey: string;
+  runtimeStatus: SessionRuntimeStatus | null;
+  loadSnapshot: () => Promise<PtyTerminalSnapshot>;
   createSocket: () => WebSocket;
+  cachedSnapshot?: PtyTerminalSnapshot | null;
+  onBufferChange?: (snapshot: PtyTerminalSnapshot) => void;
   onRuntimeEvent?: (event: TEvent) => void;
   className?: string;
+  visible?: boolean;
 };
 
 const termTheme = {
@@ -18,6 +34,7 @@ const termTheme = {
 };
 
 const defaultContainerClassName = "h-[60vh] min-h-[320px] w-full rounded-xl border border-white/10 bg-black";
+const maxBufferedLength = 200_000;
 
 type TerminalControls = {
   clear: () => void;
@@ -109,42 +126,112 @@ function bindTerminalCopyShortcut(terminal: Terminal) {
   });
 }
 
-export function PtyTerminal<TEvent extends { output?: string }>({ runtimeStatus, loadSnapshot, createSocket, onRuntimeEvent, className }: PtyTerminalProps<TEvent>) {
-  const liveContainerRef = useRef<HTMLDivElement | null>(null);
-  const stoppedContainerRef = useRef<HTMLDivElement | null>(null);
-  const stoppedTerminalRef = useRef<Terminal | null>(null);
+function trimTerminalBuffer(buffer: string) {
+  return buffer.length > maxBufferedLength ? buffer.slice(-maxBufferedLength) : buffer;
+}
+
+export function PtyTerminal<TEvent extends PtyTerminalEvent>({
+  sourceKey,
+  runtimeStatus,
+  loadSnapshot,
+  createSocket,
+  cachedSnapshot,
+  onBufferChange,
+  onRuntimeEvent,
+  className,
+  visible = true
+}: PtyTerminalProps<TEvent>) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const terminalRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
   const controlsRef = useRef<TerminalControls | null>(null);
   const relayoutCleanupRef = useRef<(() => void) | null>(null);
-  const [snapshotBuffer, setSnapshotBuffer] = useState("");
-  const isLive = runtimeStatus === "starting" || runtimeStatus === "running" || runtimeStatus === "stopping";
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const inputDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const activeTokenRef = useRef(0);
+  const currentSnapshotRef = useRef<PtyTerminalSnapshot>({
+    buffer: "",
+    runtimeStatus: null,
+    cwd: null
+  });
   const containerClassName = className ?? defaultContainerClassName;
+  const isLive = runtimeStatus === "starting" || runtimeStatus === "running" || runtimeStatus === "stopping";
 
-  useEffect(() => {
-    let cancelled = false;
-
-    void loadSnapshot()
-      .then((snapshot) => {
-        if (!cancelled) {
-          setSnapshotBuffer(snapshot.buffer);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSnapshotBuffer("");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loadSnapshot]);
-
-  useEffect(() => {
-    if (isLive) {
+  const closeSocket = () => {
+    const socket = socketRef.current;
+    if (!socket) {
       return;
     }
 
-    const container = stoppedContainerRef.current;
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+    socket.close();
+    socketRef.current = null;
+  };
+
+  const fitTerminal = () => {
+    const terminal = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
+    const container = containerRef.current;
+    if (!terminal || !fitAddon || !container || !container.isConnected || container.clientWidth === 0 || container.clientHeight === 0) {
+      return;
+    }
+
+    try {
+      fitAddon.fit();
+      const cols = terminal.cols;
+      const rows = terminal.rows;
+      const socket = socketRef.current;
+      if (cols > 0 && rows > 0 && socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "resize", cols, rows }));
+      }
+    } catch {
+      // xterm can report transient layout errors while the modal is settling.
+    }
+  };
+
+  const getCellSize = () => {
+    const terminal = terminalRef.current;
+    const dims = (terminal as XtermWithPrivateCore | null)?._core?._renderService?.dimensions;
+    if (!dims?.css) {
+      return null;
+    }
+    return {
+      width: dims.css.cell.width,
+      height: dims.css.cell.height
+    };
+  };
+
+  const renderSnapshot = (snapshot: PtyTerminalSnapshot, showEmptyPlaceholder: boolean) => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    const normalizedSnapshot = {
+      buffer: trimTerminalBuffer(snapshot.buffer),
+      runtimeStatus: snapshot.runtimeStatus,
+      cwd: snapshot.cwd
+    };
+
+    currentSnapshotRef.current = normalizedSnapshot;
+    terminal.reset();
+
+    if (normalizedSnapshot.buffer) {
+      terminal.write(normalizedSnapshot.buffer);
+      return;
+    }
+
+    if (showEmptyPlaceholder) {
+      terminal.write("暂无终端输出");
+    }
+  };
+
+  useEffect(() => {
+    const container = containerRef.current;
     if (!container) {
       return;
     }
@@ -161,195 +248,196 @@ export function PtyTerminal<TEvent extends { output?: string }>({ runtimeStatus,
     terminal.loadAddon(fitAddon);
     terminal.open(container);
     bindTerminalCopyShortcut(terminal);
-    stoppedTerminalRef.current = terminal;
 
-    const fit = () => {
-      try {
-        fitAddon.fit();
-      } catch {
-        // transient layout error
-      }
-    };
-
-    const getCellSize = () => {
-      const dims = (terminal as XtermWithPrivateCore)._core?._renderService?.dimensions;
-      if (!dims?.css) {
-        return null;
-      }
-      return {
-        width: dims.css.cell.width,
-        height: dims.css.cell.height
-      };
-    };
-
+    terminalRef.current = terminal;
+    fitAddonRef.current = fitAddon;
     controlsRef.current = {
       clear: () => terminal.clear(),
       fit: () => {
+        const currentContainer = containerRef.current;
+        if (!currentContainer) {
+          return;
+        }
         relayoutCleanupRef.current?.();
-        relayoutCleanupRef.current = forceTerminalReflow(container, fit, getCellSize);
+        relayoutCleanupRef.current = forceTerminalReflow(currentContainer, fitTerminal, getCellSize);
       }
     };
 
-    fit();
-
-    const observer = new ResizeObserver(() => fit());
-    observer.observe(container);
-
-    return () => {
-      observer.disconnect();
-      relayoutCleanupRef.current?.();
-      relayoutCleanupRef.current = null;
-      stoppedTerminalRef.current = null;
-      controlsRef.current = null;
-      terminal.dispose();
-    };
-  }, [isLive]);
-
-  useEffect(() => {
-    if (isLive) {
-      return;
-    }
-
-    const terminal = stoppedTerminalRef.current;
-    if (!terminal) {
-      return;
-    }
-
-    terminal.reset();
-    terminal.write(snapshotBuffer || "暂无终端输出");
-  }, [isLive, snapshotBuffer]);
-
-  useEffect(() => {
-    if (!isLive) {
-      return;
-    }
-
-    const container = liveContainerRef.current;
-    if (!container) {
-      return;
-    }
-
-    const terminal = new Terminal({
-      cursorBlink: true,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-      fontSize: 14,
-      theme: termTheme
-    });
-    const fitAddon = new FitAddon();
-    let disposed = false;
-
-    terminal.loadAddon(fitAddon);
-    terminal.open(container);
-    bindTerminalCopyShortcut(terminal);
-
-    const ws = createSocket();
-
-    const fitTerminal = () => {
-      if (disposed || !container.isConnected || container.clientWidth === 0 || container.clientHeight === 0) {
+    inputDisposableRef.current = terminal.onData((data: string) => {
+      const socket = socketRef.current;
+      if (socket?.readyState !== WebSocket.OPEN || terminal.options.disableStdin) {
         return;
       }
+      socket.send(JSON.stringify({ type: "input", data }));
+    });
 
-      try {
-        fitAddon.fit();
-        const cols = terminal.cols;
-        const rows = terminal.rows;
-        if (cols > 0 && rows > 0 && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "resize", cols, rows }));
-        }
-      } catch {
-        // xterm can report transient layout errors while the modal is settling.
-      }
-    };
-
-    const getCellSize = () => {
-      const dims = (terminal as XtermWithPrivateCore)._core?._renderService?.dimensions;
-      if (!dims?.css) {
-        return null;
-      }
-      return {
-        width: dims.css.cell.width,
-        height: dims.css.cell.height
-      };
-    };
-
-    controlsRef.current = {
-      clear: () => terminal.clear(),
-      fit: () => {
-        relayoutCleanupRef.current?.();
-        relayoutCleanupRef.current = forceTerminalReflow(container, fitTerminal, getCellSize);
-      }
-    };
-
-    ws.onopen = () => {
-      fitTerminal();
-    };
-
-    ws.onerror = () => {
-      terminal.write("\r\n[WebSocket 连接失败]\r\n");
-    };
-
-    ws.onclose = () => {
-      terminal.write("\r\n[WebSocket 已断开]\r\n");
-    };
+    resizeObserverRef.current = new ResizeObserver(() => {
+      window.requestAnimationFrame(fitTerminal);
+    });
+    resizeObserverRef.current.observe(container);
 
     const handleResize = () => {
       window.requestAnimationFrame(fitTerminal);
     };
 
-    const inputDisposable = terminal.onData((data: string) => {
-      if (ws.readyState !== WebSocket.OPEN) {
-        return;
-      }
-      ws.send(JSON.stringify({ type: "input", data }));
-    });
-
-    ws.onmessage = (msg) => {
-      try {
-        const event = JSON.parse(typeof msg.data === "string" ? msg.data : String(msg.data)) as TEvent;
-        onRuntimeEvent?.(event);
-        if (typeof event.output === "string") {
-          terminal.write(event.output);
-        }
-      } catch {
-        // ignore malformed messages
-      }
-    };
-
-    const resizeObserver = new ResizeObserver(() => {
-      window.requestAnimationFrame(fitTerminal);
-    });
-
-    resizeObserver.observe(container);
     window.addEventListener("resize", handleResize);
-
-    const initialFit = window.requestAnimationFrame(() => {
-      fitTerminal();
-    });
-
-    void loadSnapshot()
-      .then((snapshot) => {
-        if (disposed) {
-          return;
-        }
-
-        terminal.write(snapshot.buffer);
-        window.requestAnimationFrame(fitTerminal);
-      })
-      .catch(() => {});
+    window.requestAnimationFrame(fitTerminal);
 
     return () => {
-      disposed = true;
+      activeTokenRef.current += 1;
+      closeSocket();
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      inputDisposableRef.current?.dispose();
+      inputDisposableRef.current = null;
       relayoutCleanupRef.current?.();
       relayoutCleanupRef.current = null;
       controlsRef.current = null;
-      window.cancelAnimationFrame(initialFit);
-      ws.close();
-      inputDisposable.dispose();
-      resizeObserver.disconnect();
+      fitAddonRef.current = null;
+      terminalRef.current = null;
       window.removeEventListener("resize", handleResize);
       terminal.dispose();
     };
-  }, [createSocket, isLive, loadSnapshot, onRuntimeEvent]);
+  }, []);
+
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+      controlsRef.current?.fit();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [sourceKey, visible]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    const token = activeTokenRef.current + 1;
+    activeTokenRef.current = token;
+    closeSocket();
+
+    terminal.options.cursorBlink = isLive;
+    terminal.options.disableStdin = !isLive;
+
+    const renderAndCache = (snapshot: PtyTerminalSnapshot, persist: boolean) => {
+      renderSnapshot(snapshot, !isLive);
+      if (persist) {
+        onBufferChange?.(currentSnapshotRef.current);
+      }
+      if (visible) {
+        window.requestAnimationFrame(fitTerminal);
+      }
+    };
+
+    const openSocket = () => {
+      const ws = createSocket();
+      socketRef.current = ws;
+
+      ws.onopen = () => {
+        if (activeTokenRef.current !== token) {
+          return;
+        }
+        fitTerminal();
+      };
+
+      ws.onerror = () => {
+        if (activeTokenRef.current !== token) {
+          return;
+        }
+        terminal.write("\r\n[WebSocket 连接失败]\r\n");
+      };
+
+      ws.onclose = () => {
+        if (activeTokenRef.current !== token) {
+          return;
+        }
+        terminal.write("\r\n[WebSocket 已断开]\r\n");
+      };
+
+      ws.onmessage = (msg) => {
+        if (activeTokenRef.current !== token) {
+          return;
+        }
+
+        try {
+          const event = JSON.parse(typeof msg.data === "string" ? msg.data : String(msg.data)) as TEvent;
+          onRuntimeEvent?.(event);
+
+          const nextSnapshot: PtyTerminalSnapshot = {
+            buffer: currentSnapshotRef.current.buffer,
+            runtimeStatus: event.runtimeStatus ?? currentSnapshotRef.current.runtimeStatus,
+            cwd: event.cwd ?? currentSnapshotRef.current.cwd
+          };
+
+          if (typeof event.output === "string") {
+            terminal.write(event.output);
+            nextSnapshot.buffer = trimTerminalBuffer(`${currentSnapshotRef.current.buffer}${event.output}`);
+          }
+
+          currentSnapshotRef.current = nextSnapshot;
+          if (event.runtimeStatus !== undefined || event.cwd !== undefined || typeof event.output === "string") {
+            onBufferChange?.(currentSnapshotRef.current);
+          }
+        } catch {
+          // ignore malformed messages
+        }
+      };
+    };
+
+    const shouldReloadSnapshot = !cachedSnapshot || !isLive;
+
+    if (cachedSnapshot) {
+      renderAndCache(cachedSnapshot, false);
+    } else {
+      renderAndCache(
+        {
+          buffer: "",
+          runtimeStatus,
+          cwd: currentSnapshotRef.current.cwd
+        },
+        false
+      );
+    }
+
+    if (shouldReloadSnapshot) {
+      void loadSnapshot()
+        .then((snapshot) => {
+          if (activeTokenRef.current !== token) {
+            return;
+          }
+
+          renderAndCache(snapshot, true);
+          if (isLive) {
+            openSocket();
+          }
+        })
+        .catch(() => {
+          if (activeTokenRef.current !== token) {
+            return;
+          }
+
+          if (isLive) {
+            openSocket();
+          }
+        });
+    } else if (isLive) {
+      openSocket();
+    }
+
+    return () => {
+      if (activeTokenRef.current === token) {
+        closeSocket();
+      }
+    };
+  }, [cachedSnapshot, createSocket, isLive, loadSnapshot, onBufferChange, onRuntimeEvent, runtimeStatus, sourceKey, visible]);
 
   return (
     <div className={`relative ${containerClassName}`}>
@@ -373,7 +461,7 @@ export function PtyTerminal<TEvent extends { output?: string }>({ runtimeStatus,
           <Eraser className="h-4 w-4" />
         </button>
       </div>
-      {isLive ? <div ref={liveContainerRef} className="h-full w-full" /> : <div ref={stoppedContainerRef} className="h-full w-full" />}
+      <div ref={containerRef} className="h-full w-full" />
     </div>
   );
 }
