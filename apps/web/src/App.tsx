@@ -2465,7 +2465,6 @@ export function App() {
       return;
     }
 
-    updateExecutionTerminalCache({ kind: "session", id: event.sessionId }, buildTerminalSnapshot(executionTerminalCache[`session:${event.sessionId}`]?.buffer ?? "", event.runtimeStatus ?? selectedSession?.runtimeStatus ?? null, event.cwd ?? selectedSession?.cwd ?? null));
     await Promise.all([
       reloadSessions(selectedProject.id, event.sessionId),
       reloadExecutions({ kind: "session", id: event.sessionId })
@@ -2632,7 +2631,6 @@ export function App() {
     try {
       const data = await stopWorkspaceTerminal(workspaceTerminal.id);
       setWorkspaceTerminal(data.terminal);
-      updateExecutionTerminalCache({ kind: "workspace-terminal", id: data.terminal.id }, buildTerminalSnapshot(executionTerminalCache[`workspace-terminal:${data.terminal.id}`]?.buffer ?? "", data.terminal.runtimeStatus, data.terminal.cwd));
       await reloadExecutions({ kind: "workspace-terminal", id: data.terminal.id });
     } catch (error) {
       setWorkspaceTerminalError(formatError(error, "终端停止失败"));
@@ -2694,7 +2692,6 @@ export function App() {
       return;
     }
 
-    updateExecutionTerminalCache({ kind: "workspace-terminal", id: event.terminalId }, buildTerminalSnapshot(executionTerminalCache[`workspace-terminal:${event.terminalId}`]?.buffer ?? "", event.runtimeStatus ?? workspaceTerminal.runtimeStatus, event.cwd ?? workspaceTerminal.cwd));
     setWorkspaceTerminal((current) => {
       if (!current || current.id !== event.terminalId) {
         return current;
@@ -2710,7 +2707,6 @@ export function App() {
     });
     void reloadExecutions({ kind: "workspace-terminal", id: event.terminalId });
   }
-
   return (
     <div className="flex h-full flex-col bg-[#0b0c10] text-slate-100">
       <header className="flex flex-wrap items-center gap-3 border-b border-white/10 bg-[#111318] px-4 py-3 sm:px-5">

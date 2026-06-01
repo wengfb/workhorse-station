@@ -35,6 +35,7 @@ const termTheme = {
 
 const defaultContainerClassName = "h-[60vh] min-h-[320px] w-full rounded-xl border border-white/10 bg-black";
 const maxBufferedLength = 200_000;
+const liveSnapshotFallbackDelayMs = 180;
 
 type TerminalControls = {
   clear: () => void;
@@ -355,6 +356,32 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
     renderSnapshot(initialSnapshot, !isLive);
 
     let receivedOutput = false;
+    let fallbackTimer: number | null = null;
+
+    const clearFallbackTimer = () => {
+      if (fallbackTimer !== null) {
+        window.clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
+    };
+
+    const maybeHydrateFromSnapshot = (snapshot: PtyTerminalSnapshot) => {
+      if (activeTokenRef.current !== token) {
+        return;
+      }
+
+      if (receivedOutput) {
+        return;
+      }
+
+      const hasBufferedContent = currentSnapshotRef.current.buffer.length > 0;
+      const shouldReplaceLiveTerminal = !isLive || !hasBufferedContent;
+
+      if (shouldReplaceLiveTerminal) {
+        renderSnapshot(snapshot, !isLive);
+      }
+      publishSnapshot(snapshot);
+    };
 
     const openSocket = () => {
       const ws = createSocketRef.current();
@@ -398,6 +425,7 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
 
           if (typeof event.output === "string") {
             receivedOutput = true;
+            clearFallbackTimer();
             terminal.write(event.output);
             nextSnapshot.buffer = trimTerminalBuffer(`${currentSnapshotRef.current.buffer}${event.output}`);
           }
@@ -415,22 +443,17 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
 
     const shouldLoadSnapshot = !cachedSnapshotRef.current || !isLive;
     if (shouldLoadSnapshot) {
-      void loadSnapshotRef.current()
-        .then((snapshot) => {
-          if (activeTokenRef.current !== token) {
-            return;
-          }
-          if (isLive && receivedOutput) {
-            return;
-          }
-
-          renderSnapshot(snapshot, !isLive);
-          publishSnapshot(snapshot);
-        })
-        .catch(() => {});
+      if (isLive) {
+        fallbackTimer = window.setTimeout(() => {
+          void loadSnapshotRef.current().then(maybeHydrateFromSnapshot).catch(() => {});
+        }, liveSnapshotFallbackDelayMs);
+      } else {
+        void loadSnapshotRef.current().then(maybeHydrateFromSnapshot).catch(() => {});
+      }
     }
 
     return () => {
+      clearFallbackTimer();
       if (activeTokenRef.current === token) {
         closeSocket();
       }
