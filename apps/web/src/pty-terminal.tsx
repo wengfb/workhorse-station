@@ -131,6 +131,21 @@ function trimTerminalBuffer(buffer: string) {
   return buffer.length > maxBufferedLength ? buffer.slice(-maxBufferedLength) : buffer;
 }
 
+function captureTerminalBuffer(terminal: Terminal) {
+  const lines: string[] = [];
+  const activeBuffer = terminal.buffer.active;
+
+  for (let index = 0; index < activeBuffer.length; index += 1) {
+    lines.push(activeBuffer.getLine(index)?.translateToString(false) ?? "");
+  }
+
+  while (lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+
+  return trimTerminalBuffer(lines.join("\n"));
+}
+
 export function PtyTerminal<TEvent extends PtyTerminalEvent>({
   sourceKey,
   runtimeStatus,
@@ -230,7 +245,23 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
     }
   };
 
-  const renderSnapshot = (snapshot: PtyTerminalSnapshot, showEmptyPlaceholder: boolean) => {
+  const syncSnapshotFromTerminal = (runtimeStatusValue: SessionRuntimeStatus | null, cwdValue: string | null, persist = true) => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    publishSnapshot(
+      {
+        buffer: captureTerminalBuffer(terminal),
+        runtimeStatus: runtimeStatusValue,
+        cwd: cwdValue
+      },
+      persist
+    );
+  };
+
+  const renderSnapshot = (snapshot: PtyTerminalSnapshot, showEmptyPlaceholder: boolean, persist: boolean) => {
     const terminal = terminalRef.current;
     if (!terminal) {
       return;
@@ -240,9 +271,15 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
     terminal.reset();
 
     if (currentSnapshotRef.current.buffer) {
-      terminal.write(currentSnapshotRef.current.buffer);
+      terminal.write(currentSnapshotRef.current.buffer, () => {
+        syncSnapshotFromTerminal(snapshot.runtimeStatus, snapshot.cwd, persist);
+      });
     } else if (showEmptyPlaceholder) {
-      terminal.write("暂无终端输出");
+      terminal.write("暂无终端输出", () => {
+        syncSnapshotFromTerminal(snapshot.runtimeStatus, snapshot.cwd, persist);
+      });
+    } else {
+      syncSnapshotFromTerminal(snapshot.runtimeStatus, snapshot.cwd, persist);
     }
 
     if (visible) {
@@ -353,7 +390,7 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
       runtimeStatus: runtimeStatusRef.current,
       cwd: currentSnapshotRef.current.cwd
     };
-    renderSnapshot(initialSnapshot, !isLive);
+    renderSnapshot(initialSnapshot, !isLive, false);
 
     let receivedOutput = false;
     let fallbackTimer: number | null = null;
@@ -366,21 +403,18 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
     };
 
     const maybeHydrateFromSnapshot = (snapshot: PtyTerminalSnapshot) => {
-      if (activeTokenRef.current !== token) {
-        return;
-      }
-
-      if (receivedOutput) {
+      if (activeTokenRef.current !== token || receivedOutput) {
         return;
       }
 
       const hasBufferedContent = currentSnapshotRef.current.buffer.length > 0;
       const shouldReplaceLiveTerminal = !isLive || !hasBufferedContent;
-
-      if (shouldReplaceLiveTerminal) {
-        renderSnapshot(snapshot, !isLive);
+      if (!shouldReplaceLiveTerminal) {
+        publishSnapshot(snapshot);
+        return;
       }
-      publishSnapshot(snapshot);
+
+      renderSnapshot(snapshot, !isLive, true);
     };
 
     const openSocket = () => {
@@ -417,20 +451,26 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
           const event = JSON.parse(typeof msg.data === "string" ? msg.data : String(msg.data)) as TEvent;
           onRuntimeEventRef.current?.(event);
 
-          const nextSnapshot: PtyTerminalSnapshot = {
-            buffer: currentSnapshotRef.current.buffer,
-            runtimeStatus: event.runtimeStatus ?? currentSnapshotRef.current.runtimeStatus,
-            cwd: event.cwd ?? currentSnapshotRef.current.cwd
-          };
+          const nextRuntimeStatus = event.runtimeStatus ?? currentSnapshotRef.current.runtimeStatus;
+          const nextCwd = event.cwd ?? currentSnapshotRef.current.cwd;
 
           if (typeof event.output === "string") {
             receivedOutput = true;
             clearFallbackTimer();
-            terminal.write(event.output);
-            nextSnapshot.buffer = trimTerminalBuffer(`${currentSnapshotRef.current.buffer}${event.output}`);
+            terminal.write(event.output, () => {
+              if (activeTokenRef.current !== token) {
+                return;
+              }
+              syncSnapshotFromTerminal(nextRuntimeStatus, nextCwd, true);
+            });
+            return;
           }
 
-          publishSnapshot(nextSnapshot);
+          publishSnapshot({
+            buffer: currentSnapshotRef.current.buffer,
+            runtimeStatus: nextRuntimeStatus,
+            cwd: nextCwd
+          });
         } catch {
           // ignore malformed messages
         }
@@ -455,6 +495,7 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
     return () => {
       clearFallbackTimer();
       if (activeTokenRef.current === token) {
+        syncSnapshotFromTerminal(currentSnapshotRef.current.runtimeStatus, currentSnapshotRef.current.cwd, true);
         closeSocket();
       }
     };
