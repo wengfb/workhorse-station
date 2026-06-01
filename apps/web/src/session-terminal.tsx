@@ -6,21 +6,20 @@ type SessionTerminalProps = {
   projectId: string;
   sessionId: string;
   runtimeStatus: SessionRuntimeStatus | null;
-  cachedSnapshot?: PtyTerminalSnapshot | null;
   onBufferChange?: (snapshot: PtyTerminalSnapshot) => void;
   onRuntimeEvent?: (event: SessionStreamEvent) => void;
   className?: string;
   visible?: boolean;
 };
 
-export function SessionTerminal({ projectId, sessionId, runtimeStatus, cachedSnapshot, onBufferChange, onRuntimeEvent, className, visible }: SessionTerminalProps) {
+export function SessionTerminal({ projectId, sessionId, runtimeStatus, onBufferChange, onRuntimeEvent, className, visible }: SessionTerminalProps) {
   return (
     <PtyTerminal<SessionStreamEvent>
+      key={`session:${sessionId}`}
       sourceKey={`session:${sessionId}`}
       runtimeStatus={runtimeStatus}
       loadSnapshot={() => getSessionTerminal(projectId, sessionId)}
       createSocket={() => createSessionWebSocket(projectId, sessionId)}
-      cachedSnapshot={cachedSnapshot}
       onBufferChange={onBufferChange}
       onRuntimeEvent={onRuntimeEvent}
       className={className}

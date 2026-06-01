@@ -40,8 +40,6 @@ export type SessionEditorDraft = {
 type ExecutionKindFilter = "all" | ExecutionListItem["kind"];
 type ExecutionStatusFilter = "all" | "active" | "stopped" | "failed";
 type SessionView = "terminal" | "history";
-type ExecutionTerminalCache = Record<string, PtyTerminalSnapshot>;
-
 type SessionModalTerminalSource = {
   executionKey: string;
   runtimeStatus: SessionRuntimeStatus | null;
@@ -355,7 +353,6 @@ export function ExecutionModalFrame({
 export function SessionModal({
   executionItems,
   selectedExecution,
-  executionTerminalCache,
   sessions,
   selectedSession,
   selectedProject,
@@ -381,7 +378,6 @@ export function SessionModal({
   onDeleteWorkspaceTerminal,
   onContinueSession,
   onRuntimeEvent,
-  onBufferChange,
   onRestartWorkspaceTerminal,
   onStopWorkspaceTerminal,
   onWorkspaceTerminalRuntimeEvent,
@@ -389,7 +385,6 @@ export function SessionModal({
 }: {
   executionItems: ExecutionListItem[];
   selectedExecution: ExecutionListItem | null;
-  executionTerminalCache: ExecutionTerminalCache;
   sessions: SessionSummary[];
   selectedSession: SessionSummary | null;
   selectedProject: ProjectSummary | null;
@@ -415,7 +410,6 @@ export function SessionModal({
   onDeleteWorkspaceTerminal: (execution: Extract<ExecutionListItem, { kind: "workspace-terminal" }>) => void;
   onContinueSession: (session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) => void;
   onRuntimeEvent: (event: SessionStreamEvent) => void;
-  onBufferChange: (execution: ExecutionListItem | null, snapshot: PtyTerminalSnapshot) => void;
   onRestartWorkspaceTerminal: () => void;
   onStopWorkspaceTerminal: () => void;
   onWorkspaceTerminalRuntimeEvent: (event: WorkspaceTerminalStreamEvent) => void;
@@ -499,9 +493,6 @@ export function SessionModal({
       return haystack.includes(normalizedQuery);
     });
   }, [executionItems, kindFilter, projectFilter, searchQuery, sessions, statusFilter, todos, worktrees]);
-
-  const selectedExecutionKey = selectedExecution ? `${selectedExecution.kind}:${selectedExecution.id}` : null;
-  const selectedExecutionSnapshot = selectedExecutionKey ? executionTerminalCache[selectedExecutionKey] ?? null : null;
 
   const terminalSource = useMemo<SessionModalTerminalSource>(() => {
     if (!selectedExecution) {
@@ -775,12 +766,11 @@ export function SessionModal({
             {terminalSource ? (
               <div className={view === "history" && !isWorkspaceTerminalSelected ? "pointer-events-none invisible absolute inset-3" : "h-full"}>
                 <PtyTerminal<SessionStreamEvent | WorkspaceTerminalStreamEvent>
+                  key={terminalSource.executionKey}
                   sourceKey={terminalSource.executionKey}
                   runtimeStatus={terminalSource.runtimeStatus}
                   loadSnapshot={terminalSource.loadSnapshot}
                   createSocket={terminalSource.createSocket}
-                  cachedSnapshot={selectedExecutionSnapshot}
-                  onBufferChange={(snapshot) => onBufferChange(selectedExecution, snapshot)}
                   onRuntimeEvent={handleTerminalRuntimeEvent}
                   className="h-full min-h-[320px] w-full rounded-xl border border-white/10 bg-black"
                   visible={view === "terminal" || isWorkspaceTerminalSelected}

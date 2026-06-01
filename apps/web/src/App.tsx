@@ -134,7 +134,6 @@ import {
   deleteMemory
 } from "./api";
 import { SessionModal as SessionModalPanel, CreateSessionModal, SessionsWorkspace as SessionsWorkspacePanel, type SessionEditorDraft } from "./session-ui";
-import type { PtyTerminalSnapshot } from "./pty-terminal";
 import { createClientId } from "./lib/utils";
 
 type ApiState = {
@@ -212,8 +211,6 @@ type SkillTransferTarget =
   | { kind: "global-to-store"; skill: SkillSummary }
   | { kind: "project-to-store"; skill: ProjectSkillSummary };
 
-type ExecutionTerminalCache = Record<string, PtyTerminalSnapshot>;
-
 type StreamingBlock =
   | { type: "text"; text: string }
   | { type: "tool"; toolCall: ChatToolCall; result?: ChatToolResult };
@@ -253,22 +250,6 @@ const todoStatusOptions: Array<{ value: TodoStatus; label: string }> = [
 const textFileExtensions = new Set(["txt", "md", "markdown", "json", "ts", "tsx", "js", "jsx", "mjs", "cjs", "css", "html", "xml", "yml", "yaml", "sql", "java", "go", "py", "rb", "sh"]);
 const maxChatFileSize = 200_000;
 
-function getExecutionTerminalKey(execution: SelectedExecution | ExecutionListItem | null) {
-  if (!execution) {
-    return null;
-  }
-
-  return `${execution.kind}:${execution.id}`;
-}
-
-function buildTerminalSnapshot(buffer: string, runtimeStatus: WorkspaceTerminalSummary["runtimeStatus"] | SessionSummary["runtimeStatus"], cwd: string | null): PtyTerminalSnapshot {
-  return {
-    buffer,
-    runtimeStatus,
-    cwd
-  };
-}
-
 export function App() {
   const [workspaceScope, setWorkspaceScope] = useState<WorkspaceScope>("home");
   const [activeHomeMode, setActiveHomeMode] = useState<HomeMode>("chat");
@@ -301,7 +282,6 @@ export function App() {
   const [deletingWorkspaceTerminalId, setDeletingWorkspaceTerminalId] = useState<string | null>(null);
   const [selectedExecution, setSelectedExecution] = useState<SelectedExecution | null>(null);
   const [executionItems, setExecutionItems] = useState<ExecutionListItem[]>([]);
-  const [executionTerminalCache, setExecutionTerminalCache] = useState<ExecutionTerminalCache>({});
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedPromptDraftId, setSelectedPromptDraftId] = useState<string | null>(null);
   const [sessionLaunchSource, setSessionLaunchSource] = useState<SessionSource>("direct");
@@ -605,41 +585,10 @@ export function App() {
   const todoStatuses = projectTodosList.statuses;
   const setTodoStatuses = projectTodosList.setStatuses;
   const availableTodoTags = projectTodosList.availableTags;
-  const selectedExecutionKey = getExecutionTerminalKey(selectedExecution);
-
   const selectedTodo = todos.find((todo) => todo.id === selectedTodoId) ?? null;
   const selectedSession = selectedSessionId ? sessions.find((session) => session.id === selectedSessionId) ?? null : null;
   const selectedPromptDraft = selectedPromptDraftId ? promptDrafts.find((promptDraft) => promptDraft.id === selectedPromptDraftId) ?? null : null;
   const apiConnected = apiState.health?.status === "ok";
-
-  const updateExecutionTerminalCache = React.useCallback((execution: SelectedExecution | ExecutionListItem | null, snapshot: PtyTerminalSnapshot) => {
-    const key = getExecutionTerminalKey(execution);
-    if (!key) {
-      return;
-    }
-
-    setExecutionTerminalCache((current) => ({
-      ...current,
-      [key]: snapshot
-    }));
-  }, []);
-
-  const removeExecutionTerminalCache = React.useCallback((execution: SelectedExecution | ExecutionListItem | null) => {
-    const key = getExecutionTerminalKey(execution);
-    if (!key) {
-      return;
-    }
-
-    setExecutionTerminalCache((current) => {
-      if (!(key in current)) {
-        return current;
-      }
-
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
-  }, []);
 
   useEffect(() => {
     if (selectedGlobalNote) {
@@ -2667,7 +2616,6 @@ export function App() {
 
       setWorkspaceTerminal(null);
       setWorkspaceTerminalContext(null);
-      removeExecutionTerminalCache(execution);
 
       if (!nextExecution) {
         setSelectedExecution(null);
@@ -3050,7 +2998,6 @@ export function App() {
         <SessionModalPanel
           executionItems={executionItems}
           selectedExecution={selectedExecution ? executionItems.find((item) => item.kind === selectedExecution.kind && item.id === selectedExecution.id) ?? null : null}
-          executionTerminalCache={executionTerminalCache}
           sessions={sessions}
           selectedSession={selectedSession}
           selectedProject={selectedProject}
@@ -3076,7 +3023,6 @@ export function App() {
           onDeleteWorkspaceTerminal={(execution) => void handleDeleteWorkspaceTerminal(execution)}
           onContinueSession={handleContinueSession}
           onRuntimeEvent={handleSessionRuntimeEvent}
-          onBufferChange={updateExecutionTerminalCache}
           onRestartWorkspaceTerminal={() => void handleOpenWorkspaceTerminal(workspaceTerminalContext)}
           onStopWorkspaceTerminal={() => void handleStopWorkspaceTerminal()}
           onWorkspaceTerminalRuntimeEvent={handleWorkspaceTerminalRuntimeEvent}
