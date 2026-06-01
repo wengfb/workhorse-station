@@ -155,8 +155,21 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
     runtimeStatus: null,
     cwd: null
   });
+  const loadSnapshotRef = useRef(loadSnapshot);
+  const createSocketRef = useRef(createSocket);
+  const cachedSnapshotRef = useRef(cachedSnapshot);
+  const onBufferChangeRef = useRef(onBufferChange);
+  const onRuntimeEventRef = useRef(onRuntimeEvent);
+  const runtimeStatusRef = useRef(runtimeStatus);
   const containerClassName = className ?? defaultContainerClassName;
   const isLive = runtimeStatus === "starting" || runtimeStatus === "running" || runtimeStatus === "stopping";
+
+  loadSnapshotRef.current = loadSnapshot;
+  createSocketRef.current = createSocket;
+  cachedSnapshotRef.current = cachedSnapshot;
+  onBufferChangeRef.current = onBufferChange;
+  onRuntimeEventRef.current = onRuntimeEvent;
+  runtimeStatusRef.current = runtimeStatus;
 
   const closeSocket = () => {
     const socket = socketRef.current;
@@ -205,28 +218,34 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
     };
   };
 
+  const publishSnapshot = (snapshot: PtyTerminalSnapshot, persist = true) => {
+    currentSnapshotRef.current = {
+      buffer: trimTerminalBuffer(snapshot.buffer),
+      runtimeStatus: snapshot.runtimeStatus,
+      cwd: snapshot.cwd
+    };
+    if (persist) {
+      onBufferChangeRef.current?.(currentSnapshotRef.current);
+    }
+  };
+
   const renderSnapshot = (snapshot: PtyTerminalSnapshot, showEmptyPlaceholder: boolean) => {
     const terminal = terminalRef.current;
     if (!terminal) {
       return;
     }
 
-    const normalizedSnapshot = {
-      buffer: trimTerminalBuffer(snapshot.buffer),
-      runtimeStatus: snapshot.runtimeStatus,
-      cwd: snapshot.cwd
-    };
-
-    currentSnapshotRef.current = normalizedSnapshot;
+    publishSnapshot(snapshot, false);
     terminal.reset();
 
-    if (normalizedSnapshot.buffer) {
-      terminal.write(normalizedSnapshot.buffer);
-      return;
+    if (currentSnapshotRef.current.buffer) {
+      terminal.write(currentSnapshotRef.current.buffer);
+    } else if (showEmptyPlaceholder) {
+      terminal.write("暂无终端输出");
     }
 
-    if (showEmptyPlaceholder) {
-      terminal.write("暂无终端输出");
+    if (visible) {
+      window.requestAnimationFrame(fitTerminal);
     }
   };
 
@@ -242,7 +261,8 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
       fontSize: 14,
       theme: termTheme,
-      scrollback: 100_000
+      scrollback: 100_000,
+      allowProposedApi: true
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
@@ -327,18 +347,17 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
     terminal.options.cursorBlink = isLive;
     terminal.options.disableStdin = !isLive;
 
-    const renderAndCache = (snapshot: PtyTerminalSnapshot, persist: boolean) => {
-      renderSnapshot(snapshot, !isLive);
-      if (persist) {
-        onBufferChange?.(currentSnapshotRef.current);
-      }
-      if (visible) {
-        window.requestAnimationFrame(fitTerminal);
-      }
+    const initialSnapshot = cachedSnapshotRef.current ?? {
+      buffer: "",
+      runtimeStatus: runtimeStatusRef.current,
+      cwd: currentSnapshotRef.current.cwd
     };
+    renderSnapshot(initialSnapshot, !isLive);
+
+    let receivedOutput = false;
 
     const openSocket = () => {
-      const ws = createSocket();
+      const ws = createSocketRef.current();
       socketRef.current = ws;
 
       ws.onopen = () => {
@@ -369,7 +388,7 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
 
         try {
           const event = JSON.parse(typeof msg.data === "string" ? msg.data : String(msg.data)) as TEvent;
-          onRuntimeEvent?.(event);
+          onRuntimeEventRef.current?.(event);
 
           const nextSnapshot: PtyTerminalSnapshot = {
             buffer: currentSnapshotRef.current.buffer,
@@ -378,58 +397,37 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
           };
 
           if (typeof event.output === "string") {
+            receivedOutput = true;
             terminal.write(event.output);
             nextSnapshot.buffer = trimTerminalBuffer(`${currentSnapshotRef.current.buffer}${event.output}`);
           }
 
-          currentSnapshotRef.current = nextSnapshot;
-          if (event.runtimeStatus !== undefined || event.cwd !== undefined || typeof event.output === "string") {
-            onBufferChange?.(currentSnapshotRef.current);
-          }
+          publishSnapshot(nextSnapshot);
         } catch {
           // ignore malformed messages
         }
       };
     };
 
-    const shouldReloadSnapshot = !cachedSnapshot || !isLive;
-
-    if (cachedSnapshot) {
-      renderAndCache(cachedSnapshot, false);
-    } else {
-      renderAndCache(
-        {
-          buffer: "",
-          runtimeStatus,
-          cwd: currentSnapshotRef.current.cwd
-        },
-        false
-      );
+    if (isLive) {
+      openSocket();
     }
 
-    if (shouldReloadSnapshot) {
-      void loadSnapshot()
+    const shouldLoadSnapshot = !cachedSnapshotRef.current || !isLive;
+    if (shouldLoadSnapshot) {
+      void loadSnapshotRef.current()
         .then((snapshot) => {
           if (activeTokenRef.current !== token) {
             return;
           }
-
-          renderAndCache(snapshot, true);
-          if (isLive) {
-            openSocket();
-          }
-        })
-        .catch(() => {
-          if (activeTokenRef.current !== token) {
+          if (isLive && receivedOutput) {
             return;
           }
 
-          if (isLive) {
-            openSocket();
-          }
-        });
-    } else if (isLive) {
-      openSocket();
+          renderSnapshot(snapshot, !isLive);
+          publishSnapshot(snapshot);
+        })
+        .catch(() => {});
     }
 
     return () => {
@@ -437,7 +435,7 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
         closeSocket();
       }
     };
-  }, [cachedSnapshot, createSocket, isLive, loadSnapshot, onBufferChange, onRuntimeEvent, runtimeStatus, sourceKey, visible]);
+  }, [sourceKey, isLive]);
 
   return (
     <div className={`relative ${containerClassName}`}>
