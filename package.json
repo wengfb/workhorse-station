@@ -9,7 +9,9 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "desktop:build": "pnpm --filter @workhorse-station/desktop build",
-    "desktop:start": "pnpm --filter @workhorse-station/desktop start"
+    "desktop:start": "pnpm --filter @workhorse-station/desktop start",
+    "desktop:pack": "pnpm --filter @workhorse-station/desktop pack",
+    "desktop:dist": "pnpm --filter @workhorse-station/desktop dist"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
