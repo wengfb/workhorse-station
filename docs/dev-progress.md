@@ -1,5 +1,22 @@
 # 开发进度
 
+## 2026-06-04：网页主题与终端主题切换
+
+### 已完成
+- 顶栏网页主题切换改为图标按钮，点击在暗色 / 亮色之间切换。
+- 终端主题切换移入会话模态框，支持跟随界面 / 暗色 / 亮色，默认跟随界面。
+- 新增 `apps/web/src/theme.tsx`：统一管理 `uiTheme` / `terminalTheme` 状态，并在根节点写入 `data-ui-theme` / `data-terminal-theme`。
+- `apps/web/index.html` 增加主题预初始化脚本，首屏加载前先恢复已保存主题，避免闪烁。
+- `apps/web/src/pty-terminal.tsx` 接入 xterm.js 亮暗两套主题，切换终端主题时即时生效。
+- `apps/web/src/styles.css` 增加主题变量与亮色覆盖规则，先覆盖现有深色样式中的主要背景、文字、边框、状态色与终端面板。
+- `docs/dev-management-mvp.md` 补充主题切换约定。
+
+### 待验证
+- `pnpm install`
+- `pnpm -r typecheck`
+- `pnpm -r build`
+- 浏览器中切换网页主题与终端主题，确认刷新后仍保持上次选择。
+
 ## 2026-05-29：Windows 桌面端 UI 壳首切片
 
 ### 已完成
@@ -14,8 +31,6 @@
 - `pnpm -r typecheck`
 - `pnpm -r build`
 - Windows 中启动 Electron，确认能打开 `http://localhost:3001`，并在服务未启动时显示错误页。
-
-## 2026-05-25：会话继续——已停止会话原地续接
 
 ### 已完成
 - 后端新增 `POST /api/projects/:projectId/sessions/:sessionId/continue` 端点：原地续接已停止（completed/failed）的会话，使用 `--resume <id>` 不 fork，保留原有 terminal buffer。

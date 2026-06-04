@@ -3,6 +3,7 @@ import type { SessionRuntimeStatus } from "@workhorse-station/shared";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { Eraser, RefreshCw } from "lucide-react";
+import { useThemeSettings } from "./theme";
 import "@xterm/xterm/css/xterm.css";
 
 type PtyTerminalEvent = {
@@ -28,11 +29,80 @@ type PtyTerminalProps<TEvent extends PtyTerminalEvent> = {
   visible?: boolean;
 };
 
-const termTheme = {
-  background: "#000000"
+type XtermTheme = {
+  background: string;
+  foreground: string;
+  cursor: string;
+  cursorAccent: string;
+  selectionBackground: string;
+  black: string;
+  red: string;
+  green: string;
+  yellow: string;
+  blue: string;
+  magenta: string;
+  cyan: string;
+  white: string;
+  brightBlack: string;
+  brightRed: string;
+  brightGreen: string;
+  brightYellow: string;
+  brightBlue: string;
+  brightMagenta: string;
+  brightCyan: string;
+  brightWhite: string;
 };
 
-const defaultContainerClassName = "h-[60vh] min-h-[320px] w-full rounded-xl border border-white/10 bg-black";
+const terminalThemes: Record<"dark" | "light", XtermTheme> = {
+  dark: {
+    background: "#000000",
+    foreground: "#e5e7eb",
+    cursor: "#f8fafc",
+    cursorAccent: "#000000",
+    selectionBackground: "rgba(148, 163, 184, 0.35)",
+    black: "#111827",
+    red: "#f87171",
+    green: "#34d399",
+    yellow: "#fbbf24",
+    blue: "#60a5fa",
+    magenta: "#c084fc",
+    cyan: "#22d3ee",
+    white: "#e5e7eb",
+    brightBlack: "#6b7280",
+    brightRed: "#fca5a5",
+    brightGreen: "#6ee7b7",
+    brightYellow: "#fcd34d",
+    brightBlue: "#93c5fd",
+    brightMagenta: "#d8b4fe",
+    brightCyan: "#67e8f9",
+    brightWhite: "#f9fafb"
+  },
+  light: {
+    background: "#f8fafc",
+    foreground: "#0f172a",
+    cursor: "#0f172a",
+    cursorAccent: "#f8fafc",
+    selectionBackground: "rgba(148, 163, 184, 0.28)",
+    black: "#1e293b",
+    red: "#dc2626",
+    green: "#059669",
+    yellow: "#d97706",
+    blue: "#2563eb",
+    magenta: "#9333ea",
+    cyan: "#0891b2",
+    white: "#e2e8f0",
+    brightBlack: "#64748b",
+    brightRed: "#ef4444",
+    brightGreen: "#10b981",
+    brightYellow: "#f59e0b",
+    brightBlue: "#3b82f6",
+    brightMagenta: "#a855f7",
+    brightCyan: "#06b6d4",
+    brightWhite: "#ffffff"
+  }
+};
+
+const defaultContainerClassName = "terminal-surface app-border h-[60vh] min-h-[320px] w-full rounded-xl border";
 const maxBufferedLength = 200_000;
 
 type TerminalControls = {
@@ -139,6 +209,7 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
   className,
   visible = true
 }: PtyTerminalProps<TEvent>) {
+  const { terminalTheme } = useThemeSettings();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -303,7 +374,7 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
       disableStdin: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
       fontSize: 14,
-      theme: termTheme,
+      theme: terminalThemes[terminalTheme],
       scrollback: 100_000,
       allowProposedApi: true
     });
@@ -362,6 +433,15 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
       terminal.dispose();
     };
   }, []);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    terminal.options.theme = terminalThemes[terminalTheme];
+  }, [terminalTheme]);
 
   useEffect(() => {
     if (!visible) {
@@ -486,11 +566,11 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
 
   return (
     <div className={`relative ${containerClassName}`}>
-      <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-lg border border-white/10 bg-black/70 p-1 backdrop-blur-sm">
+      <div className="terminal-overlay app-text-soft app-border absolute right-2 top-2 z-10 flex items-center gap-1 rounded-lg border p-1 backdrop-blur-sm">
         <button
           type="button"
           onClick={() => controlsRef.current?.fit()}
-          className="rounded-md p-1.5 text-slate-300 transition hover:bg-white/10 hover:text-slate-100"
+          className="app-text-soft app-hover-accent-strong app-hover-text rounded-md p-1.5 transition"
           aria-label="调整终端布局"
           title="调整终端布局"
         >
@@ -499,7 +579,7 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
         <button
           type="button"
           onClick={() => controlsRef.current?.clear()}
-          className="rounded-md p-1.5 text-slate-300 transition hover:bg-white/10 hover:text-slate-100"
+          className="app-text-soft app-hover-accent-strong app-hover-text rounded-md p-1.5 transition"
           aria-label="清空当前终端显示"
           title="清空当前终端显示"
         >
