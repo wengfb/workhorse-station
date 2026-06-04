@@ -408,7 +408,7 @@ export type CreatePromptDraftRequest = {
 
 export type UpdatePromptDraftRequest = Partial<CreatePromptDraftRequest>;
 
-export type SessionSummary = {
+export type SessionListItem = {
   id: string;
   projectId: string;
   worktreeId: string | null;
@@ -417,7 +417,6 @@ export type SessionSummary = {
   requestedWorktreeName: string | null;
   source: SessionSource;
   name: string;
-  prompt: string;
   status: SessionStatus;
   runtimeStatus: SessionRuntimeStatus | null;
   summary: string | null;
@@ -426,13 +425,17 @@ export type SessionSummary = {
   resolvedWorktreePath: string | null;
   exitCode: number | null;
   lastActivityAt: string | null;
-  terminalBuffer: string | null;
   createdAt: string;
   updatedAt: string;
 };
 
+export type SessionSummary = SessionListItem & {
+  prompt: string;
+  terminalBuffer: string | null;
+};
+
 export type SessionsResponse = {
-  sessions: SessionSummary[];
+  sessions: SessionListItem[];
 };
 
 export type OverviewSessionSummary = {

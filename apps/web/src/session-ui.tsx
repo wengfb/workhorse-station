@@ -5,6 +5,7 @@ import type {
   ProjectSummary,
   PromptDraftSummary,
   SessionHistoryMessage,
+  SessionListItem,
   SessionRuntimeStatus,
   SessionSource,
   SessionStatus,
@@ -75,7 +76,7 @@ export function SessionsWorkspace({
 }: {
   selectedProject: ProjectSummary | null;
   selectedWorktree: WorktreeSummary | null;
-  sessions: SessionSummary[];
+  sessions: SessionListItem[];
   promptDrafts: PromptDraftSummary[];
   todos: TodoSummary[];
   loading: boolean;
@@ -176,7 +177,7 @@ export function CreateSessionModal({
 }: {
   todos: TodoSummary[];
   worktrees: WorktreeSummary[];
-  sessions: SessionSummary[];
+  sessions: SessionListItem[];
   selectedProject: ProjectSummary | null;
   selectedWorktree: WorktreeSummary | null;
   source: SessionSource;
@@ -381,6 +382,7 @@ export function SessionModal({
   workspaceTerminalError,
   openingWorkspaceTerminal,
   stoppingWorkspaceTerminal,
+  sessionProjectId,
   draft,
   error,
   loading,
@@ -403,7 +405,7 @@ export function SessionModal({
 }: {
   executionItems: ExecutionListItem[];
   selectedExecution: ExecutionListItem | null;
-  sessions: SessionSummary[];
+  sessions: SessionListItem[];
   selectedSession: SessionSummary | null;
   selectedProject: ProjectSummary | null;
   projects: ProjectSummary[];
@@ -413,6 +415,7 @@ export function SessionModal({
   workspaceTerminalError: string | null;
   openingWorkspaceTerminal: boolean;
   stoppingWorkspaceTerminal: boolean;
+  sessionProjectId: string | null;
   draft: SessionEditorDraft;
   error: string | null;
   loading: boolean;
@@ -422,11 +425,11 @@ export function SessionModal({
   deletingWorkspaceTerminalId: string | null;
   continuingSessionId: string | null;
   onSelectExecution: (execution: ExecutionListItem) => void;
-  onRenameSession: (session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) => void;
-  onStopSession: (session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) => void;
-  onDeleteSession: (session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) => void;
+  onRenameSession: (session: SessionListItem | Extract<ExecutionListItem, { kind: "session" }>) => void;
+  onStopSession: (session: SessionListItem | Extract<ExecutionListItem, { kind: "session" }>) => void;
+  onDeleteSession: (session: SessionListItem | Extract<ExecutionListItem, { kind: "session" }>) => void;
   onDeleteWorkspaceTerminal: (execution: Extract<ExecutionListItem, { kind: "workspace-terminal" }>) => void;
-  onContinueSession: (session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) => void;
+  onContinueSession: (session: SessionListItem | Extract<ExecutionListItem, { kind: "session" }>) => void;
   onRuntimeEvent: (event: SessionStreamEvent) => void;
   onRestartWorkspaceTerminal: () => void;
   onStopWorkspaceTerminal: () => void;
@@ -434,8 +437,12 @@ export function SessionModal({
   onClose: () => void;
 }) {
   const { terminalTheme, terminalThemeMode, setTerminalThemeMode } = useThemeSettings();
-  const runtimeStatus = selectedSession?.runtimeStatus ?? null;
   const isWorkspaceTerminalSelected = selectedExecution?.kind === "workspace-terminal";
+  const resolvedSessionId = selectedExecution?.kind === "session" ? selectedExecution.id : selectedSession?.id ?? null;
+  const runtimeStatus =
+    selectedExecution?.kind === "session"
+      ? (selectedExecution.runtimeStatus ?? selectedSession?.runtimeStatus ?? null)
+      : selectedSession?.runtimeStatus ?? null;
   const [searchQuery, setSearchQuery] = useState("");
   const [projectFilter, setProjectFilter] = useState<string>("all");
   const [kindFilter, setKindFilter] = useState<ExecutionKindFilter>("all");
@@ -452,14 +459,15 @@ export function SessionModal({
   }, [isWorkspaceTerminalSelected]);
 
   useEffect(() => {
-    if (view !== "history" || !selectedSession || !selectedProject || isWorkspaceTerminalSelected) {
+    const resolvedProjectId = sessionProjectId ?? selectedProject?.id;
+    if (view !== "history" || !selectedSession || !resolvedProjectId || !resolvedSessionId || isWorkspaceTerminalSelected) {
       return;
     }
 
     let disposed = false;
     setHistoryLoading(true);
 
-    getSessionHistory(selectedProject.id, selectedSession.id)
+    getSessionHistory(resolvedProjectId, resolvedSessionId)
       .then((response) => {
         if (!disposed) {
           setHistoryMessages(response.messages);
@@ -479,7 +487,7 @@ export function SessionModal({
     return () => {
       disposed = true;
     };
-  }, [isWorkspaceTerminalSelected, selectedProject, selectedSession, view]);
+  }, [isWorkspaceTerminalSelected, selectedProject, selectedSession, view, sessionProjectId, resolvedSessionId]);
 
   const filteredExecutionItems = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -528,18 +536,20 @@ export function SessionModal({
       };
     }
 
-    if (!selectedSession || !selectedProject) {
+    if (!selectedSession || !selectedProject || !resolvedSessionId) {
       return null;
     }
 
+    const resolvedProjectId = sessionProjectId ?? selectedProject.id;
+
     return {
-      executionKey: `session:${selectedSession.id}`,
+      executionKey: `session:${resolvedSessionId}`,
       runtimeStatus,
-      loadSnapshot: () => getSessionTerminal(selectedProject.id, selectedSession.id),
-      createSocket: () => createSessionWebSocket(selectedProject.id, selectedSession.id),
+      loadSnapshot: () => getSessionTerminal(resolvedProjectId, resolvedSessionId),
+      createSocket: () => createSessionWebSocket(resolvedProjectId, resolvedSessionId),
       onSessionRuntimeEvent: onRuntimeEvent
     };
-  }, [onRuntimeEvent, onWorkspaceTerminalRuntimeEvent, runtimeStatus, selectedExecution, selectedProject, selectedSession, workspaceTerminal]);
+  }, [onRuntimeEvent, onWorkspaceTerminalRuntimeEvent, runtimeStatus, selectedExecution, selectedProject, selectedSession, workspaceTerminal, sessionProjectId, resolvedSessionId]);
 
   const handleTerminalRuntimeEvent = useCallback(
     (event: SessionStreamEvent | WorkspaceTerminalStreamEvent) => {

@@ -560,6 +560,10 @@ export function getSessions(projectId: string) {
   return fetchJson<SessionsResponse>(`/api/projects/${projectId}/sessions`);
 }
 
+export function getSession(projectId: string, sessionId: string) {
+  return fetchJson<SessionResponse>(`/api/projects/${projectId}/sessions/${sessionId}`);
+}
+
 export function createSession(projectId: string, input: CreateSessionRequest) {
   return fetchJson<SessionResponse>(`/api/projects/${projectId}/sessions`, {
     method: "POST",

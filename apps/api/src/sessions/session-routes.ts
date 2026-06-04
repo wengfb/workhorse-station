@@ -78,6 +78,23 @@ export async function registerSessionRoutes(
     };
   });
 
+  server.get<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId", async (request, reply): Promise<ApiResponse<SessionResponse>> => {
+    await assertProjectExists(database, request.params.projectId);
+
+    const session = await getProjectSession(database.db, request.params.projectId, request.params.sessionId);
+
+    if (!session) {
+      throw new HttpError(404, "session_not_found", "会话不存在");
+    }
+
+    return {
+      ok: true,
+      data: {
+        session
+      }
+    };
+  });
+
   server.post<{ Params: ProjectParams; Body: CreateSessionRequest }>("/api/projects/:projectId/sessions", async (request, reply): Promise<ApiResponse<SessionResponse>> => {
     await assertProjectExists(database, request.params.projectId);
     const input = await buildSessionInput(database, request.params.projectId, request.body);

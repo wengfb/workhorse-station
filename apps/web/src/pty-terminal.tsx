@@ -239,6 +239,8 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
   onRuntimeEventRef.current = onRuntimeEvent;
   runtimeStatusRef.current = runtimeStatus;
 
+  const loadedSourceKeyRef = useRef<string | null>(null);
+
   const closeSocket = () => {
     const socket = socketRef.current;
     if (!socket) {
@@ -471,6 +473,9 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
     terminal.options.cursorBlink = isLive;
     terminal.options.disableStdin = !isLive;
 
+    const isSameSource = loadedSourceKeyRef.current === sourceKey;
+    loadedSourceKeyRef.current = sourceKey;
+
     let receivedOutput = false;
 
     const maybeHydrateFromSnapshot = (snapshot: PtyTerminalSnapshot) => {
@@ -554,7 +559,10 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
       openSocket();
     }
 
-    void loadSnapshotRef.current().then(maybeHydrateFromSnapshot).catch(() => {});
+    // Avoid re-fetching snapshot when only isLive changed for the same session
+    if (!isSameSource) {
+      void loadSnapshotRef.current().then(maybeHydrateFromSnapshot).catch(() => {});
+    }
 
     return () => {
       if (activeTokenRef.current === token) {

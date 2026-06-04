@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   ExecutionListItem,
   OverviewSessionSummary,
+  SessionListItem,
   SessionRuntimeStatus,
   SessionSource,
   SessionStatus,
@@ -55,9 +56,33 @@ type SessionRow = {
   updated_at: string;
 };
 
+type SessionListRow = {
+  id: string;
+  project_id: string;
+  worktree_id: string | null;
+  todo_id: string | null;
+  prompt_draft_id: string | null;
+  requested_worktree_name: string | null;
+  source: SessionSource;
+  name: string;
+  status: SessionStatus;
+  runtime_status: SessionRuntimeStatus | null;
+  summary: string | null;
+  pid: number | null;
+  cwd: string | null;
+  resolved_worktree_path: string | null;
+  exit_code: number | null;
+  last_activity_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 type OverviewSessionRow = SessionRow & {
   project_name: string;
 };
+
+const SESSION_LIST_SELECT = `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, created_at, updated_at
+     FROM sessions`;
 
 const SESSION_SELECT = `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, terminal_buffer, created_at, updated_at
      FROM sessions`;
@@ -66,14 +91,15 @@ const OVERVIEW_SESSION_SELECT = `SELECT s.id, s.project_id, s.worktree_id, s.tod
      FROM sessions s
      JOIN projects p ON s.project_id = p.id`;
 
-export async function listSessions(db: DatabaseExecutor, projectId: string) {
-  return selectRows(
+export async function listSessions(db: DatabaseExecutor, projectId: string): Promise<SessionListItem[]> {
+  const rows = await queryRows<SessionListRow>(
     db,
-    `${SESSION_SELECT}
+    `${SESSION_LIST_SELECT}
      WHERE project_id = ?
      ORDER BY updated_at DESC, created_at DESC`,
     [projectId]
   );
+  return rows.map(mapSessionListRow);
 }
 
 export async function getProjectSession(db: DatabaseExecutor, projectId: string, sessionId: string) {
@@ -300,6 +326,29 @@ async function selectRows(db: DatabaseExecutor, sql: string, params: SqlParams) 
 async function selectOne(db: DatabaseExecutor, sql: string, params: SqlParams) {
   const row = await queryOne<SessionRow>(db, sql, params);
   return row ? mapSessionRow(row) : null;
+}
+
+function mapSessionListRow(row: SessionListRow): SessionListItem {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    worktreeId: row.worktree_id,
+    todoId: row.todo_id,
+    promptDraftId: row.prompt_draft_id,
+    requestedWorktreeName: row.requested_worktree_name,
+    source: row.source,
+    name: row.name,
+    status: row.status,
+    runtimeStatus: row.runtime_status,
+    summary: row.summary,
+    pid: row.pid,
+    cwd: row.cwd,
+    resolvedWorktreePath: row.resolved_worktree_path,
+    exitCode: row.exit_code,
+    lastActivityAt: row.last_activity_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
 }
 
 function mapSessionRow(row: SessionRow): SessionSummary {

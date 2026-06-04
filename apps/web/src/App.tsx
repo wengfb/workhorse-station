@@ -30,6 +30,7 @@ import type {
   RuleDetail,
   RuleSummary,
   RulesResponse,
+  SessionListItem,
   SessionSource,
   SessionStreamEvent,
   SessionSummary,
@@ -90,6 +91,7 @@ import {
   getExecutions,
   getRunningExecutions,
   getRunningSessions,
+  getSession,
   getSessions,
   getStoreSkills,
   getWorktrees,
@@ -285,6 +287,7 @@ export function App() {
   const [deletingWorkspaceTerminalId, setDeletingWorkspaceTerminalId] = useState<string | null>(null);
   const [selectedExecution, setSelectedExecution] = useState<SelectedExecution | null>(null);
   const [executionItems, setExecutionItems] = useState<ExecutionListItem[]>([]);
+  const [activeSessionProjectId, setActiveSessionProjectId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedPromptDraftId, setSelectedPromptDraftId] = useState<string | null>(null);
   const [sessionLaunchSource, setSessionLaunchSource] = useState<SessionSource>("direct");
@@ -321,7 +324,8 @@ export function App() {
   const [savingTodo, setSavingTodo] = useState(false);
   const [deletingTodoId, setDeletingTodoId] = useState<string | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<PromptDraftSummary[]>([]);
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessions, setSessions] = useState<SessionListItem[]>([]);
+  const [selectedSessionDetail, setSelectedSessionDetail] = useState<SessionSummary | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [runningSessions, setRunningSessions] = useState<ExecutionListItem[]>([]);
@@ -589,7 +593,7 @@ export function App() {
   const setTodoStatuses = projectTodosList.setStatuses;
   const availableTodoTags = projectTodosList.availableTags;
   const selectedTodo = todos.find((todo) => todo.id === selectedTodoId) ?? null;
-  const selectedSession = selectedSessionId ? sessions.find((session) => session.id === selectedSessionId) ?? null : null;
+  const selectedSession = selectedSessionDetail;
   const selectedPromptDraft = selectedPromptDraftId ? promptDrafts.find((promptDraft) => promptDraft.id === selectedPromptDraftId) ?? null : null;
   const apiConnected = apiState.health?.status === "ok";
 
@@ -665,6 +669,35 @@ export function App() {
 
     setTodoDraft(emptyTodoDraft());
   }, [selectedTodoId, selectedProjectId]);
+
+  useEffect(() => {
+    const projectId = executionModalMode === "session" && activeSessionProjectId
+      ? activeSessionProjectId
+      : selectedProjectId;
+
+    if (!projectId || !selectedSessionId) {
+      setSelectedSessionDetail(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    getSession(projectId, selectedSessionId)
+      .then((data) => {
+        if (!cancelled) {
+          setSelectedSessionDetail(data.session);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSelectedSessionDetail(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProjectId, activeSessionProjectId, selectedSessionId, executionModalMode]);
 
   useEffect(() => {
     if (selectedExecution?.kind !== "session") {
@@ -1108,6 +1141,28 @@ export function App() {
 
       setSessions(data.sessions);
       setSelectedSessionId(nextSession?.id ?? null);
+
+      // 用最新列表数据更新 detail 中的轻量字段（runtimeStatus 等可能已变化）
+      if (nextSession && selectedSessionDetail?.id === nextSession.id) {
+        setSelectedSessionDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                name: nextSession.name,
+                status: nextSession.status,
+                runtimeStatus: nextSession.runtimeStatus,
+                summary: nextSession.summary,
+                pid: nextSession.pid,
+                exitCode: nextSession.exitCode,
+                lastActivityAt: nextSession.lastActivityAt,
+                updatedAt: nextSession.updatedAt,
+                cwd: nextSession.cwd,
+                resolvedWorktreePath: nextSession.resolvedWorktreePath
+              }
+            : prev
+        );
+      }
+
       setSessionsError(null);
     } catch (error) {
       setSessionsError(formatError(error, "会话列表加载失败"));
@@ -2239,6 +2294,7 @@ export function App() {
     setSessionsError(null);
 
     if (execution.kind === "workspace-terminal") {
+      setActiveSessionProjectId(null);
       setWorkspaceTerminalError(null);
       try {
         const data = await getWorkspaceTerminal(execution.id);
@@ -2267,8 +2323,8 @@ export function App() {
       return;
     }
 
-    if (execution.projectId && execution.projectId !== selectedProjectId) {
-      setSelectedProjectId(execution.projectId);
+    if (execution.projectId) {
+      setActiveSessionProjectId(execution.projectId);
     }
     setSelectedSessionId(execution.id);
     setExecutionModalMode("session");
@@ -2385,7 +2441,7 @@ export function App() {
     }
   }
 
-  async function handleStopSession(session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) {
+  async function handleStopSession(session: SessionListItem | Extract<ExecutionListItem, { kind: "session" }>) {
     const targetProjectId = session.projectId;
 
     if (!targetProjectId) {
@@ -2409,7 +2465,8 @@ export function App() {
   }
 
   async function handleSessionRuntimeEvent(event: SessionStreamEvent) {
-    if (!selectedProject || event.sessionId !== selectedSessionId) {
+    const targetProjectId = activeSessionProjectId ?? selectedProject?.id;
+    if (!targetProjectId || event.sessionId !== selectedSessionId) {
       return;
     }
 
@@ -2418,12 +2475,12 @@ export function App() {
     }
 
     await Promise.all([
-      reloadSessions(selectedProject.id, event.sessionId),
+      reloadSessions(targetProjectId, event.sessionId),
       reloadExecutions({ kind: "session", id: event.sessionId })
     ]);
   }
 
-  async function handleRenameSession(session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) {
+  async function handleRenameSession(session: SessionListItem | Extract<ExecutionListItem, { kind: "session" }>) {
     const targetProjectId = session.projectId;
 
     if (!targetProjectId) {
@@ -2452,7 +2509,7 @@ export function App() {
     }
   }
 
-  async function handleDeleteSession(session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) {
+  async function handleDeleteSession(session: SessionListItem | Extract<ExecutionListItem, { kind: "session" }>) {
     const targetProjectId = session.projectId;
 
     if (!targetProjectId) {
@@ -2495,7 +2552,7 @@ export function App() {
     }
   }
 
-  async function handleContinueSession(session: SessionSummary | Extract<ExecutionListItem, { kind: "session" }>) {
+  async function handleContinueSession(session: SessionListItem | Extract<ExecutionListItem, { kind: "session" }>) {
     const targetProjectId = session.projectId;
 
     if (!targetProjectId) {
@@ -3020,6 +3077,7 @@ export function App() {
           workspaceTerminalError={workspaceTerminalError}
           openingWorkspaceTerminal={openingWorkspaceTerminal}
           stoppingWorkspaceTerminal={stoppingWorkspaceTerminal}
+          sessionProjectId={activeSessionProjectId}
           draft={sessionDraft}
           error={sessionsError}
           loading={sessionsLoading}
@@ -3038,7 +3096,10 @@ export function App() {
           onRestartWorkspaceTerminal={() => void handleOpenWorkspaceTerminal(workspaceTerminalContext)}
           onStopWorkspaceTerminal={() => void handleStopWorkspaceTerminal()}
           onWorkspaceTerminalRuntimeEvent={handleWorkspaceTerminalRuntimeEvent}
-          onClose={() => setExecutionModalMode(null)}
+          onClose={() => {
+            setExecutionModalMode(null);
+            setActiveSessionProjectId(null);
+          }}
         />
       ) : null}
     </div>
@@ -4424,7 +4485,7 @@ function ProjectWorkspacePage({
   todoDraft: TodoDraft;
   savingTodo: boolean;
   deletingTodoId: string | null;
-  sessions: SessionSummary[];
+  sessions: SessionListItem[];
   promptDrafts: PromptDraftSummary[];
   sessionsLoading: boolean;
   sessionsError: string | null;
@@ -5734,13 +5795,13 @@ function promptDraftToSessionDraft(promptDraft: PromptDraftSummary): SessionEdit
   };
 }
 
-function sessionToDraft(session: SessionSummary, promptDrafts: PromptDraftSummary[]): SessionEditorDraft {
+function sessionToDraft(session: SessionListItem & { prompt?: string }, promptDrafts: PromptDraftSummary[]): SessionEditorDraft {
   const promptDraft = session.promptDraftId ? promptDrafts.find((item) => item.id === session.promptDraftId) ?? null : null;
 
   return {
     sessionName: session.name,
     promptTitle: promptDraft?.title ?? "",
-    prompt: session.prompt,
+    prompt: session.prompt ?? "",
     todoId: session.todoId ?? "",
     worktreeId: session.worktreeId ?? "",
     requestedWorktreeName: session.requestedWorktreeName ?? promptDraft?.requestedWorktreeName ?? "",
@@ -6198,7 +6259,7 @@ function TodoPanel({
   project: ProjectSummary | null;
   notes: NoteSummary[];
   todos: TodoSummary[];
-  sessions: SessionSummary[];
+  sessions: SessionListItem[];
   selectedTodo: TodoSummary | null;
   loading: boolean;
   error: string | null;
@@ -6242,7 +6303,7 @@ function TodoPanel({
   const linkedNote = draft.sourceNoteId ? noteOptions.find((note) => note.id === draft.sourceNoteId) ?? null : null;
   const isEditing = selectedTodo !== null;
   const relatedSessionsByTodoId = useMemo(() => {
-    const next = new Map<string, SessionSummary[]>();
+    const next = new Map<string, SessionListItem[]>();
 
     for (const session of sessions) {
       if (!session.todoId) {
