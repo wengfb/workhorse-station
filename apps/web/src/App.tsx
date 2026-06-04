@@ -6093,7 +6093,7 @@ function NotePanel({
                 value={searchQuery}
                 onChange={(e) => onSearchChange?.(e.target.value)}
                 placeholder="搜索笔记标题、内容、标签..."
-                className="app-input-shell w-full rounded-md pl-8 pr-3 py-1.5 text-xs outline-none"
+                className="app-input-shell w-full rounded-md border pl-8 pr-3 py-1.5 text-xs outline-none"
               />
             </div>
             {availableTags.length > 0 && (
@@ -6210,7 +6210,7 @@ function NotePanel({
               <input
                 value={draft.title}
                 onChange={(event) => onDraftChange("title", event.target.value)}
-                className="app-input-shell w-full rounded-lg px-3 py-2 text-sm outline-none"
+                className="app-input-shell w-full rounded-lg border px-3 py-2 text-sm outline-none"
                 placeholder="默认取正文第一行，也可以手动修改"
               />
             </Field>
@@ -6218,7 +6218,7 @@ function NotePanel({
               <textarea
                 value={draft.content}
                 onChange={(event) => onDraftChange("content", event.target.value)}
-                className="app-input-shell min-h-[380px] w-full rounded-lg px-3 py-3 font-mono text-sm leading-6 outline-none"
+                className="app-input-shell min-h-[380px] w-full rounded-lg border px-3 py-3 font-mono text-sm leading-6 outline-none"
                 placeholder="# 会话入口梳理&#10;&#10;直接开始写，系统会自动保存。"
               />
             </Field>
@@ -6226,7 +6226,7 @@ function NotePanel({
               <input
                 value={draft.tags}
                 onChange={(event) => onDraftChange("tags", event.target.value)}
-                className="app-input-shell w-full rounded-lg px-3 py-2 text-sm outline-none"
+                className="app-input-shell w-full rounded-lg border px-3 py-2 text-sm outline-none"
                 placeholder="逗号分隔，例如：ui, session"
               />
             </Field>
@@ -6580,7 +6580,7 @@ function TodoPanel({
               <input
                 value={draft.title}
                 onChange={(event) => onDraftChange("title", event.target.value)}
-                className="app-input-shell w-full rounded-lg px-3 py-2 text-sm outline-none"
+                className="app-input-shell w-full rounded-lg border px-3 py-2 text-sm outline-none"
                 placeholder="例如：补完项目页 notes/todos 面板"
               />
             </Field>
@@ -6604,31 +6604,31 @@ function TodoPanel({
               <input
                 value={draft.tags}
                 onChange={(event) => onDraftChange("tags", event.target.value)}
-                className="app-input-shell w-full rounded-lg px-3 py-2 text-sm outline-none"
+                className="app-input-shell w-full rounded-lg border px-3 py-2 text-sm outline-none"
                 placeholder="逗号分隔，例如：phase2, api"
               />
             </Field>
-            {linkedNote ? <p className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">当前关联笔记：{linkedNote.title}</p> : null}
+            {linkedNote ? <p className="app-card app-border app-text-muted rounded-lg border p-3 text-xs">当前关联笔记：{linkedNote.title}</p> : null}
             {selectedTodo ? (
-              <div className="flex flex-wrap gap-3 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">
+              <div className="app-card app-border app-text-muted flex flex-wrap gap-3 rounded-lg border p-3 text-xs">
                 <span>创建于：{formatDateTime(selectedTodo.createdAt)}</span>
                 <span>{selectedTodo.status === "completed" ? "完成于" : "更新于"}：{formatDateTime((selectedTodo.status === "completed" ? selectedTodo.completedAt : selectedTodo.updatedAt) ?? selectedTodo.updatedAt)}</span>
               </div>
             ) : null}
             {selectedTodo ? (
-              <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs text-emerald-50">
+              <div className="app-banner-success rounded-lg border p-3 text-xs">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="font-medium text-emerald-100">关联会话</div>
-                    <div className="mt-1 text-emerald-100/80">{relatedSessions.length > 0 ? `共 ${relatedSessions.length} 个` : "当前没有关联会话"}</div>
+                    <div className="app-text font-medium">关联会话</div>
+                    <div className="app-text-muted mt-1">{relatedSessions.length > 0 ? `共 ${relatedSessions.length} 个` : "当前没有关联会话"}</div>
                   </div>
                   {latestRelatedSession ? <SessionStatusPill status={latestRelatedSession.status} /> : null}
                 </div>
                 {latestRelatedSession ? (
                   <>
-                    <div className="mt-2 text-emerald-100">{latestRelatedSession.name}</div>
-                    {latestRelatedSession.summary ? <div className="mt-1 whitespace-pre-wrap text-emerald-50/90">{latestRelatedSession.summary}</div> : null}
-                    <div className="mt-2 flex flex-wrap gap-3 text-emerald-100/80">
+                    <div className="app-text mt-2">{latestRelatedSession.name}</div>
+                    {latestRelatedSession.summary ? <div className="app-text-soft mt-1 whitespace-pre-wrap">{latestRelatedSession.summary}</div> : null}
+                    <div className="app-text-muted mt-2 flex flex-wrap gap-3">
                       <span>状态：{latestRelatedSession.status}</span>
                       <span>退出码：{latestRelatedSession.exitCode ?? "无"}</span>
                       <span>更新：{formatDateTime(latestRelatedSession.updatedAt)}</span>
@@ -6637,12 +6637,12 @@ function TodoPanel({
                       <button
                         type="button"
                         onClick={() => onOpenSession("todo", selectedTodo.id, latestRelatedSession.id)}
-                        className="rounded-md border border-emerald-200/20 px-2 py-1 text-xs text-emerald-50 hover:bg-white/5"
+                        className="app-button-success rounded border px-2 py-1 text-xs"
                       >
                         打开最新会话
                       </button>
                       {relatedSessions.length > 1 ? (
-                        <span className="self-center text-[11px] text-emerald-100/70">其余会话可在会话页查看</span>
+                        <span className="app-text-muted self-center text-[11px]">其余会话可在会话页查看</span>
                       ) : null}
                     </div>
                   </>
@@ -6653,7 +6653,7 @@ function TodoPanel({
               <textarea
                 value={draft.description}
                 onChange={(event) => onDraftChange("description", event.target.value)}
-                className="app-input-shell min-h-40 w-full rounded-lg px-3 py-2 text-sm outline-none"
+                className="app-input-shell min-h-40 w-full rounded-lg border px-3 py-2 text-sm outline-none"
                 placeholder="补充任务目标、验收点或限制。"
               />
             </Field>
@@ -7029,7 +7029,7 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                 value={ruleContentDraft}
                 onChange={(e) => setRuleContentDraft(e.target.value)}
                 rows={16}
-                className="app-input-shell-strong w-full resize-y rounded-lg p-3 text-sm font-mono outline-none"
+                className="app-input-shell-strong w-full resize-y rounded-lg border p-3 text-sm font-mono outline-none"
               />
             </Field>
             <div className="flex justify-end gap-2">
@@ -7049,7 +7049,7 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                 <input
                   value={memoryDraft.name}
                   onChange={(e) => setMemoryDraft((d) => ({ ...d, name: e.target.value }))}
-                  className="app-input-shell-strong w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="app-input-shell-strong w-full rounded-lg border px-3 py-2 text-sm outline-none"
                   placeholder="my-memory"
                 />
               </Field>
@@ -7057,7 +7057,7 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                 <select
                   value={memoryDraft.type}
                   onChange={(e) => setMemoryDraft((d) => ({ ...d, type: e.target.value as MemoryType }))}
-                  className="app-input-shell-strong w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="app-input-shell-strong w-full rounded-lg border px-3 py-2 text-sm outline-none"
                 >
                   <option value="user">用户 (user)</option>
                   <option value="feedback">反馈 (feedback)</option>
@@ -7069,7 +7069,7 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                 <input
                   value={memoryDraft.description}
                   onChange={(e) => setMemoryDraft((d) => ({ ...d, description: e.target.value }))}
-                  className="app-input-shell-strong w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="app-input-shell-strong w-full rounded-lg border px-3 py-2 text-sm outline-none"
                   placeholder="简要描述"
                 />
               </Field>
@@ -7079,7 +7079,7 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                 value={memoryDraft.content}
                 onChange={(e) => setMemoryDraft((d) => ({ ...d, content: e.target.value }))}
                 rows={14}
-                className="app-input-shell-strong w-full resize-y rounded-lg p-3 text-sm font-mono outline-none"
+                className="app-input-shell-strong w-full resize-y rounded-lg border p-3 text-sm font-mono outline-none"
               />
             </Field>
             <div className="flex justify-end gap-2">
@@ -7152,7 +7152,7 @@ function GlobalMemoryPanel({ selectedProject, onRefresh }: { selectedProject: Pr
               value={editDraft}
               onChange={(e) => setEditDraft(e.target.value)}
               rows={12}
-              className="app-input-shell-strong w-full resize-y rounded-lg p-3 text-sm font-mono outline-none"
+              className="app-input-shell-strong w-full resize-y rounded-lg border p-3 text-sm font-mono outline-none"
               placeholder="输入全局 CLAUDE.md 内容..."
             />
           ) : content ? (
