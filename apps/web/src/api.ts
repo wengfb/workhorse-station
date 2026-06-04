@@ -112,6 +112,10 @@ export function getChatSessions() {
   return fetchJson<ChatSessionsResponse>("/api/chat-sessions");
 }
 
+export function getChatSession(chatSessionId: string) {
+  return fetchJson<ChatSessionResponse>(`/api/chat-sessions/${chatSessionId}`);
+}
+
 export function createChatSession(input: CreateChatSessionRequest) {
   return fetchJson<ChatSessionResponse>("/api/chat-sessions", {
     method: "POST",
@@ -239,7 +243,7 @@ export function deleteChatSession(chatSessionId: string) {
 }
 
 export function truncateChatMessages(chatSessionId: string, fromMessageId: string) {
-  return fetchJson<ChatSessionsResponse>(`/api/chat-sessions/${chatSessionId}/messages?from=${encodeURIComponent(fromMessageId)}`, {
+  return fetchJson<ChatSessionResponse>(`/api/chat-sessions/${chatSessionId}/messages?from=${encodeURIComponent(fromMessageId)}`, {
     method: "DELETE"
   });
 }

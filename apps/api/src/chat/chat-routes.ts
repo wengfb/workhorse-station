@@ -74,6 +74,19 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
     }
   }));
 
+  server.get<{ Params: ChatSessionParams }>("/api/chat-sessions/:chatSessionId", async (request): Promise<ApiResponse<ChatSessionResponse>> => {
+    const chatSession = await getChatSession(database.db, request.params.chatSessionId);
+
+    if (!chatSession) {
+      throw new HttpError(404, "chat_session_not_found", "聊天会话不存在");
+    }
+
+    return {
+      ok: true,
+      data: { chatSession }
+    };
+  });
+
   server.post<{ Body: CreateChatSessionRequest }>("/api/chat-sessions", async (request, reply): Promise<ApiResponse<ChatSessionResponse>> => {
     const input = await buildChatSessionInput(database, request.body);
     const title = normalizeSessionTitle(request.body?.title);
@@ -252,7 +265,7 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
 
   server.delete<{ Params: ChatSessionParams; Querystring: { from: string } }>(
     "/api/chat-sessions/:chatSessionId/messages",
-    async (request): Promise<ApiResponse<ChatSessionsResponse>> => {
+    async (request): Promise<ApiResponse<ChatSessionResponse>> => {
       const { chatSessionId } = request.params;
       const { from } = request.query;
 
@@ -270,7 +283,7 @@ export async function registerChatRoutes(server: FastifyInstance, database: Data
 
       return {
         ok: true,
-        data: { chatSessions: [session] }
+        data: { chatSession: session }
       };
     }
   );

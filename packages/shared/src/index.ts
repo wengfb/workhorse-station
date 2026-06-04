@@ -694,18 +694,22 @@ export type ChatMessageSummary = {
   createdAt: string;
 };
 
-export type ChatSessionSummary = {
+/** 列表项，不含消息历史 */
+export type ChatSessionListItem = {
   id: string;
   projectId: string | null;
   worktreeId: string | null;
   title: string;
-  messages: ChatMessageSummary[];
   createdAt: string;
   updatedAt: string;
 };
 
+export type ChatSessionSummary = ChatSessionListItem & {
+  messages: ChatMessageSummary[];
+};
+
 export type ChatSessionsResponse = {
-  chatSessions: ChatSessionSummary[];
+  chatSessions: ChatSessionListItem[];
 };
 
 export type ChatSessionResponse = {

@@ -81,6 +81,7 @@ import {
   deleteStoreSkill,
   deleteTodo,
   deleteWorktree,
+  getChatSession,
   getChatSessions,
   getHealth,
   getMeta,
@@ -273,6 +274,8 @@ export function App() {
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [pendingChatMessages, setPendingChatMessages] = useState<ChatStreamPendingMessage[]>([]);
   const [chatScrollSignal, setChatScrollSignal] = useState(0);
+  const [chatMessagesLoading, setChatMessagesLoading] = useState(false);
+  const [chatMessagesVersion, setChatMessagesVersion] = useState(0);
   const [activeProjectTab, setActiveProjectTab] = useState<ProjectTab>("todos");
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
@@ -395,7 +398,7 @@ export function App() {
         setApiState({ health, meta, loading: false, error: null });
         setProjects(projectsData.projects);
         setProjectsLoading(false);
-        setChatSessions(chatData.chatSessions);
+        setChatSessions(chatData.chatSessions.map((s) => ({ ...s, messages: [] as ChatMessageSummary[] })));
         setGlobalSkills(globalSkillsData.skills);
         setGlobalSkillsLoading(false);
         setGlobalSkillsError(null);
@@ -728,6 +731,34 @@ export function App() {
     }
   }, [selectedSessionId, selectedPromptDraftId, selectedProjectId, sessions, promptDrafts]);
 
+  // 选中聊天会话时按需加载消息历史
+  useEffect(() => {
+    if (!selectedChatId) {
+      return;
+    }
+
+    let cancelled = false;
+    setChatMessagesLoading(true);
+
+    getChatSession(selectedChatId)
+      .then((data) => {
+        if (cancelled) return;
+        setChatSessions((prev) => {
+          const index = prev.findIndex((s) => s.id === selectedChatId);
+          if (index === -1) return prev;
+          const updated = [...prev];
+          updated[index] = data.chatSession;
+          return updated;
+        });
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setChatMessagesLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedChatId, chatMessagesVersion]);
+
   const databaseInfo = apiState.meta?.database ?? null;
   const runningSessionCount = sessions.filter((session) => session.status === "running" || session.status === "queued").length;
   const recentProjects = projects.slice(0, 5);
@@ -811,7 +842,12 @@ export function App() {
         data.chatSessions[0] ??
         null;
 
-      setChatSessions(data.chatSessions);
+      setChatSessions((prev) =>
+        data.chatSessions.map((item) => {
+          const existing = prev.find((s) => s.id === item.id);
+          return { ...item, messages: existing?.messages ?? [] };
+        })
+      );
       setSelectedChatId(nextChat?.id ?? null);
       setChatError(null);
     } catch (error) {
@@ -2075,8 +2111,14 @@ export function App() {
 
     if (isEditing && targetChatId) {
       try {
-        await truncateChatMessages(targetChatId, editingMessageId!);
-        await reloadChatSessions(targetChatId);
+        const truncatedData = await truncateChatMessages(targetChatId, editingMessageId!);
+        setChatSessions((prev) => {
+          const index = prev.findIndex((s) => s.id === targetChatId);
+          if (index === -1) return prev;
+          const updated = [...prev];
+          updated[index] = truncatedData.chatSession;
+          return updated;
+        });
       } catch (error) {
         setChatError(formatError(error, "消息清理失败"));
         return;
@@ -2171,7 +2213,6 @@ export function App() {
             setSendingChat(false);
             setStreamingBlocks([]);
             removePendingChatMessage(pendingUserMessage.id);
-            void reloadChatSessions(event.chatSessionId);
             break;
           case "chat.error":
             setStreamingChatId(null);
@@ -2179,7 +2220,6 @@ export function App() {
             setStreamingBlocks([]);
             removePendingChatMessage(pendingUserMessage.id);
             pushLocalChatError(event.chatSessionId, event.message ?? "流式响应出错");
-            void reloadChatSessions(event.chatSessionId);
             break;
         }
       },
@@ -2821,6 +2861,7 @@ export function App() {
             onCancelEditMessage={handleCancelEditMessage}
             streamingChatId={streamingChatId}
             streamingBlocks={streamingBlocks}
+            chatMessagesLoading={chatMessagesLoading}
             onCreateGlobalNote={startCreateGlobalNote}
             onSelectGlobalNote={(note) => setSelectedGlobalNoteId(note.id)}
             onGlobalNoteDraftChange={updateGlobalNoteDraft}
@@ -3253,6 +3294,7 @@ function HomeWorkspace({
   onCancelEditMessage,
   streamingChatId,
   streamingBlocks,
+  chatMessagesLoading,
   onCreateGlobalNote,
   onSelectGlobalNote,
   onGlobalNoteDraftChange,
@@ -3344,6 +3386,7 @@ function HomeWorkspace({
   onCancelEditMessage: () => void;
   streamingChatId: string | null;
   streamingBlocks: StreamingBlock[];
+  chatMessagesLoading: boolean;
   onCreateGlobalNote: () => void;
   onSelectGlobalNote: (note: NoteSummary) => void;
   onGlobalNoteDraftChange: (field: keyof NoteDraft, value: string) => void;
@@ -3420,6 +3463,7 @@ function HomeWorkspace({
           visibleMessages={visibleChatMessages}
           isStreaming={isStreamingSelectedChat}
           scrollSignal={chatScrollSignal}
+          messagesLoading={chatMessagesLoading}
         />
       ) : (
         <HomeOverviewWorkspace
@@ -3518,7 +3562,8 @@ function HomeChatWorkspace({
   onCancelEditMessage,
   visibleMessages,
   isStreaming,
-  scrollSignal
+  scrollSignal,
+  messagesLoading
 }: {
   selectedProject: ProjectSummary | null;
   selectedWorktree: WorktreeSummary | null;
@@ -3534,6 +3579,7 @@ function HomeChatWorkspace({
   streamingChatId: string | null;
   streamingBlocks: StreamingBlock[];
   editingMessageId: string | null;
+  messagesLoading: boolean;
   onSelect: (session: ChatSessionSummary) => void;
   onCreate: () => void;
   onDraftChange: (value: string) => void;
@@ -3632,6 +3678,7 @@ function HomeChatWorkspace({
             {loading ? <div className="app-card app-border app-text-faint rounded-xl border p-6 text-center text-sm">聊天会话加载中...</div> : null}
             {!loading && error ? <div className="app-banner-danger rounded-xl border p-4 text-sm">{error}</div> : null}
             {!loading && !selectedChat ? <div className="app-border app-text-faint rounded-xl border border-dashed p-6 text-center text-sm">新建或选择一个聊天会话。</div> : null}
+            {!loading && selectedChat && messagesLoading ? <div className="app-card app-border app-text-faint rounded-xl border p-6 text-center text-sm">消息加载中...</div> : null}
             {visibleMessages.map((message) => (
               <ChatMessageBubble
                 key={message.id}

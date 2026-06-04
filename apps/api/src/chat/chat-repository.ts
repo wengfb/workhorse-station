@@ -4,6 +4,7 @@ import type {
   ChatAttachment,
   ChatMessageSummary,
   ChatRole,
+  ChatSessionListItem,
   ChatSessionSummary,
   ChatToolCall,
   ChatToolResult
@@ -57,14 +58,14 @@ const CHAT_SESSION_SELECT = `SELECT id, project_id, worktree_id, title, created_
 const CHAT_MESSAGE_SELECT = `SELECT id, chat_session_id, role, content, attachments_json, artifact_suggestions_json, tool_calls_json, tool_results_json, created_at, sequence
      FROM chat_messages`;
 
-export async function listChatSessions(db: DatabaseExecutor) {
-  const sessions = await selectChatSessions(
+export async function listChatSessions(db: DatabaseExecutor): Promise<ChatSessionListItem[]> {
+  const rows = await queryRows<ChatSessionRow>(
     db,
     `${CHAT_SESSION_SELECT}
      ORDER BY updated_at DESC, created_at DESC`
   );
 
-  return hydrateChatSessions(db, sessions);
+  return rows.map(mapChatSessionRow);
 }
 
 export async function getChatSession(db: DatabaseExecutor, chatSessionId: string) {
@@ -236,26 +237,12 @@ async function getChatMessage(db: DatabaseExecutor, messageId: string) {
   return row ? mapChatMessageRow(row) : null;
 }
 
-async function hydrateChatSessions(db: DatabaseExecutor, sessions: Omit<ChatSessionSummary, "messages">[]) {
-  return Promise.all(
-    sessions.map(async (session) => ({
-      ...session,
-      messages: await listChatMessages(db, session.id)
-    }))
-  );
-}
-
-async function selectChatSessions(db: DatabaseExecutor, sql: string, params: SqlParams = []) {
-  const rows = await queryRows<ChatSessionRow>(db, sql, params);
-  return rows.map(mapChatSessionRow);
-}
-
 async function selectChatSession(db: DatabaseExecutor, sql: string, params: SqlParams) {
   const row = await queryOne<ChatSessionRow>(db, sql, params);
   return row ? mapChatSessionRow(row) : null;
 }
 
-function mapChatSessionRow(row: ChatSessionRow): Omit<ChatSessionSummary, "messages"> {
+function mapChatSessionRow(row: ChatSessionRow): ChatSessionListItem {
   return {
     id: row.id,
     projectId: row.project_id,
