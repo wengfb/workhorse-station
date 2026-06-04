@@ -1,3 +1,4 @@
+import { Moon, Sun } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   ExecutionListItem,
@@ -135,6 +136,7 @@ import {
 } from "./api";
 import { SessionModal as SessionModalPanel, CreateSessionModal, SessionsWorkspace as SessionsWorkspacePanel, type SessionEditorDraft } from "./session-ui";
 import { createClientId } from "./lib/utils";
+import { useThemeSettings } from "./theme";
 
 type ApiState = {
   health: HealthResponse | null;
@@ -251,6 +253,7 @@ const textFileExtensions = new Set(["txt", "md", "markdown", "json", "ts", "tsx"
 const maxChatFileSize = 200_000;
 
 export function App() {
+  const { uiTheme, toggleUiTheme } = useThemeSettings();
   const [workspaceScope, setWorkspaceScope] = useState<WorkspaceScope>("home");
   const [activeHomeMode, setActiveHomeMode] = useState<HomeMode>("chat");
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
@@ -2656,11 +2659,11 @@ export function App() {
     void reloadExecutions({ kind: "workspace-terminal", id: event.terminalId });
   }
   return (
-    <div className="flex h-full flex-col bg-[#0b0c10] text-slate-100">
-      <header className="flex flex-wrap items-center gap-3 border-b border-white/10 bg-[#111318] px-4 py-3 sm:px-5">
+    <div className="app-theme flex h-full flex-col">
+      <header className="app-header app-border flex flex-wrap items-center gap-3 border-b px-4 py-3 sm:px-5">
         <div className="mr-1 min-w-44">
           <div className="text-sm font-semibold tracking-wide">Workhorse Station</div>
-          <div className="text-xs text-slate-400">全局工作台 / 项目执行上下文</div>
+          <div className="app-text-faint text-xs">全局工作台 / 项目执行上下文</div>
         </div>
 
         <TopModeNav
@@ -2692,19 +2695,28 @@ export function App() {
         />
 
         <input
-          className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none placeholder:text-slate-500 focus:border-slate-400 max-md:hidden"
+          className="app-input-shell min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm outline-none max-md:hidden"
           placeholder="搜索项目、笔记、任务、Skill"
         />
         <button
+          type="button"
+          onClick={toggleUiTheme}
+          className="app-button-secondary flex h-10 w-10 items-center justify-center rounded-lg border"
+          aria-label={uiTheme === "dark" ? "切换到亮色主题" : "切换到暗色主题"}
+          title={uiTheme === "dark" ? "切换到亮色主题" : "切换到暗色主题"}
+        >
+          {uiTheme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
+        <button
           onClick={openSessionViewer}
-          className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10"
+          className="app-button-secondary rounded-lg border px-3 py-2 text-sm"
         >
           会话
         </button>
         <StatusPill connected={apiConnected} loading={apiState.loading} />
       </header>
 
-      <main className={workspaceScope === "home" && activeHomeMode === "chat" ? "min-h-0 flex-1 overflow-hidden bg-[#0f1117]" : "min-h-0 flex-1 overflow-auto bg-[#0f1117] p-4 sm:p-5"}>
+      <main className={workspaceScope === "home" && activeHomeMode === "chat" ? "app-surface min-h-0 flex-1 overflow-hidden" : "app-surface min-h-0 flex-1 overflow-auto p-4 sm:p-5"}>
         {workspaceScope === "home" ? (
           <HomeWorkspace
             activeMode={activeHomeMode}
@@ -2911,22 +2923,22 @@ export function App() {
       {skillDocumentEditor.open ? (
         <Modal title={skillDocumentEditor.title} description={skillDocumentEditor.scopeLabel} onClose={closeSkillDocumentEditor}>
           <div className="space-y-4">
-            {skillDocumentError ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{skillDocumentError}</p> : null}
+            {skillDocumentError ? <p className="app-danger-soft rounded-lg border p-3 text-xs">{skillDocumentError}</p> : null}
             {skillDocumentLoading ? (
-              <div className="rounded-lg border border-white/10 p-4 text-sm text-slate-400">文档加载中...</div>
+              <div className="app-border app-text-faint rounded-lg border p-4 text-sm">文档加载中...</div>
             ) : (
               <textarea
                 value={skillDocumentContent}
                 onChange={(e) => setSkillDocumentContent(e.target.value)}
                 rows={18}
-                className="w-full resize-y rounded-lg border border-white/10 bg-[#0b0c10] p-3 font-mono text-sm text-slate-100 outline-none focus:border-white/20"
+                className="app-input-shell-strong w-full resize-y rounded-lg border p-3 font-mono text-sm outline-none"
               />
             )}
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={closeSkillDocumentEditor} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+              <button type="button" onClick={closeSkillDocumentEditor} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
                 取消
               </button>
-              <button type="button" disabled={skillDocumentLoading || skillDocumentSaving} onClick={() => void handleSaveSkillDocument()} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
+              <button type="button" disabled={skillDocumentLoading || skillDocumentSaving} onClick={() => void handleSaveSkillDocument()} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50">
                 {skillDocumentSaving ? "保存中..." : "保存"}
               </button>
             </div>
@@ -3043,12 +3055,12 @@ function TopModeNav({
   onChange: (value: HomeMode) => void;
 }) {
   return (
-    <nav className="flex rounded-lg border border-white/10 bg-black/20 p-1">
+    <nav className="app-input app-border flex rounded-lg border p-1">
       {modes.map((mode) => (
         <button
           key={mode.id}
           onClick={() => onChange(mode.id)}
-          className={`rounded-md px-3 py-1.5 text-sm ${value === mode.id ? "bg-white text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-slate-100"}`}
+          className={`rounded-md px-3 py-1.5 text-sm ${value === mode.id ? "app-button-primary" : "app-text-faint app-hover-accent app-hover-text"}`}
         >
           {mode.label}
         </button>
@@ -3091,10 +3103,10 @@ function ProjectMenu({
 
   return (
     <div ref={containerRef} className="relative min-w-44">
-      <div className="flex overflow-hidden rounded-lg border border-white/10 bg-white/5 text-sm text-slate-200">
+      <div className="app-button-secondary app-border flex overflow-hidden rounded-lg border text-sm">
         <button
           onClick={onEnterCurrent}
-          className="min-w-0 flex-1 px-3 py-2 text-left hover:bg-white/10"
+          className="app-hover-accent-strong min-w-0 flex-1 px-3 py-2 text-left"
         >
           <span className="block truncate">项目：{selectedProject?.name ?? "未选择"}</span>
         </button>
@@ -3103,29 +3115,29 @@ function ProjectMenu({
           aria-label={open ? "收起项目列表" : "展开项目列表"}
           aria-expanded={open}
           onClick={() => onOpenChange(!open)}
-          className="border-l border-white/10 px-3 py-2 text-slate-400 hover:bg-white/10 hover:text-slate-100"
+          className="app-border app-text-faint app-hover-accent-strong app-hover-text border-l px-3 py-2"
         >
           <span className={`block text-xs transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
         </button>
       </div>
       {open ? (
-        <div className="absolute left-0 top-full z-30 mt-2 w-80 overflow-hidden rounded-xl border border-white/10 bg-[#151821] shadow-2xl">
-          <div className="border-b border-white/10 px-3 py-2 text-xs text-slate-500">项目列表</div>
+        <div className="app-panel app-border absolute left-0 top-full z-30 mt-2 w-80 overflow-hidden rounded-xl border shadow-2xl">
+          <div className="app-border app-text-faint border-b px-3 py-2 text-xs">项目列表</div>
           <div className="max-h-80 overflow-auto p-2">
-            {loading ? <div className="px-3 py-3 text-sm text-slate-400">项目加载中...</div> : null}
-            {!loading && projects.length === 0 ? <div className="px-3 py-3 text-sm text-slate-500">还没有项目。</div> : null}
+            {loading ? <div className="app-text-faint px-3 py-3 text-sm">项目加载中...</div> : null}
+            {!loading && projects.length === 0 ? <div className="app-text-faint px-3 py-3 text-sm">还没有项目。</div> : null}
             {projects.map((project) => (
               <button
                 key={project.id}
                 onClick={() => onEnter(project)}
-                className={`w-full rounded-lg p-2 text-left ${selectedProject?.id === project.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}
+                className={`w-full rounded-lg p-2 text-left ${selectedProject?.id === project.id ? "app-accent" : "app-hover-accent"}`}
               >
-                <div className="truncate text-sm text-slate-100">{project.name}</div>
-                <div className="mt-1 truncate text-xs text-slate-500">{project.path}</div>
+                <div className="app-text truncate text-sm">{project.name}</div>
+                <div className="app-text-faint mt-1 truncate text-xs">{project.path}</div>
               </button>
             ))}
           </div>
-          <button onClick={onCreate} className="block w-full border-t border-white/10 px-3 py-2 text-left text-sm text-slate-200 hover:bg-white/5">
+          <button onClick={onCreate} className="app-button-secondary app-border block w-full border-t px-3 py-2 text-left text-sm">
             添加项目
           </button>
         </div>
@@ -3504,35 +3516,35 @@ function HomeChatWorkspace({
   }, [editingMessageId]);
 
   return (
-    <section className="grid h-full grid-cols-1 overflow-hidden bg-[#0f1117] lg:grid-cols-[260px_minmax(0,1fr)]">
-      <aside className="flex flex-col overflow-hidden bg-[#111318] p-3">
+    <section className="app-surface grid h-full grid-cols-1 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]">
+      <aside className="app-header flex flex-col overflow-hidden p-3">
         <div className="shrink-0">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="text-sm font-medium text-slate-100">聊天会话</div>
-              <div className="mt-1 text-xs text-slate-500">不同于 Claude Code 会话</div>
+              <div className="app-text text-sm font-medium">聊天会话</div>
+              <div className="app-text-faint mt-1 text-xs">不同于 Claude Code 会话</div>
             </div>
-            <button onClick={onCreate} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-white/5">
+            <button onClick={onCreate} className="app-button-secondary rounded-lg border px-2.5 py-1.5 text-xs">
               新建
             </button>
           </div>
         </div>
         <div className="mt-3 flex-1 overflow-y-auto lg:space-y-1">
-          {chatSessions.length === 0 ? <div className="rounded-xl border border-dashed border-white/10 p-3 text-sm text-slate-500">还没有聊天会话</div> : null}
+          {chatSessions.length === 0 ? <div className="app-border app-text-faint rounded-xl border border-dashed p-3 text-sm">还没有聊天会话</div> : null}
           {chatSessions.map((session) => (
-            <div key={session.id} className={`group flex items-center rounded-xl p-3 text-sm ${selectedChat?.id === session.id ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}>
+            <div key={session.id} className={`group flex items-center rounded-xl p-3 text-sm ${selectedChat?.id === session.id ? "app-accent" : "app-hover-accent"}`}>
               <button
                 onClick={() => onSelect(session)}
                 className="min-w-0 flex-1 text-left"
               >
-                <div className="truncate font-medium text-slate-100">{session.title}</div>
-                <div className="mt-1 truncate text-xs text-slate-500">{formatDateTime(session.updatedAt)}</div>
+                <div className="app-text truncate font-medium">{session.title}</div>
+                <div className="app-text-faint mt-1 truncate text-xs">{formatDateTime(session.updatedAt)}</div>
               </button>
               <button
                 type="button"
                 disabled={deletingChatId === session.id}
                 onClick={() => onDelete(session)}
-                className="ml-2 shrink-0 rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-400 opacity-0 hover:bg-white/5 group-hover:opacity-100 disabled:opacity-50"
+                className="app-button-secondary ml-2 shrink-0 rounded-md border px-2 py-1 text-[11px] opacity-0 group-hover:opacity-100 disabled:opacity-50"
               >
                 {deletingChatId === session.id ? "删除中..." : "删除"}
               </button>
@@ -3542,7 +3554,7 @@ function HomeChatWorkspace({
       </aside>
 
       <form onSubmit={onSubmit} className="flex min-h-0 flex-col">
-        <div className="mx-auto w-full max-w-[768px] px-4 py-3 text-xs text-slate-500">
+        <div className="app-text-faint mx-auto w-full max-w-[768px] px-4 py-3 text-xs">
           上下文：{selectedProject?.name ?? "未选择项目"} / {selectedWorktree?.name ?? "未选择 worktree"} · 可直接让我搜索笔记、创建任务或保存 Prompt
         </div>
         <div
@@ -3556,9 +3568,9 @@ function HomeChatWorkspace({
           }}
         >
           <div className="mx-auto w-full max-w-[768px] space-y-4 p-4 sm:p-6">
-            {loading ? <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6 text-center text-sm text-slate-500">聊天会话加载中...</div> : null}
-            {!loading && error ? <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div> : null}
-            {!loading && !selectedChat ? <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-500">新建或选择一个聊天会话。</div> : null}
+            {loading ? <div className="app-card app-border app-text-faint rounded-xl border p-6 text-center text-sm">聊天会话加载中...</div> : null}
+            {!loading && error ? <div className="app-banner-danger rounded-xl border p-4 text-sm">{error}</div> : null}
+            {!loading && !selectedChat ? <div className="app-border app-text-faint rounded-xl border border-dashed p-6 text-center text-sm">新建或选择一个聊天会话。</div> : null}
             {visibleMessages.map((message) => (
               <ChatMessageBubble
                 key={message.id}
@@ -3577,7 +3589,7 @@ function HomeChatWorkspace({
             ))}
             {isStreaming ? (
               <div className="flex justify-start">
-                <div className="w-full space-y-3 rounded-2xl px-4 py-3 text-sm text-slate-200">
+                <div className="app-text-soft w-full space-y-3 rounded-2xl px-4 py-3 text-sm">
                   {streamingBlocks.length === 0 ? <ChatStreamingPlaceholder /> : streamingBlocks.map((block, idx) => renderStreamingBlock(block, idx, expandedToolCalls, setExpandedToolCalls, onConfirmTool))}
                 </div>
               </div>
@@ -3588,15 +3600,15 @@ function HomeChatWorkspace({
         <div className="p-3 sm:p-4">
           <div className="mx-auto w-full max-w-[768px]">
             {chatFile ? (
-              <div className="mb-2 flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-300">
+              <div className="app-card app-border app-text-muted mb-2 flex items-center justify-between rounded-lg border px-3 py-2 text-xs">
                 <span className="truncate">已选择文件：{chatFile.name}</span>
-                <button type="button" onClick={() => onFileChange(null)} className="text-slate-500 hover:text-slate-200">
+                <button type="button" onClick={() => onFileChange(null)} className="app-text-faint app-hover-text">
                   移除
                 </button>
               </div>
             ) : null}
-            <div className="flex items-end gap-2 rounded-2xl border border-white/10 bg-black/20 p-2">
-              <label className="shrink-0 cursor-pointer rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-300 hover:bg-white/5">
+            <div className="app-input app-border flex items-end gap-2 rounded-2xl border p-2">
+              <label className="app-button-secondary shrink-0 cursor-pointer rounded-xl border px-3 py-2 text-sm">
                 选择文件
                 <input
                   type="file"
@@ -3626,10 +3638,10 @@ function HomeChatWorkspace({
                     }
                   }
                 }}
-                className="max-h-36 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600"
+                className="app-text app-placeholder-faint max-h-36 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
                 placeholder="输入消息。我会在需要时帮你搜索、创建笔记、任务或 Prompt。"
               />
-              <button disabled={creating || sending || !!streamingChatId} className="shrink-0 rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
+              <button disabled={creating || sending || !!streamingChatId} className="app-button-primary shrink-0 rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50">
                 {streamingChatId ? "接收中..." : sending ? "发送中..." : creating ? "创建中..." : "发送"}
               </button>
             </div>
@@ -3665,10 +3677,12 @@ function ChatMessageBubble({
   onConfirmTool: (toolCallId: string, approved: boolean) => void;
   onStartEditMessage: (messageId: string, content: string) => void;
 }) {
+  const isEditing = editingMessageId === message.id;
+
   return (
     <div className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
       <div
-        className={`space-y-3 rounded-2xl px-4 py-3 text-sm ${message.role === "user" ? "max-w-[82%] bg-slate-100 text-slate-950" : "w-full text-slate-200"} ${message.role === "user" && !streamingChatId ? "cursor-pointer" : ""}`}
+        className={`space-y-3 rounded-2xl px-4 py-3 text-sm ${message.role === "user" ? "max-w-[82%] app-panel-strong app-border app-text border" : "w-full app-text-soft"} ${message.role === "user" && !streamingChatId && !isEditing ? "cursor-pointer" : ""}`}
         onDoubleClick={message.role === "user" && !streamingChatId ? () => onStartEditMessage(message.id, message.content) : undefined}
       >
         {editingMessageId === message.id ? (
@@ -3686,15 +3700,15 @@ function ChatMessageBubble({
                   onCancelEditMessage();
                 }
               }}
-              className="w-full resize-none rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm text-slate-950 outline-none"
+              className="app-input-shell w-full resize-none rounded-lg border px-3 py-2 text-sm outline-none"
               rows={3}
               autoFocus
             />
             <div className="flex items-center justify-end gap-2">
-              <button type="button" onClick={onCancelEditMessage} className="rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-200">
+              <button type="button" onClick={onCancelEditMessage} className="app-button-secondary rounded-md border px-2.5 py-1 text-xs">
                 取消
               </button>
-              <span className="text-[11px] text-slate-400">Enter 发送 · Shift+Enter 换行 · Esc 取消</span>
+              <span className="app-text-faint text-[11px]">Enter 发送 · Shift+Enter 换行 · Esc 取消</span>
             </div>
           </div>
         ) : message.content.startsWith("::chat-error::") ? (
@@ -3703,11 +3717,11 @@ function ChatMessageBubble({
           <MarkdownContent content={message.content} />
         )}
         {message.attachments.length ? (
-          <div className="space-y-2 border-t border-white/10 pt-3 text-xs text-slate-400">
+          <div className="app-border app-text-faint space-y-2 border-t pt-3 text-xs">
             {message.attachments.map((attachment) => (
-              <div key={`${message.id}-${attachment.name}`} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                <div className="truncate font-medium text-slate-200">{attachment.name}</div>
-                <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-500">
+              <div key={`${message.id}-${attachment.name}`} className="app-input app-border rounded-lg border px-3 py-2">
+                <div className="app-text-soft truncate font-medium">{attachment.name}</div>
+                <div className="app-text-faint mt-1 flex flex-wrap gap-2 text-[11px]">
                   <span>{attachment.mimeType}</span>
                   <span>{formatFileSize(attachment.size)}</span>
                 </div>
@@ -3716,34 +3730,34 @@ function ChatMessageBubble({
           </div>
         ) : null}
         {message.toolCalls.length ? (
-          <div className="space-y-2 border-t border-white/10 pt-3">
+          <div className="app-border space-y-2 border-t pt-3">
             {message.toolCalls.map((tc) => renderToolCallBlock(tc, message.toolResults.find((tr) => tr.toolCallId === tc.id), expandedToolCalls, setExpandedToolCalls, onConfirmTool))}
           </div>
         ) : null}
         {message.role === "user" && message.toolResults.length ? (
-          <div className="space-y-1 border-t border-white/10 pt-3">
+          <div className="app-border space-y-1 border-t pt-3">
             {message.toolResults.map((tr) => (
-              <div key={tr.toolCallId} className={`text-xs ${tr.isError ? "text-red-300" : "text-emerald-300"}`}>
+              <div key={tr.toolCallId} className={`text-xs ${tr.isError ? "app-text-danger" : "app-text-success"}`}>
                 {tr.isError ? "❌ " : "✅ "}{tr.result}
               </div>
             ))}
           </div>
         ) : null}
         {message.artifactSuggestions.length ? (
-          <div className="space-y-2 border-t border-white/10 pt-3">
+          <div className="app-border space-y-2 border-t pt-3">
             {message.artifactSuggestions.map((suggestion) => {
               const saved = suggestion.adoption?.status === "saved";
 
               return (
-                <div key={suggestion.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-slate-300">
+                <div key={suggestion.id} className="app-input app-border app-text-muted rounded-xl border p-3 text-xs">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="font-medium text-slate-100">{suggestion.title}</div>
-                      <div className="mt-1 text-slate-500">{suggestion.type === "note" ? "笔记草稿" : suggestion.type === "todo" ? "任务草稿" : "Prompt 草稿"}</div>
+                      <div className="app-text font-medium">{suggestion.title}</div>
+                      <div className="app-text-faint mt-1">{suggestion.type === "note" ? "笔记草稿" : suggestion.type === "todo" ? "任务草稿" : "Prompt 草稿"}</div>
                     </div>
-                    {saved ? <span className="shrink-0 rounded-md border border-white/10 px-2 py-1 text-[11px] text-emerald-300">已保存</span> : null}
+                    {saved ? <span className="app-pill-neutral app-text-success shrink-0 rounded-md border px-2 py-1 text-[11px]">已保存</span> : null}
                   </div>
-                  {saved ? <div className="mt-2 text-[11px] text-emerald-300">已保存到 {formatSuggestionTargetLabel(suggestion.type)}</div> : null}
+                  {saved ? <div className="app-text-success mt-2 text-[11px]">已保存到 {formatSuggestionTargetLabel(suggestion.type)}</div> : null}
                 </div>
               );
             })}
@@ -3766,9 +3780,9 @@ function ChatErrorBubble({ payload }: { payload: string }) {
   const raw = parsed?.raw || payload || "流式响应出错";
 
   return (
-    <div className="flex items-start gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-100">
-      <span className="mt-0.5 text-red-300" aria-hidden="true">!</span>
-      <div className="min-w-0 whitespace-pre-wrap break-all text-xs leading-relaxed text-red-100/90">{raw}</div>
+    <div className="app-banner-danger flex items-start gap-2 rounded-2xl border px-4 py-3">
+      <span className="app-text-danger mt-0.5" aria-hidden="true">!</span>
+      <div className="min-w-0 whitespace-pre-wrap break-all text-xs leading-relaxed">{raw}</div>
     </div>
   );
 }
@@ -3800,28 +3814,45 @@ function renderToolCallBlock(
   const showExpanded = result && (result.isError || !isLong || isExpanded);
 
   return (
-    <div key={tc.id} className={`rounded-xl border p-3 text-xs ${tc.status === "pending_confirmation" ? "border-amber-500/30 bg-amber-500/10" : tc.status === "rejected" ? "border-red-500/20 bg-red-500/5" : "border-emerald-500/20 bg-emerald-500/5"}`}>
+    <div
+      key={tc.id}
+      className={`rounded-xl border p-3 text-xs ${
+        tc.status === "pending_confirmation"
+          ? "app-banner-warning"
+          : tc.status === "rejected"
+            ? "app-banner-danger"
+            : "app-banner-success"
+      }`}
+    >
       <div className="flex items-center gap-2">
-        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${tc.status === "pending_confirmation" ? "bg-amber-500/15 text-amber-300" : tc.status === "rejected" ? "bg-red-500/15 text-red-300" : "bg-emerald-500/15 text-emerald-300"}`}>
+        <span
+          className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${
+            tc.status === "pending_confirmation"
+              ? "app-button-warning"
+              : tc.status === "rejected"
+                ? "app-button-danger"
+                : "app-button-success"
+          }`}
+        >
           {toolLabel(tc.name)}
         </span>
-        <span className="truncate font-medium text-slate-100">{formatToolSummary(tc.name, tc.input)}</span>
-        {tc.status === "pending_confirmation" ? <span className="ml-auto shrink-0 text-[11px] text-amber-400">等待确认</span> : tc.status === "rejected" ? <span className="ml-auto shrink-0 text-[11px] text-red-400">已拒绝</span> : null}
+        <span className="app-text truncate font-medium">{formatToolSummary(tc.name, tc.input)}</span>
+        {tc.status === "pending_confirmation" ? <span className="app-text-warning ml-auto shrink-0 text-[11px]">等待确认</span> : tc.status === "rejected" ? <span className="app-text-danger ml-auto shrink-0 text-[11px]">已拒绝</span> : null}
       </div>
       {tc.status === "pending_confirmation" ? (
         <div className="mt-2 flex gap-2">
-          <button onClick={() => onConfirmTool(tc.id, true)} className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/20">
+          <button onClick={() => onConfirmTool(tc.id, true)} className="app-button-success rounded-md border px-2.5 py-1 text-[11px]">
             执行
           </button>
-          <button onClick={() => onConfirmTool(tc.id, false)} className="rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-[11px] text-red-300 hover:bg-red-500/20">
+          <button onClick={() => onConfirmTool(tc.id, false)} className="app-button-danger rounded-md border px-2.5 py-1 text-[11px]">
             拒绝
           </button>
         </div>
       ) : null}
       {isExecuted && result ? (
-        <div className={`mt-2 border-t pt-2 ${result.isError ? "border-red-500/20" : "border-emerald-500/10"}`}>
+        <div className={`mt-2 border-t pt-2 ${result.isError ? "app-danger-soft" : "app-success-soft"}`}>
           {showExpanded ? (
-            <div className={result.isError ? "text-red-300" : "text-slate-400"}>
+            <div className={result.isError ? "app-text-danger" : "app-text-faint"}>
               {result.isError ? "❌ " : "✅ "}{result.result}
               {isLong && !result.isError ? (
                 <button onClick={() => {
@@ -3830,13 +3861,13 @@ function renderToolCallBlock(
                     next.delete(tc.id);
                     return next;
                   });
-                }} className="ml-1 text-emerald-400 hover:text-emerald-300">收起</button>
+                }} className="app-text-success ml-1">收起</button>
               ) : null}
             </div>
           ) : (
-            <div className="text-slate-400">
+            <div className="app-text-faint">
               {result.result.slice(0, 80)}...
-              <button onClick={() => setExpandedToolCalls((prev) => new Set([...prev, tc.id]))} className="ml-1 text-emerald-400 hover:text-emerald-300">展开</button>
+              <button onClick={() => setExpandedToolCalls((prev) => new Set([...prev, tc.id]))} className="app-text-success ml-1">展开</button>
             </div>
           )}
         </div>
@@ -3847,15 +3878,15 @@ function renderToolCallBlock(
 
 function ChatStreamingPlaceholder() {
   return (
-    <div className="space-y-2 animate-in fade-in text-slate-400">
+    <div className="app-text-faint space-y-2 animate-in fade-in">
       <div className="flex gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-slate-500 animate-pulse [animation-delay:0ms]" />
-        <span className="h-2 w-2 rounded-full bg-slate-500 animate-pulse [animation-delay:150ms]" />
-        <span className="h-2 w-2 rounded-full bg-slate-500 animate-pulse [animation-delay:300ms]" />
+        <span className="app-dot-neutral h-2 w-2 rounded-full animate-pulse [animation-delay:0ms]" />
+        <span className="app-dot-neutral h-2 w-2 rounded-full animate-pulse [animation-delay:150ms]" />
+        <span className="app-dot-neutral h-2 w-2 rounded-full animate-pulse [animation-delay:300ms]" />
       </div>
       <div className="space-y-2">
-        <div className="h-3 w-32 rounded-full bg-white/8 animate-pulse" />
-        <div className="h-3 w-56 rounded-full bg-white/8 animate-pulse [animation-delay:150ms]" />
+        <div className="app-skeleton h-3 w-32 rounded-full animate-pulse" />
+        <div className="app-skeleton h-3 w-56 rounded-full animate-pulse [animation-delay:150ms]" />
       </div>
     </div>
   );
@@ -4047,41 +4078,41 @@ function HomeOverviewWorkspace({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#151821] px-4 py-2.5 text-xs text-slate-400">
-        <span className="font-medium text-slate-300">系统状态</span>
-        <span className={`inline-flex items-center gap-1 ${apiConnected ? "text-emerald-400" : "text-red-400"}`}>
-          <span className={`inline-block h-1.5 w-1.5 rounded-full ${apiConnected ? "bg-emerald-400" : "bg-red-400"}`} />
+      <div className="app-panel app-border app-text-faint flex items-center gap-3 rounded-xl border px-4 py-2.5 text-xs">
+        <span className="app-text-muted font-medium">系统状态</span>
+        <span className={`inline-flex items-center gap-1 ${apiConnected ? "app-text-success" : "app-text-danger"}`}>
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${apiConnected ? "app-dot-success" : "app-dot-danger"}`} />
           API
         </span>
-        <span className="text-slate-600">|</span>
-        <span className={`inline-flex items-center gap-1 ${databaseInfo?.connected ? "text-emerald-400" : "text-slate-500"}`}>
-          <span className={`inline-block h-1.5 w-1.5 rounded-full ${databaseInfo?.connected ? "bg-emerald-400" : "bg-slate-500"}`} />
+        <span className="app-text-fainter">|</span>
+        <span className={`inline-flex items-center gap-1 ${databaseInfo?.connected ? "app-text-success" : "app-text-faint"}`}>
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${databaseInfo?.connected ? "app-dot-success" : "app-dot-neutral"}`} />
           DB
         </span>
-        <span className="text-slate-600">|</span>
-        <span className={`inline-flex items-center gap-1 ${databaseInfo?.connected ? "text-emerald-400" : "text-slate-500"}`}>
-          <span className={`inline-block h-1.5 w-1.5 rounded-full ${databaseInfo?.connected ? "bg-emerald-400" : "bg-slate-500"}`} />
+        <span className="app-text-fainter">|</span>
+        <span className={`inline-flex items-center gap-1 ${databaseInfo?.connected ? "app-text-success" : "app-text-faint"}`}>
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${databaseInfo?.connected ? "app-dot-success" : "app-dot-neutral"}`} />
           {databaseInfo?.engine?.toUpperCase() ?? "DB"}
         </span>
         {apiError ? (
           <>
-            <span className="text-slate-600">|</span>
-            <span className="text-red-400">{apiError}</span>
+            <span className="app-text-fainter">|</span>
+            <span className="app-text-danger">{apiError}</span>
           </>
         ) : null}
       </div>
 
-      <nav className="flex rounded-lg border border-white/10 bg-black/20 p-1">
+      <nav className="app-input app-border flex rounded-lg border p-1">
         {workbenchTabs.map((tab) => {
           const count = tab.id === "projects" ? projectCount : tab.id === "sessions" ? runningCount : tab.id === "chats" ? chatCount : tab.id === "notes" ? noteCount : tab.id === "skill-store" ? storeSkillCount : skillCount;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm ${activeTab === tab.id ? "bg-white text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-slate-100"}`}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm ${activeTab === tab.id ? "app-button-primary" : "app-text-faint app-hover-accent app-hover-text"}`}
             >
               {tab.label}
-              <span className={`rounded px-1 text-[11px] ${activeTab === tab.id ? "bg-slate-200 text-slate-700" : "bg-white/10 text-slate-500"}`}>{count}</span>
+              <span className={`rounded px-1 text-[11px] ${activeTab === tab.id ? "app-accent-strong app-text-fainter" : "app-accent app-text-faint"}`}>{count}</span>
             </button>
           );
         })}
@@ -4156,38 +4187,38 @@ function HomeOverviewWorkspace({
           onRefreshChatSkills={onRefreshChatSkills ?? (() => {})}
         />
       ) : activeTab === "projects" ? (
-        <section className="rounded-xl border border-white/10 bg-[#151821]">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+        <section className="app-panel app-border rounded-xl border">
+          <div className="app-border flex items-center justify-between border-b px-4 py-3">
             <div>
-              <div className="text-sm font-medium text-slate-100">项目管理</div>
-              <p className="mt-0.5 text-xs text-slate-500">所有项目，点击进入项目工作台。</p>
+              <div className="app-text text-sm font-medium">项目管理</div>
+              <p className="app-text-faint mt-0.5 text-xs">所有项目，点击进入项目工作台。</p>
             </div>
-            <button onClick={onCreateProject} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+            <button onClick={onCreateProject} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
               新建项目
             </button>
           </div>
           <div className="p-4">
             {projects.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">还没有项目，先创建一个吧。</div>
+              <div className="app-border app-text-faint rounded-lg border border-dashed p-8 text-center">还没有项目，先创建一个吧。</div>
             ) : (
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                 {projects.map((project) => (
-                  <div key={project.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]">
+                  <div key={project.id} className="app-card app-border app-card-hover rounded-lg border p-3 transition-colors">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="truncate font-medium text-slate-100">{project.name}</div>
-                        <div className="mt-0.5 truncate text-xs text-slate-500">{project.path}</div>
+                        <div className="app-text truncate font-medium">{project.name}</div>
+                        <div className="app-text-faint mt-0.5 truncate text-xs">{project.path}</div>
                       </div>
-                      <button onClick={() => onEnterProject(project.id)} className="shrink-0 rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5">
+                      <button onClick={() => onEnterProject(project.id)} className="app-button-secondary shrink-0 rounded border px-2 py-0.5 text-xs">
                         进入
                       </button>
                     </div>
                     {project.latestSessionResult ? (
-                      <div className="mt-2 truncate rounded bg-white/[0.03] px-2 py-1 text-xs text-slate-400">
+                      <div className="app-card app-text-faint mt-2 truncate rounded px-2 py-1 text-xs">
                         {project.latestSessionResult.sessionName}: {project.latestSessionResult.summary.slice(0, 80)}{project.latestSessionResult.summary.length > 80 ? "..." : ""}
                       </div>
                     ) : null}
-                    <div className="mt-2 text-xs text-slate-500">更新于 {formatDateTime(project.updatedAt)}</div>
+                    <div className="app-text-faint mt-2 text-xs">更新于 {formatDateTime(project.updatedAt)}</div>
                   </div>
                 ))}
               </div>
@@ -4195,28 +4226,28 @@ function HomeOverviewWorkspace({
           </div>
         </section>
       ) : activeTab === "chats" ? (
-        <section className="rounded-xl border border-white/10 bg-[#151821]">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+        <section className="app-panel app-border rounded-xl border">
+          <div className="app-border flex items-center justify-between border-b px-4 py-3">
             <div>
-              <div className="text-sm font-medium text-slate-100">聊天会话</div>
-              <p className="mt-0.5 text-xs text-slate-500">AI 聊天会话，点击进入聊天。</p>
+              <div className="app-text text-sm font-medium">聊天会话</div>
+              <p className="app-text-faint mt-0.5 text-xs">AI 聊天会话，点击进入聊天。</p>
             </div>
           </div>
           <div className="p-4">
             {chatSessions.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">还没有聊天会话，切换到聊天页面开始吧。</div>
+              <div className="app-border app-text-faint rounded-lg border border-dashed p-8 text-center">还没有聊天会话，切换到聊天页面开始吧。</div>
             ) : (
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                 {chatSessions.map((session) => (
                   <button
                     key={session.id}
                     onClick={() => onSelectChat(session)}
-                    className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-left transition-colors hover:bg-white/[0.06]"
+                    className="app-card app-border app-card-hover rounded-lg border p-3 text-left transition-colors"
                   >
-                    <div className="truncate font-medium text-slate-100">{session.title}</div>
-                    <div className="mt-1 text-xs text-slate-500">{formatDateTime(session.updatedAt)}</div>
+                    <div className="app-text truncate font-medium">{session.title}</div>
+                    <div className="app-text-faint mt-1 text-xs">{formatDateTime(session.updatedAt)}</div>
                     {session.messages.length > 0 ? (
-                      <div className="mt-1.5 truncate text-xs text-slate-400">{session.messages[session.messages.length - 1].content.slice(0, 100)}</div>
+                      <div className="app-text-muted mt-1.5 truncate text-xs">{session.messages[session.messages.length - 1].content.slice(0, 100)}</div>
                     ) : null}
                   </button>
                 ))}
@@ -4227,30 +4258,30 @@ function HomeOverviewWorkspace({
       ) : activeTab === "memory" ? (
         <GlobalMemoryPanel selectedProject={selectedProject} />
       ) : (
-        <section className="rounded-xl border border-white/10 bg-[#151821]">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+        <section className="app-panel app-border rounded-xl border">
+          <div className="app-border flex items-center justify-between border-b px-4 py-3">
             <div>
-              <div className="text-sm font-medium text-slate-100">运行中执行项</div>
-              <p className="mt-0.5 text-xs text-slate-500">当前正在运行的 Claude Code 会话与普通终端。</p>
+              <div className="app-text text-sm font-medium">运行中执行项</div>
+              <p className="app-text-faint mt-0.5 text-xs">当前正在运行的 Claude Code 会话与普通终端。</p>
             </div>
-            <button onClick={onOpenWorkspaceTerminal} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+            <button onClick={onOpenWorkspaceTerminal} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
               打开终端
             </button>
           </div>
           <div className="p-4">
             {runningSessions.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">没有运行中的执行项</div>
+              <div className="app-border app-text-faint rounded-lg border border-dashed p-8 text-center">没有运行中的执行项</div>
             ) : (
               <div className="space-y-2">
                 {runningSessions.map((session) => (
-                  <div key={`${session.kind}:${session.id}`} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                  <div key={`${session.kind}:${session.id}`} className="app-card app-border flex items-center justify-between rounded-lg border p-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
-                        <span className="truncate font-medium text-slate-100">{session.name}</span>
-                        <span className="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-300">{session.runtimeStatus ?? session.status}</span>
+                        <span className="app-dot-success inline-block h-2 w-2 rounded-full" />
+                        <span className="app-text truncate font-medium">{session.name}</span>
+                        <span className="app-pill-success shrink-0 rounded px-1.5 py-0.5 text-xs">{session.runtimeStatus ?? session.status}</span>
                       </div>
-                      <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                      <div className="app-text-faint mt-0.5 flex items-center gap-2 text-xs">
                         <span>{session.projectName ?? "工作台根目录"}</span>
                         <span>·</span>
                         <span>{session.kind === "workspace-terminal" ? "终端" : "Claude 会话"}</span>
@@ -4260,7 +4291,7 @@ function HomeOverviewWorkspace({
                     </div>
                     <button
                       onClick={() => onOpenExecution(session)}
-                      className="ml-3 shrink-0 rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5"
+                      className="app-button-secondary ml-3 shrink-0 rounded border px-2 py-0.5 text-xs"
                     >
                       打开
                     </button>
@@ -4451,13 +4482,13 @@ function ProjectWorkspacePage({
 }) {
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
-      <section className="rounded-2xl border border-white/10 bg-[#151821] p-5">
+      <section className="app-panel app-border rounded-2xl border p-5">
         <div className="flex flex-col gap-4">
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
             <div>
-              <div className="text-xs text-slate-500">项目工作台</div>
+              <div className="app-text-faint text-xs">项目工作台</div>
               <h1 className="mt-2 text-2xl font-semibold">{selectedProject?.name ?? "选择或创建项目"}</h1>
-              <p className="mt-2 max-w-2xl text-sm text-slate-400">
+              <p className="app-text-muted mt-2 max-w-2xl text-sm">
                 项目内承载任务、笔记、Skill、会话和 Worktree。会话终端通过模态框打开，关闭后继续后台运行。
               </p>
             </div>
@@ -4465,31 +4496,31 @@ function ProjectWorkspacePage({
               <button
                 disabled={!selectedProject}
                 onClick={onOpenWorkspaceTerminal}
-                className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-button-secondary rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
               >
                 打开终端
               </button>
               <button
                 disabled={!selectedProject}
                 onClick={() => onOpenSession("direct")}
-                className="rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-button-success rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
               >
                 创建会话
               </button>
             </div>
           </div>
           {selectedProject ? (
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm text-slate-300">
+            <div className="app-card app-border app-text-muted rounded-xl border p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <CompactMetaPill label="目录" value={selectedProject.path} wide />
                 <CompactMetaPill label="分支" value={selectedProject.defaultBranch} />
                 <CompactMetaPill label="Worktree" value={selectedWorktree?.name ?? "未选择"} />
                 <CompactMetaPill label="更新时间" value={formatDateTime(selectedProject.updatedAt)} />
-                <button onClick={onEditProject} className="shrink-0 rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/5">
+                <button onClick={onEditProject} className="app-button-secondary shrink-0 rounded-md border px-3 py-1.5 text-xs">
                   编辑
                 </button>
               </div>
-              {selectedProject.description ? <p className="mt-3 line-clamp-2 text-xs text-slate-400">{selectedProject.description}</p> : null}
+              {selectedProject.description ? <p className="app-text-muted mt-3 line-clamp-2 text-xs">{selectedProject.description}</p> : null}
             </div>
           ) : null}
         </div>
@@ -4619,13 +4650,13 @@ function ProjectWorkspacePage({
 
 function ProjectTopNav({ activeTab, onTabChange }: { activeTab: ProjectTab; onTabChange: (tab: ProjectTab) => void }) {
   return (
-    <nav className="mt-5 flex gap-1 overflow-x-auto border-t border-white/10 pt-4">
+    <nav className="app-border mt-5 flex gap-1 overflow-x-auto border-t pt-4">
       {projectTabs.map((tab) => (
         <button
           key={tab.id}
           onClick={() => onTabChange(tab.id)}
           className={`shrink-0 rounded-md px-3 py-1.5 text-sm ${
-            activeTab === tab.id ? "bg-white text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-slate-100"
+            activeTab === tab.id ? "app-button-primary" : "app-text-faint app-hover-accent app-hover-text"
           }`}
         >
           {tab.label}
@@ -4659,27 +4690,27 @@ function WorktreePanel({
   onRefresh: () => void;
 }) {
   return (
-    <section className="space-y-4 rounded-xl border border-white/10 bg-[#151821] p-4">
+    <section className="app-panel app-border space-y-4 rounded-xl border p-4">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
         <div>
-          <div className="text-sm font-medium text-slate-100">Worktree 管理</div>
-          <div className="mt-1 break-all text-xs text-slate-500">{project.path}/.claude/worktree/</div>
+          <div className="app-text text-sm font-medium">Worktree 管理</div>
+          <div className="app-text-faint mt-1 break-all text-xs">{project.path}/.claude/worktree/</div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-400">{worktrees.length} 个</span>
-          <button onClick={onRefresh} className="rounded-lg border border-white/10 px-2.5 py-2 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+          <span className="app-pill-neutral rounded-full border px-2 py-1 text-xs">{worktrees.length} 个</span>
+          <button onClick={onRefresh} className="app-button-secondary rounded-lg border px-2.5 py-2 text-sm" title="刷新">
             ⟳
           </button>
-          <button onClick={onCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+          <button onClick={onCreate} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
             创建 worktree
           </button>
         </div>
       </div>
 
-      {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-      {loading ? <div className="rounded-lg border border-white/10 p-3 text-xs text-slate-400">Worktree 加载中...</div> : null}
+      {error ? <p className="app-banner-danger rounded-lg border p-3 text-xs">{error}</p> : null}
+      {loading ? <div className="app-border app-text-faint rounded-lg border p-3 text-xs">Worktree 加载中...</div> : null}
       {!loading && worktrees.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-white/10 p-4 text-xs text-slate-500">当前项目还没有 worktree。</div>
+        <div className="app-border app-text-faint rounded-lg border border-dashed p-4 text-xs">当前项目还没有 worktree。</div>
       ) : null}
 
       {!loading && worktrees.length > 0 ? (
@@ -4688,16 +4719,16 @@ function WorktreePanel({
             <div
               key={worktree.id}
               className={`flex items-start gap-3 rounded-lg border p-3 ${
-                selectedWorktree?.id === worktree.id ? "border-slate-300/50 bg-white/[0.08]" : "border-white/10 bg-white/[0.03]"
+                selectedWorktree?.id === worktree.id ? "app-card-selected" : "app-card"
               }`}
             >
               <button type="button" onClick={() => onSelect(worktree)} className="min-w-0 flex-1 text-left">
                 <div className="flex items-center gap-2">
-                  <span className="truncate font-medium text-slate-100">{worktree.name}</span>
+                  <span className="app-text truncate font-medium">{worktree.name}</span>
                   <WorktreeStatusPill status={worktree.status} />
                 </div>
-                <div className="mt-1 truncate text-xs text-slate-500">{worktree.path}</div>
-                <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500">
+                <div className="app-text-faint mt-1 truncate text-xs">{worktree.path}</div>
+                <div className="app-text-faint mt-2 flex items-center justify-between gap-3 text-xs">
                   <span className="truncate">分支：{worktree.branch}</span>
                   <span className="shrink-0">更新：{formatDateTime(worktree.updatedAt)}</span>
                 </div>
@@ -4706,7 +4737,7 @@ function WorktreePanel({
                 type="button"
                 disabled={deletingWorktreeId !== null}
                 onClick={() => onDelete(worktree)}
-                className="shrink-0 rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-200 disabled:opacity-60"
+                className="app-button-danger shrink-0 rounded-md border px-2 py-1 text-xs disabled:opacity-60"
               >
                 {deletingWorktreeId === worktree.id ? "删除中" : "删除"}
               </button>
@@ -4747,48 +4778,48 @@ function GlobalSkillPanel({
   onRefresh: () => void;
 }) {
   return (
-    <section className="rounded-xl border border-white/10 bg-[#151821]">
-      <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+    <section className="app-panel app-border rounded-xl border">
+      <div className="app-border flex items-start justify-between gap-3 border-b px-4 py-3">
         <div>
-          <div className="text-sm font-medium text-slate-100">全局 Skill 文件夹</div>
-          <div className="mt-1 text-xs text-slate-500">来源：~/.claude/skills/*，支持直接编辑 SKILL.md。</div>
+          <div className="app-text text-sm font-medium">全局 Skill 文件夹</div>
+          <div className="app-text-faint mt-1 text-xs">来源：~/.claude/skills/*，支持直接编辑 SKILL.md。</div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onRefresh} className="rounded-lg border border-white/10 px-2.5 py-2 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+          <button onClick={onRefresh} className="app-border app-text-muted app-hover-accent app-hover-border app-hover-text rounded-lg border px-2.5 py-2 text-sm" title="刷新">
             ⟳
           </button>
-          <button onClick={onCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+          <button onClick={onCreate} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
             新建
           </button>
         </div>
       </div>
       <div className="p-4">
-        {error ? <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-        {loading ? <div className="rounded-lg border border-white/10 p-3 text-xs text-slate-400">全局 Skill 加载中...</div> : null}
-        {!loading && skills.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-4 text-xs text-slate-500">还没有全局 Skill 文件夹。</div> : null}
+        {error ? <p className="app-danger-soft mb-3 rounded-lg border p-3 text-xs">{error}</p> : null}
+        {loading ? <div className="app-border app-text-muted rounded-lg border p-3 text-xs">全局 Skill 加载中...</div> : null}
+        {!loading && skills.length === 0 ? <div className="app-border app-text-faint rounded-lg border border-dashed p-4 text-xs">还没有全局 Skill 文件夹。</div> : null}
         {!loading && skills.length > 0 ? (
           <div className="space-y-2">
             {skills.map((skill) => {
               const projectState = projectSkills.find((item) => item.name === skill.name);
               const busy = operationName === skill.name;
               return (
-                <div key={skill.name} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+                <div key={skill.name} className="app-card app-border rounded-lg border p-3 text-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-slate-100">{skill.name}</span>
-                        {projectState?.hasOverride ? <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[11px] text-amber-100">被项目覆盖</span> : null}
+                        <span className="app-text font-medium">{skill.name}</span>
+                        {projectState?.hasOverride ? <span className="app-pill-warning rounded-full border px-2 py-0.5 text-[11px]">被项目覆盖</span> : null}
                       </div>
-                      <div className="mt-1 break-all text-xs text-slate-500">{skill.path}</div>
+                      <div className="app-text-faint mt-1 break-all text-xs">{skill.path}</div>
                     </div>
                     <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                      <button disabled={busy} onClick={() => onEditDocument(skill)} className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 disabled:opacity-50">
+                      <button disabled={busy} onClick={() => onEditDocument(skill)} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50">
                         编辑文档
                       </button>
-                      <button disabled={busy} onClick={() => onCopyToProject(skill)} className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100 disabled:opacity-50">
+                      <button disabled={busy} onClick={() => onCopyToProject(skill)} className="app-button-success rounded-md border px-2 py-1 text-xs disabled:opacity-50">
                         发送到项目
                       </button>
-                      <button disabled={busy} onClick={() => onDelete(skill)} className="rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-200 disabled:opacity-50">
+                      <button disabled={busy} onClick={() => onDelete(skill)} className="app-button-danger rounded-md border px-2 py-1 text-xs disabled:opacity-50">
                         {busy ? "处理中" : "删除"}
                       </button>
                     </div>
@@ -4861,64 +4892,64 @@ function SkillStorePanel({
   }
 
   return (
-    <section className="rounded-xl border border-white/10 bg-[#151821]">
-      <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+    <section className="app-panel app-border rounded-xl border">
+      <div className="app-border flex items-start justify-between gap-3 border-b px-4 py-3">
         <div>
-          <div className="text-sm font-medium text-slate-100">技能仓库</div>
-          <div className="mt-1 text-xs text-slate-500">来源：~/.workhorse/skills/*，统一管理并安装到各目标。</div>
+          <div className="app-text text-sm font-medium">技能仓库</div>
+          <div className="app-text-faint mt-1 text-xs">来源：~/.workhorse/skills/*，统一管理并安装到各目标。</div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onRefreshStore} className="rounded-lg border border-white/10 px-2.5 py-2 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+          <button onClick={onRefreshStore} className="app-border app-text-muted app-hover-accent app-hover-border app-hover-text rounded-lg border px-2.5 py-2 text-sm" title="刷新">
             ⟳
           </button>
-          <button onClick={openCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+          <button onClick={openCreate} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
             新建
           </button>
         </div>
       </div>
       <div className="p-4">
-        {error ? <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-        {loading ? <div className="rounded-lg border border-white/10 p-3 text-xs text-slate-400">技能仓库加载中...</div> : null}
-        {!loading && skills.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-4 text-xs text-slate-500">还没有 Skill，先新建一个。</div> : null}
+        {error ? <p className="app-danger-soft mb-3 rounded-lg border p-3 text-xs">{error}</p> : null}
+        {loading ? <div className="app-border app-text-muted rounded-lg border p-3 text-xs">技能仓库加载中...</div> : null}
+        {!loading && skills.length === 0 ? <div className="app-border app-text-faint rounded-lg border border-dashed p-4 text-xs">还没有 Skill，先新建一个。</div> : null}
         {!loading && skills.length > 0 ? (
           <div className="space-y-2">
             {skills.map((item) => {
               const busy = operationName === item.skill.name;
               return (
-                <div key={item.skill.name} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+                <div key={item.skill.name} className="app-card app-border rounded-lg border p-3 text-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-slate-100">{item.skill.name}</span>
-                        {item.skill.description ? <span className="text-xs text-slate-500">{item.skill.description}</span> : null}
+                        <span className="app-text font-medium">{item.skill.name}</span>
+                        {item.skill.description ? <span className="app-text-faint text-xs">{item.skill.description}</span> : null}
                       </div>
-                      <div className="mt-1 break-all text-xs text-slate-600">{item.skill.path}</div>
+                      <div className="app-text-fainter mt-1 break-all text-xs">{item.skill.path}</div>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${item.installed.claudeCode ? "bg-emerald-400/10 text-emerald-300" : "bg-white/5 text-slate-600"}`}>
+                        <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] ${item.installed.claudeCode ? "app-pill-success" : "app-card app-border app-text-fainter"}`}>
                           {item.installed.claudeCode ? "全局 CC" : "全局 CC"}
                         </span>
-                        <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${item.installed.chat ? "bg-emerald-400/10 text-emerald-300" : "bg-white/5 text-slate-600"}`}>
+                        <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] ${item.installed.chat ? "app-pill-success" : "app-card app-border app-text-fainter"}`}>
                           {item.installed.chat ? "Chat" : "Chat"}
                         </span>
-                        <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${item.installed.claudeCodeProject ? "bg-emerald-400/10 text-emerald-300" : "bg-white/5 text-slate-600"}`}>
+                        <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] ${item.installed.claudeCodeProject ? "app-pill-success" : "app-card app-border app-text-fainter"}`}>
                           {item.installed.claudeCodeProject ? "项目 CC" : "项目 CC"}
                         </span>
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                      <button disabled={busy || item.installed.claudeCode} onClick={() => onInstall(item, "claude-code")} className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 disabled:opacity-50" title="安装到全局 Claude Code">
+                      <button disabled={busy || item.installed.claudeCode} onClick={() => onInstall(item, "claude-code")} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50" title="安装到全局 Claude Code">
                         安装到 CC
                       </button>
-                      <button disabled={busy || item.installed.chat} onClick={() => onInstall(item, "chat")} className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 disabled:opacity-50" title="安装到 AI Chat">
+                      <button disabled={busy || item.installed.chat} onClick={() => onInstall(item, "chat")} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50" title="安装到 AI Chat">
                         安装到 Chat
                       </button>
-                      <button disabled={busy} onClick={() => onSendToProject(item)} className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100 disabled:opacity-50" title="发送到指定项目">
+                      <button disabled={busy} onClick={() => onSendToProject(item)} className="app-button-success rounded-md border px-2 py-1 text-xs disabled:opacity-50" title="发送到指定项目">
                         发送到项目
                       </button>
-                      <button disabled={busy} onClick={() => onEditDocument(item)} className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 disabled:opacity-50">
+                      <button disabled={busy} onClick={() => onEditDocument(item)} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50">
                         编辑文档
                       </button>
-                      <button disabled={busy} onClick={() => onDelete(item)} className="rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-200 disabled:opacity-50">
+                      <button disabled={busy} onClick={() => onDelete(item)} className="app-button-danger rounded-md border px-2 py-1 text-xs disabled:opacity-50">
                         {busy ? "处理中" : "删除"}
                       </button>
                     </div>
@@ -4932,49 +4963,49 @@ function SkillStorePanel({
 
       {showCreate ? (
         <>
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setShowCreate(false)} />
+          <div className="app-backdrop fixed inset-0 z-50 backdrop-blur-sm" onClick={() => setShowCreate(false)} />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowCreate(false)}>
-            <div className="w-full max-w-sm rounded-xl border border-white/10 bg-[#1a1d28] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="app-panel-strong app-border w-full max-w-sm rounded-xl border shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <form onSubmit={handleSubmitCreate}>
                 <div className="p-4 pb-0">
-                  <h3 className="text-sm font-medium text-slate-100">新建 Skill</h3>
-                  <p className="mt-1 text-xs text-slate-500">在 ~/.workhorse/skills/ 下创建新的 Skill 文件夹。</p>
+                  <h3 className="app-text text-sm font-medium">新建 Skill</h3>
+                  <p className="app-text-faint mt-1 text-xs">在 ~/.workhorse/skills/ 下创建新的 Skill 文件夹。</p>
                 </div>
                 <div className="space-y-3 px-4 pt-4">
                   <div>
-                    <label className="mb-1 block text-xs text-slate-400">名称</label>
+                    <label className="app-text-muted mb-1 block text-xs">名称</label>
                     <input
                       type="text"
                       required
                       autoFocus
                       value={createName}
                       onChange={(e) => setCreateName(e.target.value)}
-                      className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-white/20"
+                      className="app-input-shell-strong w-full rounded-lg border px-3 py-2 text-sm outline-none"
                       placeholder="Skill 名称"
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs text-slate-400">描述（可选）</label>
+                    <label className="app-text-muted mb-1 block text-xs">描述（可选）</label>
                     <input
                       type="text"
                       value={createDesc}
                       onChange={(e) => setCreateDesc(e.target.value)}
-                      className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-white/20"
+                      className="app-input-shell-strong w-full rounded-lg border px-3 py-2 text-sm outline-none"
                       placeholder="简要描述 Skill 用途"
                     />
                   </div>
                 </div>
-                <div className="mt-4 flex justify-end gap-2 border-t border-white/5 p-4">
+                <div className="app-border-soft mt-4 flex justify-end gap-2 border-t p-4">
                   <button
                     type="button"
                     onClick={() => setShowCreate(false)}
-                    className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-400 transition-colors hover:border-white/15 hover:bg-white/5 hover:text-slate-200"
+                    className="app-border app-text-muted app-hover-accent app-hover-border app-hover-text rounded-lg border px-3 py-1.5 text-sm transition-colors"
                   >
                     取消
                   </button>
                   <button
                     type="submit"
-                    className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-200"
+                    className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
                   >
                     创建
                   </button>
@@ -4985,34 +5016,34 @@ function SkillStorePanel({
         </>
       ) : null}
 
-      <div className="border-t border-white/10 px-4 py-3">
+      <div className="app-border border-t px-4 py-3">
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <div className="text-sm font-medium text-slate-100">Chat Skills</div>
-            <div className="mt-0.5 text-xs text-slate-500">AI Chat 运行时加载的 Skill，来源：~/.workhorse/chat-skills/*</div>
+            <div className="app-text text-sm font-medium">Chat Skills</div>
+            <div className="app-text-faint mt-0.5 text-xs">AI Chat 运行时加载的 Skill，来源：~/.workhorse/chat-skills/*</div>
           </div>
-          <button onClick={onRefreshChatSkills} className="rounded-lg border border-white/10 px-2.5 py-2 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+          <button onClick={onRefreshChatSkills} className="app-border app-text-muted app-hover-accent app-hover-border app-hover-text rounded-lg border px-2.5 py-2 text-sm" title="刷新">
             ⟳
           </button>
         </div>
-        {chatSkillsError ? <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{chatSkillsError}</p> : null}
-        {chatSkillsLoading ? <div className="rounded-lg border border-white/10 p-3 text-xs text-slate-400">Chat Skills 加载中...</div> : null}
-        {!chatSkillsLoading && chatSkills.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-xs text-slate-500">还没有安装 Chat Skill，可在上方仓库中安装。</div> : null}
+        {chatSkillsError ? <p className="app-danger-soft mb-3 rounded-lg border p-3 text-xs">{chatSkillsError}</p> : null}
+        {chatSkillsLoading ? <div className="app-border app-text-muted rounded-lg border p-3 text-xs">Chat Skills 加载中...</div> : null}
+        {!chatSkillsLoading && chatSkills.length === 0 ? <div className="app-border app-text-faint rounded-lg border border-dashed p-3 text-xs">还没有安装 Chat Skill，可在上方仓库中安装。</div> : null}
         {!chatSkillsLoading && chatSkills.length > 0 ? (
           <div className="space-y-2">
             {chatSkills.map((skill) => {
               const busy = deletingChatSkillName === skill.name;
               return (
-                <div key={skill.name} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+                <div key={skill.name} className="app-card app-border rounded-lg border p-3 text-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-slate-100">{skill.name}</span>
-                        {skill.description ? <span className="text-xs text-slate-500">{skill.description}</span> : null}
+                        <span className="app-text font-medium">{skill.name}</span>
+                        {skill.description ? <span className="app-text-faint text-xs">{skill.description}</span> : null}
                       </div>
-                      <div className="mt-1 break-all text-xs text-slate-600">{skill.path}</div>
+                      <div className="app-text-fainter mt-1 break-all text-xs">{skill.path}</div>
                     </div>
-                    <button disabled={busy} onClick={() => onDeleteChatSkill(skill)} className="shrink-0 rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-200 disabled:opacity-50">
+                    <button disabled={busy} onClick={() => onDeleteChatSkill(skill)} className="app-button-danger shrink-0 rounded-md border px-2 py-1 text-xs disabled:opacity-50">
                       {busy ? "处理中" : "移除"}
                     </button>
                   </div>
@@ -5065,45 +5096,45 @@ function ProjectSkillPanel({
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.65fr)]">
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+      <section className="app-panel app-border rounded-xl border">
+        <div className="app-border flex items-start justify-between gap-3 border-b px-4 py-3">
           <div>
-            <div className="text-sm font-medium text-slate-100">项目 Skill 文件夹</div>
-            <div className="mt-1 break-all text-xs text-slate-500">来源：{project.path}/.claude/skills/*</div>
+            <div className="app-text text-sm font-medium">项目 Skill 文件夹</div>
+            <div className="app-text-faint mt-1 break-all text-xs">来源：{project.path}/.claude/skills/*</div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={onRefresh} className="rounded-lg border border-white/10 px-2.5 py-2 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+            <button onClick={onRefresh} className="app-border app-text-muted app-hover-accent app-hover-border app-hover-text rounded-lg border px-2.5 py-2 text-sm" title="刷新">
               ⟳
             </button>
-            <button onClick={onCreate} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+            <button onClick={onCreate} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
               新建
             </button>
           </div>
         </div>
         <div className="p-4">
-          {error ? <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-          {loading ? <div className="rounded-lg border border-white/10 p-3 text-xs text-slate-400">项目 Skill 加载中...</div> : null}
-          {!loading && skills.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-4 text-xs text-slate-500">当前项目和全局都没有 Skill 文件夹。</div> : null}
+          {error ? <p className="app-danger-soft mb-3 rounded-lg border p-3 text-xs">{error}</p> : null}
+          {loading ? <div className="app-border app-text-muted rounded-lg border p-3 text-xs">项目 Skill 加载中...</div> : null}
+          {!loading && skills.length === 0 ? <div className="app-border app-text-faint rounded-lg border border-dashed p-4 text-xs">当前项目和全局都没有 Skill 文件夹。</div> : null}
           {!loading && skills.length > 0 ? (
             <div className="space-y-2">
               {skills.map((skill) => (
                 <button
                   key={skill.name}
                   onClick={() => onSelect(skill)}
-                  className={`w-full rounded-lg border p-3 text-left text-sm ${selectedSkill?.name === skill.name ? "border-slate-300/50 bg-white/[0.08]" : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"}`}
+                  className={`w-full rounded-lg border p-3 text-left text-sm ${selectedSkill?.name === skill.name ? "app-card-selected" : "app-card app-card-hover"}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-slate-100">{skill.name}</span>
-                        <span className={`rounded-full border px-2 py-0.5 text-[11px] ${skill.effectiveSource === "project" ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100" : "border-sky-300/30 bg-sky-300/10 text-sky-100"}`}>
+                        <span className="app-text font-medium">{skill.name}</span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[11px] ${skill.effectiveSource === "project" ? "app-pill-success" : "app-pill-info"}`}>
                           {skill.effectiveSource === "project" ? "项目生效" : "全局生效"}
                         </span>
-                        {skill.hasOverride ? <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[11px] text-amber-100">覆盖全局</span> : null}
+                        {skill.hasOverride ? <span className="app-pill-warning rounded-full border px-2 py-0.5 text-[11px]">覆盖全局</span> : null}
                       </div>
-                      <div className="mt-1 truncate text-xs text-slate-500">{skill.effectivePath}</div>
+                      <div className="app-text-faint mt-1 truncate text-xs">{skill.effectivePath}</div>
                     </div>
-                    <span className="shrink-0 text-xs text-slate-500">{skill.hasProject ? "项目" : "全局"}</span>
+                    <span className="app-text-faint shrink-0 text-xs">{skill.hasProject ? "项目" : "全局"}</span>
                   </div>
                 </button>
               ))}
@@ -5112,13 +5143,13 @@ function ProjectSkillPanel({
         </div>
       </section>
 
-      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
+      <section className="app-panel app-border app-text-muted rounded-xl border p-4 text-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="font-medium text-slate-100">Skill 详情</div>
-            <p className="mt-1 text-xs text-slate-500">可查看路径并直接编辑当前 Skill 的 SKILL.md。</p>
+            <div className="app-text font-medium">Skill 详情</div>
+            <p className="app-text-faint mt-1 text-xs">可查看路径并直接编辑当前 Skill 的 SKILL.md。</p>
           </div>
-          <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-400">{skills.length} 个</span>
+          <span className="app-card app-border app-text-muted rounded-full border px-2 py-1 text-xs">{skills.length} 个</span>
         </div>
         {selectedSkill ? (
           <div className="mt-4 space-y-4">
@@ -5132,26 +5163,26 @@ function ProjectSkillPanel({
               <PathBlock label="项目路径" value={selectedSkill.projectPath ?? "无项目级文件夹"} />
               <PathBlock label="全局路径" value={selectedSkill.globalPath ?? "无全局级文件夹"} />
             </div>
-            <div className="flex flex-wrap gap-2 border-t border-white/10 pt-4">
-              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onRename(selectedSkill)} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200 disabled:opacity-50">
+            <div className="app-border flex flex-wrap gap-2 border-t pt-4">
+              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onRename(selectedSkill)} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-lg border px-3 py-2 text-xs disabled:opacity-50">
                 重命名项目 Skill
               </button>
-              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onCopyToGlobal(selectedSkill)} className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-xs text-sky-100 disabled:opacity-50">
+              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onCopyToGlobal(selectedSkill)} className="app-button-info rounded-lg border px-3 py-2 text-xs disabled:opacity-50">
                 复制到全局
               </button>
-              <button disabled={operationName === selectedSkill.name} onClick={() => onEditDocument(selectedSkill)} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200 disabled:opacity-50">
+              <button disabled={operationName === selectedSkill.name} onClick={() => onEditDocument(selectedSkill)} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-lg border px-3 py-2 text-xs disabled:opacity-50">
                 编辑文档
               </button>
-              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onAddProjectSkillToStore(selectedSkill)} className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100 disabled:opacity-50">
+              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onAddProjectSkillToStore(selectedSkill)} className="app-button-success rounded-lg border px-3 py-2 text-xs disabled:opacity-50">
                 添加到技能仓库
               </button>
-              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onDelete(selectedSkill)} className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-200 disabled:opacity-50">
+              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onDelete(selectedSkill)} className="app-button-danger rounded-lg border px-3 py-2 text-xs disabled:opacity-50">
                 {operationName === selectedSkill.name ? "处理中" : "删除项目 Skill"}
               </button>
             </div>
           </div>
         ) : (
-          <div className="mt-4 rounded-lg border border-dashed border-white/10 p-4 text-xs text-slate-500">选择或创建一个 Skill 文件夹。</div>
+          <div className="app-border app-text-faint mt-4 rounded-lg border border-dashed p-4 text-xs">选择或创建一个 Skill 文件夹。</div>
         )}
       </section>
     </div>
@@ -5205,18 +5236,18 @@ function SkillTransferModal({
           </Field>
         </div>
 
-        <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-slate-400">
+        <div className="app-input app-border app-text-faint rounded-lg border p-3 text-xs">
           <div>复制：保留源 Skill，目标新增或覆盖。</div>
           <div className="mt-1">转移：目标创建成功后删除源 Skill。</div>
         </div>
 
-        {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+        {error ? <p className="app-danger-soft rounded-lg border p-3 text-xs">{error}</p> : null}
 
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+          <button type="button" onClick={onClose} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
             取消
           </button>
-          <button type="button" onClick={onSubmit} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+          <button type="button" onClick={onSubmit} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
             确认
           </button>
         </div>
@@ -5227,9 +5258,9 @@ function SkillTransferModal({
 
 function PathBlock({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-      <div className="text-slate-500">{label}</div>
-      <div className="mt-1 break-all text-slate-200">{value}</div>
+    <div className="app-input app-border rounded-lg border p-3">
+      <div className="app-text-faint">{label}</div>
+      <div className="app-text-soft mt-1 break-all">{value}</div>
     </div>
   );
 }
@@ -5258,7 +5289,7 @@ function ProjectFormModal({
           <input
             value={draft.name}
             onChange={(event) => onChange("name", event.target.value)}
-            className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
+            className="app-input-shell w-full rounded-lg border px-3 py-2 outline-none"
             placeholder="workhorse-station"
           />
         </Field>
@@ -5266,7 +5297,7 @@ function ProjectFormModal({
           <input
             value={draft.path}
             onChange={(event) => onChange("path", event.target.value)}
-            className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
+            className="app-input-shell w-full rounded-lg border px-3 py-2 outline-none"
             placeholder="/home/wengfb/projects/workhorse-station"
           />
         </Field>
@@ -5274,7 +5305,7 @@ function ProjectFormModal({
           <input
             value={draft.defaultBranch}
             onChange={(event) => onChange("defaultBranch", event.target.value)}
-            className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
+            className="app-input-shell w-full rounded-lg border px-3 py-2 outline-none"
             placeholder="main"
           />
         </Field>
@@ -5282,16 +5313,16 @@ function ProjectFormModal({
           <textarea
             value={draft.description}
             onChange={(event) => onChange("description", event.target.value)}
-            className="min-h-24 w-full resize-none rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
+            className="app-input-shell min-h-24 w-full resize-none rounded-lg border px-3 py-2 outline-none"
             placeholder="记录项目用途、约束或当前阶段"
           />
         </Field>
-        {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+        {error ? <p className="app-danger-soft rounded-lg border p-3 text-xs">{error}</p> : null}
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+          <button type="button" onClick={onClose} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
             取消
           </button>
-          <button disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-60">
+          <button disabled={saving} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-60">
             {saving ? "保存中..." : mode === "create" ? "创建项目" : "保存修改"}
           </button>
         </div>
@@ -5325,7 +5356,7 @@ function WorktreeCreateModal({
             <input
               value={draft.name}
               onChange={(event) => onChange("name", event.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
+              className="app-input-shell w-full rounded-lg border px-3 py-2 outline-none"
               placeholder="phase-1-task"
             />
           </Field>
@@ -5333,7 +5364,7 @@ function WorktreeCreateModal({
             <input
               value={draft.branch}
               onChange={(event) => onChange("branch", event.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
+              className="app-input-shell w-full rounded-lg border px-3 py-2 outline-none"
               placeholder="workhorse/name"
             />
           </Field>
@@ -5341,17 +5372,17 @@ function WorktreeCreateModal({
             <input
               value={draft.baseBranch}
               onChange={(event) => onChange("baseBranch", event.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-slate-100 outline-none placeholder:text-slate-600 focus:border-slate-400"
+              className="app-input-shell w-full rounded-lg border px-3 py-2 outline-none"
               placeholder={project.defaultBranch}
             />
           </Field>
         </div>
-        {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+        {error ? <p className="app-danger-soft rounded-lg border p-3 text-xs">{error}</p> : null}
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+          <button type="button" onClick={onClose} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
             取消
           </button>
-          <button disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-60">
+          <button disabled={saving} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-60">
             {saving ? "创建中..." : "创建 worktree"}
           </button>
         </div>
@@ -5362,14 +5393,14 @@ function WorktreeCreateModal({
 
 function Modal({ title, description, children, onClose }: { title: string; description?: string; children: ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4">
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-auto rounded-2xl border border-white/10 bg-[#151821] shadow-2xl">
-        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
+    <div className="app-overlay fixed inset-0 z-40 flex items-center justify-center p-4">
+      <div className="app-panel app-border max-h-[92vh] w-full max-w-3xl overflow-auto rounded-2xl border shadow-2xl">
+        <div className="app-border flex items-start justify-between gap-3 border-b px-5 py-4">
           <div>
-            <div className="text-base font-semibold text-slate-100">{title}</div>
-            {description ? <div className="mt-1 break-all text-xs text-slate-500">{description}</div> : null}
+            <div className="app-text text-base font-semibold">{title}</div>
+            {description ? <div className="app-text-faint mt-1 break-all text-xs">{description}</div> : null}
           </div>
-          <button onClick={onClose} className="rounded-lg border border-white/10 px-2 py-1 text-sm text-slate-300 hover:bg-white/5">
+          <button onClick={onClose} className="app-button-secondary rounded-lg border px-2 py-1 text-sm">
             关闭
           </button>
         </div>
@@ -5394,23 +5425,23 @@ function CollectionPlaceholder({
 }) {
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.65fr)]">
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="border-b border-white/10 px-4 py-3">
+      <section className="app-panel app-border rounded-xl border">
+        <div className="app-border border-b px-4 py-3">
           <div className="text-sm font-medium">{title}</div>
-          <div className="mt-1 text-xs text-slate-500">{description}</div>
+          <div className="app-text-faint mt-1 text-xs">{description}</div>
         </div>
-        <div className="divide-y divide-white/10">
+        <div className="app-border divide-y">
           {items.map((item) => (
             <div key={item} className="flex items-center justify-between px-4 py-3 text-sm">
-              <div className="text-slate-200">{item}</div>
-              <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-400">占位</span>
+              <div className="app-text-soft">{item}</div>
+              <span className="app-pill-neutral rounded-full border px-2 py-1 text-xs">占位</span>
             </div>
           ))}
         </div>
       </section>
-      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
-        <div className="font-medium text-slate-100">{detailTitle}</div>
-        <p className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100">{notice}</p>
+      <section className="app-panel app-border app-text-muted rounded-xl border p-4 text-sm">
+        <div className="app-text font-medium">{detailTitle}</div>
+        <p className="app-banner-warning mt-3 rounded-lg border p-3 text-xs">{notice}</p>
       </section>
     </div>
   );
@@ -5439,30 +5470,30 @@ function ProjectCollectionPlaceholder({
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.65fr)]">
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="border-b border-white/10 px-4 py-3">
+      <section className="app-panel app-border rounded-xl border">
+        <div className="app-border border-b px-4 py-3">
           <div className="text-sm font-medium">{title}</div>
-          <div className="mt-1 text-xs text-slate-500">{description}</div>
+          <div className="app-text-faint mt-1 text-xs">{description}</div>
         </div>
-        <div className="divide-y divide-white/10">
+        <div className="app-border divide-y">
           {items.map((item) => (
             <div key={item} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
               <div>
-                <div className="text-slate-200">{item}</div>
-                <div className="mt-1 text-xs text-slate-500">项目：{selectedProject.name}</div>
+                <div className="app-text-soft">{item}</div>
+                <div className="app-text-faint mt-1 text-xs">项目：{selectedProject.name}</div>
               </div>
-              <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-400">占位</span>
+              <span className="app-pill-neutral rounded-full border px-2 py-1 text-xs">占位</span>
             </div>
           ))}
         </div>
       </section>
-      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
-        <div className="font-medium text-slate-100">{detailTitle}</div>
-        <p className="mt-3 text-slate-400">当前是项目内前端占位，后续接入真实 API、草稿确认和来源关联。</p>
+      <section className="app-panel app-border app-text-muted rounded-xl border p-4 text-sm">
+        <div className="app-text font-medium">{detailTitle}</div>
+        <p className="app-text-muted mt-3">当前是项目内前端占位，后续接入真实 API、草稿确认和来源关联。</p>
         <button
           disabled={!onAction}
           onClick={onAction}
-          className="mt-4 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+          className="app-button-secondary mt-4 rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
           {actionLabel}
         </button>
@@ -5482,29 +5513,29 @@ function PlaceholderWorkspace({
 }) {
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.65fr)]">
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">MVP 闭环</div>
-        <div className="divide-y divide-white/10">
+      <section className="app-panel app-border rounded-xl border">
+        <div className="app-border border-b px-4 py-3 text-sm font-medium">MVP 闭环</div>
+        <div className="app-border divide-y">
           {["首页聊天生成草稿", "进入项目选择 worktree", "从任务创建会话", "会话模态框后台运行"].map((item, index) => (
             <div key={item} className="flex items-center justify-between px-4 py-3 text-sm">
               <div>
-                <div className="text-slate-200">{item}</div>
-                <div className="text-xs text-slate-500">新信息架构步骤 {index + 1}</div>
+                <div className="app-text-soft">{item}</div>
+                <div className="app-text-faint text-xs">新信息架构步骤 {index + 1}</div>
               </div>
-              <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-400">规划中</span>
+              <span className="app-pill-neutral rounded-full border px-2 py-1 text-xs">规划中</span>
             </div>
           ))}
         </div>
       </section>
 
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">系统状态</div>
-        <div className="space-y-4 p-4 text-sm text-slate-300">
+      <section className="app-panel app-border rounded-xl border">
+        <div className="app-border border-b px-4 py-3 text-sm font-medium">系统状态</div>
+        <div className="app-text-muted space-y-4 p-4 text-sm">
           <DetailRow label="当前阶段" value="Phase 2" />
           <DetailRow label="API 状态" value={apiConnected ? "已连接" : "未连接"} />
           <DetailRow label="数据库" value={databaseInfo?.connected ? `${databaseInfo.engine} 已连接` : "等待后端"} />
           <DetailRow label="实例" value={databaseInfo ? `${databaseInfo.host}/${databaseInfo.database}` : "未知"} />
-          {apiError ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{apiError}</p> : null}
+          {apiError ? <p className="app-banner-danger rounded-lg border p-3 text-xs">{apiError}</p> : null}
         </div>
       </section>
     </div>
@@ -5515,10 +5546,10 @@ function FeatureCardGrid({ cards }: { cards: Array<{ title: string; value: strin
   return (
     <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((card) => (
-        <article key={card.title} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-          <div className="text-xs text-slate-500">{card.title}</div>
+        <article key={card.title} className="app-card app-border rounded-xl border p-4">
+          <div className="app-text-faint text-xs">{card.title}</div>
           <div className="mt-2 text-2xl font-semibold">{card.value}</div>
-          <div className="mt-2 text-xs text-slate-400">{card.detail}</div>
+          <div className="app-text-muted mt-2 text-xs">{card.detail}</div>
         </article>
       ))}
     </div>
@@ -5527,10 +5558,10 @@ function FeatureCardGrid({ cards }: { cards: Array<{ title: string; value: strin
 
 function EmptyProjectNotice({ onCreateProject }: { onCreateProject: () => void }) {
   return (
-    <section className="rounded-xl border border-dashed border-white/10 bg-[#151821] p-6 text-sm text-slate-400">
-      <div className="text-base font-medium text-slate-100">还没有选择项目</div>
+    <section className="app-panel app-border app-text-faint rounded-xl border border-dashed p-6 text-sm">
+      <div className="app-text text-base font-medium">还没有选择项目</div>
       <p className="mt-2">进入项目后才能查看任务、项目笔记、项目 Skill、会话和 Worktree。</p>
-      <button onClick={onCreateProject} className="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+      <button onClick={onCreateProject} className="app-button-primary mt-4 rounded-lg px-3 py-2 text-sm font-medium">
         新建项目
       </button>
     </section>
@@ -5540,7 +5571,7 @@ function EmptyProjectNotice({ onCreateProject }: { onCreateProject: () => void }
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block space-y-2">
-      <span className="text-xs text-slate-500">{label}</span>
+      <span className="app-text-faint text-xs">{label}</span>
       {children}
     </label>
   );
@@ -5548,19 +5579,17 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function StatusPill({ connected, loading }: { connected: boolean; loading: boolean }) {
   const label = loading ? "API 连接中" : connected ? "API 已连接" : "API 未连接";
-  const className = connected
-    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-    : "border-amber-400/40 bg-amber-400/10 text-amber-200";
+  const className = connected ? "app-pill-success" : "app-pill-warning";
 
   return <span className={`rounded-full border px-3 py-1 text-xs ${className}`}>{label}</span>;
 }
 
 function WorktreeStatusPill({ status }: { status: WorktreeStatus }) {
   const styles: Record<WorktreeStatus, string> = {
-    clean: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
-    dirty: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-    missing: "border-red-400/30 bg-red-500/10 text-red-200",
-    unknown: "border-slate-400/30 bg-slate-400/10 text-slate-300"
+    clean: "app-pill-success",
+    dirty: "app-pill-warning",
+    missing: "app-pill-danger",
+    unknown: "app-pill-neutral"
   };
 
   const labels: Record<WorktreeStatus, string> = {
@@ -5575,11 +5604,11 @@ function WorktreeStatusPill({ status }: { status: WorktreeStatus }) {
 
 function SessionStatusPill({ status }: { status: SessionSummary["status"] }) {
   const styles: Record<SessionSummary["status"], string> = {
-    draft: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-    queued: "border-sky-400/30 bg-sky-400/10 text-sky-200",
-    running: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
-    completed: "border-slate-400/30 bg-slate-400/10 text-slate-300",
-    failed: "border-red-400/30 bg-red-500/10 text-red-200"
+    draft: "app-pill-warning",
+    queued: "app-pill-info",
+    running: "app-pill-success",
+    completed: "app-pill-neutral",
+    failed: "app-pill-danger"
   };
 
   const labels: Record<SessionSummary["status"], string> = {
@@ -5596,26 +5625,26 @@ function SessionStatusPill({ status }: { status: SessionSummary["status"] }) {
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <span className="shrink-0 text-slate-500">{label}</span>
-      <span className="truncate text-right text-slate-100">{value}</span>
+      <span className="app-text-faint shrink-0">{label}</span>
+      <span className="app-text truncate text-right">{value}</span>
     </div>
   );
 }
 
 function CompactMetaPill({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
   return (
-    <div className={`flex min-w-0 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-2.5 py-1.5 ${wide ? "max-w-full basis-full sm:basis-auto sm:max-w-[24rem]" : ""}`}>
-      <span className="shrink-0 text-slate-500">{label}</span>
-      <span className="truncate text-slate-100">{value}</span>
+    <div className={`app-input app-border flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5 ${wide ? "max-w-full basis-full sm:basis-auto sm:max-w-[24rem]" : ""}`}>
+      <span className="app-text-faint shrink-0">{label}</span>
+      <span className="app-text truncate">{value}</span>
     </div>
   );
 }
 
 function DetailCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="mt-2 truncate text-slate-100">{value}</div>
+    <div className="app-input app-border rounded-lg border p-3">
+      <div className="app-text-faint text-xs">{label}</div>
+      <div className="app-text mt-2 truncate">{value}</div>
     </div>
   );
 }
@@ -5936,27 +5965,27 @@ function NotePanel({
 
   return (
     <>
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+      <section className="app-panel app-border rounded-xl border">
+        <div className="app-border flex items-center justify-between border-b px-4 py-3">
           <div>
             <div className="text-sm font-medium">{title}</div>
-            <div className="mt-1 text-xs text-slate-500">{description}</div>
+            <div className="app-text-faint mt-1 text-xs">{description}</div>
           </div>
-          <button onClick={openCreateModal} className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950">
+          <button onClick={openCreateModal} className="app-button-primary rounded-md px-3 py-1.5 text-xs font-medium">
             新建笔记
           </button>
         </div>
 
         {showSearch ? (
-          <div className="border-b border-white/10 px-4 py-2 space-y-2">
+          <div className="app-border border-b px-4 py-2 space-y-2">
             <div className="relative">
-              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 app-text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => onSearchChange?.(e.target.value)}
                 placeholder="搜索笔记标题、内容、标签..."
-                className="w-full rounded-md border border-white/10 bg-black/20 pl-8 pr-3 py-1.5 text-xs text-slate-100 outline-none focus:border-slate-400"
+                className="app-input-shell w-full rounded-md pl-8 pr-3 py-1.5 text-xs outline-none"
               />
             </div>
             {availableTags.length > 0 && (
@@ -5973,8 +6002,8 @@ function NotePanel({
                     }}
                     className={`rounded-full px-2 py-0.5 text-[11px] transition ${
                       filterTags.includes(tag)
-                        ? "bg-blue-500/20 text-blue-300 border border-blue-400/30"
-                        : "border border-white/10 text-slate-400 hover:bg-white/5"
+                        ? "app-pill-info"
+                        : "app-button-secondary border app-text-faint"
                     }`}
                   >
                     {tag}
@@ -5982,7 +6011,7 @@ function NotePanel({
                 ))}
               </div>
             )}
-            <div className="text-[11px] text-slate-500">
+            <div className="text-[11px] app-text-faint">
               {notes.length} 条结果
               {(searchQuery || filterTags.length > 0) ? "（已筛选）" : ""}
             </div>
@@ -5990,8 +6019,8 @@ function NotePanel({
         ) : null}
 
         <div className="min-h-[200px] grid grid-cols-3 gap-3 p-3 items-start">
-          {loading ? <div className="col-span-3 px-4 py-6 text-sm text-slate-400">{title}加载中...</div> : null}
-          {!loading && notes.length === 0 ? <div className="col-span-3 px-4 py-8 text-sm text-slate-500">{emptyText}</div> : null}
+          {loading ? <div className="col-span-3 px-4 py-6 text-sm app-text-muted">{title}加载中...</div> : null}
+          {!loading && notes.length === 0 ? <div className="col-span-3 px-4 py-8 text-sm app-text-faint">{emptyText}</div> : null}
           {!loading
             ? notes.map((note) => (
                 <div
@@ -6000,10 +6029,10 @@ function NotePanel({
                   tabIndex={0}
                   onClick={() => openEditModal(note)}
                   onKeyDown={(e) => { if (e.key === "Enter") openEditModal(note); }}
-                  className={`rounded-lg border p-3 text-left text-sm transition-colors cursor-pointer ${selectedNote?.id === note.id ? "border-white/20 bg-white/[0.08]" : "border-white/10 bg-[#1a1d28] hover:border-white/20 hover:bg-[#1e2130]"}`}
+                  className={`rounded-lg border p-3 text-left text-sm transition-colors cursor-pointer ${selectedNote?.id === note.id ? "app-card-selected" : "app-panel-strong app-border app-hover-border app-hover-accent"}`}
                 >
-                  <div className="truncate font-medium text-slate-100">{note.title}</div>
-                  <div className="mt-1 truncate text-xs text-slate-500">{note.content || "暂无正文"}</div>
+                  <div className="app-text truncate font-medium">{note.title}</div>
+                  <div className="mt-1 truncate text-xs app-text-faint">{note.content || "暂无正文"}</div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {note.tags.length > 0 ? note.tags.map((tag) => (
                       <button
@@ -6019,20 +6048,20 @@ function NotePanel({
                         }}
                         className={`rounded-full border px-2 py-0.5 text-[11px] transition ${
                           filterTags.includes(tag)
-                            ? "border-blue-400/30 bg-blue-500/20 text-blue-300"
-                            : "border-white/10 text-slate-300 hover:bg-white/5"
+                            ? "app-pill-info"
+                            : "app-button-secondary app-text-soft"
                         }`}
                       >
                         {tag}
                       </button>
-                    )) : <span className="text-[11px] text-slate-600">无标签</span>}
+                    )) : <span className="text-[11px] app-text-fainter">无标签</span>}
                   </div>
                   <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[11px] text-slate-500">{formatDateTime(note.updatedAt)}</span>
+                    <span className="text-[11px] app-text-faint">{formatDateTime(note.updatedAt)}</span>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); openEditModal(note); }}
-                      className="rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5"
+                      className="app-button-secondary rounded border px-2 py-0.5 text-xs"
                     >
                       编辑
                     </button>
@@ -6041,20 +6070,20 @@ function NotePanel({
               ))
             : null}
         </div>
-        <div className="flex items-center justify-between border-t border-white/10 px-4 py-2.5 text-xs text-slate-400">
+        <div className="app-border app-text-faint flex items-center justify-between border-t px-4 py-2.5 text-xs">
           <span>共 {total} 条，第 {page} / {Math.ceil(total / pageSize)} 页</span>
           <div className="flex gap-1">
             <button
               disabled={page <= 1}
               onClick={() => onPageChange?.(page - 1)}
-              className="rounded border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-30"
+              className="app-button-secondary rounded border px-2 py-1 text-xs disabled:opacity-30"
             >
               上一页
             </button>
             <button
               disabled={page >= Math.ceil(total / pageSize)}
               onClick={() => onPageChange?.(page + 1)}
-              className="rounded border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-30"
+              className="app-button-secondary rounded border px-2 py-1 text-xs disabled:opacity-30"
             >
               下一页
             </button>
@@ -6073,7 +6102,7 @@ function NotePanel({
               <input
                 value={draft.title}
                 onChange={(event) => onDraftChange("title", event.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                className="app-input-shell w-full rounded-lg px-3 py-2 text-sm outline-none"
                 placeholder="默认取正文第一行，也可以手动修改"
               />
             </Field>
@@ -6081,7 +6110,7 @@ function NotePanel({
               <textarea
                 value={draft.content}
                 onChange={(event) => onDraftChange("content", event.target.value)}
-                className="min-h-[380px] w-full rounded-lg border border-white/10 bg-black/20 px-3 py-3 font-mono text-sm leading-6 text-slate-100 outline-none focus:border-slate-400"
+                className="app-input-shell min-h-[380px] w-full rounded-lg px-3 py-3 font-mono text-sm leading-6 outline-none"
                 placeholder="# 会话入口梳理&#10;&#10;直接开始写，系统会自动保存。"
               />
             </Field>
@@ -6089,14 +6118,14 @@ function NotePanel({
               <input
                 value={draft.tags}
                 onChange={(event) => onDraftChange("tags", event.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                className="app-input-shell w-full rounded-lg px-3 py-2 text-sm outline-none"
                 placeholder="逗号分隔，例如：ui, session"
               />
             </Field>
-            <div className="flex items-center gap-3 text-xs text-slate-500">
+            <div className="app-text-faint flex items-center gap-3 text-xs">
               <span>{saving ? "自动保存中..." : "已开启自动保存"}</span>
             </div>
-            {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+            {error ? <p className="app-danger-soft rounded-lg border p-3 text-xs">{error}</p> : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex gap-2">
                 {showCreateTodo && isEditing && selectedNote ? (
@@ -6104,7 +6133,7 @@ function NotePanel({
                     type="button"
                     disabled={creatingTodo}
                     onClick={onCreateTodo}
-                    className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 disabled:opacity-50"
+                    className="app-button-success rounded-md border px-3 py-1.5 text-xs disabled:opacity-50"
                   >
                     {creatingTodo ? "创建中..." : "创建任务"}
                   </button>
@@ -6116,15 +6145,15 @@ function NotePanel({
                     type="button"
                     disabled={deletingNoteId === selectedNote.id}
                     onClick={() => onDelete(selectedNote)}
-                    className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
+                    className="app-button-danger rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
                   >
                     {deletingNoteId === selectedNote.id ? "删除中..." : "删除笔记"}
                   </button>
                 ) : null}
-                <button type="button" onClick={() => setFormModalOpen(false)} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+                <button type="button" onClick={() => setFormModalOpen(false)} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
                   关闭
                 </button>
-                <button type="submit" disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
+                <button type="submit" disabled={saving} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50">
                   {saving ? "保存中..." : "保存"}
                 </button>
               </div>
@@ -6244,30 +6273,30 @@ function TodoPanel({
   };
 
   const statusStyle = (status: TodoStatus) => {
-    if (status === "completed") return "border-emerald-400/40 bg-emerald-400/10 text-emerald-300";
-    if (status === "in_progress") return "border-blue-400/40 bg-blue-400/10 text-blue-300";
-    return "border-white/10 text-slate-300";
+    if (status === "completed") return "app-pill-success";
+    if (status === "in_progress") return "app-pill-info";
+    return "app-pill-neutral";
   };
 
   return (
     <>
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+      <section className="app-panel app-border rounded-xl border">
+        <div className="app-border flex items-center justify-between border-b px-4 py-3">
           <div>
             <div className="text-sm font-medium">项目任务</div>
-            <div className="mt-1 text-xs text-slate-500">任务属于具体项目，可保留状态、标签和来源笔记关联。</div>
+            <div className="app-text-faint mt-1 text-xs">任务属于具体项目，可保留状态、标签和来源笔记关联。</div>
           </div>
-          <button onClick={openCreateModal} className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950">
+          <button onClick={openCreateModal} className="app-button-primary rounded-md px-3 py-1.5 text-xs font-medium">
             新建任务
           </button>
         </div>
-        <div className="border-b border-white/10 px-4 py-2.5 space-y-2">
+        <div className="app-border border-b px-4 py-2.5 space-y-2">
           <div className="flex items-center gap-2">
-            <svg className="h-3.5 w-3.5 shrink-0 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <svg className="h-3.5 w-3.5 shrink-0 app-text-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             <input
               value={searchQuery}
               onChange={(e) => onSearchChange?.(e.target.value)}
-              className="flex-1 bg-transparent text-xs text-slate-200 outline-none placeholder:text-slate-600"
+              className="flex-1 bg-transparent text-xs app-text-soft outline-none app-placeholder-faint"
               placeholder="搜索任务标题、描述或标签..."
             />
           </div>
@@ -6285,7 +6314,7 @@ function TodoPanel({
                     onStatusesChange?.(next);
                   }}
                   className={`rounded-full border px-2 py-0.5 text-[10px] transition-colors ${
-                    active ? "border-violet-400/40 bg-violet-400/10 text-violet-300" : "border-white/10 text-slate-400 hover:border-white/20 hover:text-slate-300"
+                    active ? "app-pill-info" : "app-button-secondary app-text-faint"
                   }`}
                 >
                   {option.label}
@@ -6306,7 +6335,7 @@ function TodoPanel({
                       onFilterTagsChange?.(next);
                     }}
                     className={`rounded-full border px-2 py-0.5 text-[10px] transition-colors ${
-                      active ? "border-blue-400/40 bg-blue-400/10 text-blue-300" : "border-white/10 text-slate-400 hover:border-white/20 hover:text-slate-300"
+                      active ? "app-pill-info" : "app-button-secondary app-text-faint"
                     }`}
                   >
                     {tag}
@@ -6315,18 +6344,18 @@ function TodoPanel({
               })}
             </div>
           )}
-          <div className="text-[11px] text-slate-500">
+          <div className="text-[11px] app-text-faint">
             {todos.length} 条结果{(searchQuery || filterTags.length > 0 || statuses.length !== todoStatusOptions.length) ? "（已筛选）" : ""}
           </div>
         </div>
         <div className="min-h-[200px] grid grid-cols-3 gap-3 p-3 items-start">
-          {loading ? <div className="col-span-3 px-4 py-6 text-sm text-slate-400">项目任务加载中...</div> : null}
-          {!loading && todos.length === 0 ? <div className="col-span-3 px-4 py-8 text-sm text-slate-500">当前项目还没有任务，可以手动创建或从笔记生成。</div> : null}
+          {loading ? <div className="col-span-3 px-4 py-6 text-sm app-text-muted">项目任务加载中...</div> : null}
+          {!loading && todos.length === 0 ? <div className="col-span-3 px-4 py-8 text-sm app-text-faint">当前项目还没有任务，可以手动创建或从笔记生成。</div> : null}
           {!loading
             ? todos.map((todo) => (
                 <div
                   key={todo.id}
-                  className={`rounded-lg border p-3 text-left text-sm transition-colors ${selectedTodo?.id === todo.id ? "border-white/20 bg-white/[0.08]" : "border-white/10 bg-[#1a1d28] hover:border-white/20 hover:bg-[#1e2130]"}`}
+                  className={`rounded-lg border p-3 text-left text-sm transition-colors ${selectedTodo?.id === todo.id ? "app-card-selected" : "app-panel-strong app-border app-hover-border app-hover-accent"}`}
                 >
                   <div className="flex items-center justify-between">
                     <select
@@ -6339,10 +6368,10 @@ function TodoPanel({
                       className={`rounded-full border px-2 py-0.5 text-[11px] cursor-pointer appearance-none bg-transparent outline-none ${statusStyle(todo.status)}`}
                     >
                       {todoStatusOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value} className="bg-[#1a1d28] text-slate-200">{opt.label}</option>
+                        <option key={opt.value} value={opt.value} className="app-panel-strong app-text-soft">{opt.label}</option>
                       ))}
                     </select>
-                    <span className="text-[11px] text-slate-500">{formatTodoTime(todo)}</span>
+                    <span className="text-[11px] app-text-faint">{formatTodoTime(todo)}</span>
                   </div>
                   <div
                     role="button"
@@ -6351,8 +6380,8 @@ function TodoPanel({
                     onKeyDown={(e) => { if (e.key === "Enter") openEditModal(todo); }}
                     className="mt-1.5 cursor-pointer"
                   >
-                    <div className="truncate font-medium text-slate-100">{todo.title}</div>
-                    <div className="mt-0.5 truncate text-xs text-slate-500">{todo.description || "暂无描述"}</div>
+                    <div className="app-text truncate font-medium">{todo.title}</div>
+                    <div className="app-text-faint mt-0.5 truncate text-xs">{todo.description || "暂无描述"}</div>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     {todo.tags.length > 0 && todo.tags.map((tag) => (
@@ -6366,13 +6395,13 @@ function TodoPanel({
                           onFilterTagsChange?.(next);
                         }}
                         className={`rounded-full border px-1.5 py-0.5 text-[10px] transition-colors cursor-pointer ${
-                          filterTags.includes(tag) ? "border-blue-400/40 bg-blue-400/10 text-blue-300" : "border-white/10 text-slate-400 hover:border-white/20 hover:text-slate-300"
+                          filterTags.includes(tag) ? "app-pill-info" : "app-button-secondary app-text-faint"
                         }`}
                       >
                         {tag}
                       </button>
                     ))}
-                    {todo.sourceNoteId && <span className="text-[10px] text-slate-600">关联笔记</span>}
+                    {todo.sourceNoteId && <span className="text-[10px] app-text-fainter">关联笔记</span>}
                   </div>
                   <div className="mt-2 flex items-center justify-end gap-2">
                     <button
@@ -6381,7 +6410,7 @@ function TodoPanel({
                         e.stopPropagation();
                         onOpenSession("todo", todo.id);
                       }}
-                      className="rounded border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-xs text-emerald-200 hover:bg-emerald-400/15"
+                      className="app-button-success rounded border px-2 py-0.5 text-xs"
                     >
                       创建会话
                     </button>
@@ -6391,7 +6420,7 @@ function TodoPanel({
                         e.stopPropagation();
                         openEditModal(todo);
                       }}
-                      className="rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5"
+                      className="app-button-secondary rounded border px-2 py-0.5 text-xs"
                     >
                       编辑
                     </button>
@@ -6402,7 +6431,7 @@ function TodoPanel({
                         e.stopPropagation();
                         onDelete(todo);
                       }}
-                      className="rounded border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-xs text-red-200 hover:bg-red-500/15 disabled:opacity-50"
+                      className="app-button-danger rounded border px-2 py-0.5 text-xs disabled:opacity-50"
                     >
                       {deletingTodoId === todo.id ? "删除中..." : "删除"}
                     </button>
@@ -6411,20 +6440,20 @@ function TodoPanel({
               ))
             : null}
         </div>
-        <div className="flex items-center justify-between border-t border-white/10 px-4 py-2.5 text-xs text-slate-400">
+        <div className="app-border app-text-faint flex items-center justify-between border-t px-4 py-2.5 text-xs">
           <span>共 {total} 条，第 {page} / {Math.ceil(total / pageSize)} 页</span>
           <div className="flex gap-1">
             <button
               disabled={page <= 1}
               onClick={() => onPageChange?.(page - 1)}
-              className="rounded border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-30"
+              className="app-button-secondary rounded border px-2 py-1 text-xs disabled:opacity-30"
             >
               上一页
             </button>
             <button
               disabled={page >= Math.ceil(total / pageSize)}
               onClick={() => onPageChange?.(page + 1)}
-              className="rounded border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-30"
+              className="app-button-secondary rounded border px-2 py-1 text-xs disabled:opacity-30"
             >
               下一页
             </button>
@@ -6443,7 +6472,7 @@ function TodoPanel({
               <input
                 value={draft.title}
                 onChange={(event) => onDraftChange("title", event.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                className="app-input-shell w-full rounded-lg px-3 py-2 text-sm outline-none"
                 placeholder="例如：补完项目页 notes/todos 面板"
               />
             </Field>
@@ -6467,7 +6496,7 @@ function TodoPanel({
               <input
                 value={draft.tags}
                 onChange={(event) => onDraftChange("tags", event.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                className="app-input-shell w-full rounded-lg px-3 py-2 text-sm outline-none"
                 placeholder="逗号分隔，例如：phase2, api"
               />
             </Field>
@@ -6516,19 +6545,18 @@ function TodoPanel({
               <textarea
                 value={draft.description}
                 onChange={(event) => onDraftChange("description", event.target.value)}
-                className="min-h-40 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                className="app-input-shell min-h-40 w-full rounded-lg px-3 py-2 text-sm outline-none"
                 placeholder="补充任务目标、验收点或限制。"
               />
             </Field>
-
-            {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+            {error ? <p className="app-danger-soft rounded-lg border p-3 text-xs">{error}</p> : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex gap-2" />
               <div className="flex gap-2">
-                <button type="button" onClick={() => setFormModalOpen(false)} className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">
+                <button type="button" onClick={() => setFormModalOpen(false)} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
                   关闭
                 </button>
-                <button type="submit" disabled={saving} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
+                <button type="submit" disabled={saving} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50">
                   {saving ? "保存中..." : isEditing ? "保存修改" : "创建任务"}
                 </button>
               </div>
@@ -6549,11 +6577,11 @@ const memoryTypeLabels: Record<MemoryType, string> = {
   reference: "参考"
 };
 
-const memoryTypeColors: Record<MemoryType, string> = {
-  user: "bg-blue-500/10 text-blue-300",
-  feedback: "bg-amber-500/10 text-amber-300",
-  project: "bg-emerald-500/10 text-emerald-300",
-  reference: "bg-purple-500/10 text-purple-300"
+const memoryTypeClasses: Record<MemoryType, string> = {
+  user: "memory-chip-user",
+  feedback: "memory-chip-feedback",
+  project: "memory-chip-project",
+  reference: "memory-chip-reference"
 };
 
 function ProjectMemoryPanel({ projectId }: { projectId: string }) {
@@ -6755,79 +6783,79 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
   return (
     <div className="space-y-5">
       {/* CLAUDE.md section */}
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+      <section className="app-panel app-border rounded-xl border">
+        <div className="app-border flex items-start justify-between gap-3 border-b px-4 py-3">
           <div>
-            <div className="text-sm font-medium text-slate-100">CLAUDE.md</div>
-            <div className="mt-1 text-xs text-slate-500">项目根目录的 CLAUDE.md 指令文件，签入代码库。</div>
+            <div className="app-text text-sm font-medium">CLAUDE.md</div>
+            <div className="app-text-faint mt-1 text-xs">项目根目录的 CLAUDE.md 指令文件，签入代码库。</div>
           </div>
           <div className="flex gap-2">
-            <button onClick={loadClaudeMd} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+            <button onClick={loadClaudeMd} className="app-button-secondary rounded-lg border px-2.5 py-1.5 text-sm" title="刷新">
               ⟳
             </button>
             {claudeMdEditing ? (
               <>
-                <button onClick={() => { setClaudeMdEditing(false); setClaudeMdDraft(claudeMd); }} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">取消</button>
-                <button onClick={handleSaveClaudeMd} disabled={savingClaudeMd} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950 disabled:opacity-50">
+                <button onClick={() => { setClaudeMdEditing(false); setClaudeMdDraft(claudeMd); }} className="app-button-secondary rounded-lg border px-3 py-1.5 text-sm">取消</button>
+                <button onClick={handleSaveClaudeMd} disabled={savingClaudeMd} className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50">
                   {savingClaudeMd ? "保存中..." : "保存"}
                 </button>
               </>
             ) : (
-              <button onClick={startEditClaudeMd} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">编辑</button>
+              <button onClick={startEditClaudeMd} className="app-button-secondary rounded-lg border px-3 py-1.5 text-sm">编辑</button>
             )}
           </div>
         </div>
         <div className="p-4">
           {claudeMdLoading ? (
-            <div className="py-8 text-center text-sm text-slate-600">加载中...</div>
+            <div className="app-text-fainter py-8 text-center text-sm">加载中...</div>
           ) : claudeMdEditing ? (
             <textarea
               value={claudeMdDraft}
               onChange={(e) => setClaudeMdDraft(e.target.value)}
               rows={16}
-              className="w-full resize-y rounded-lg border border-white/10 bg-[#0b0c10] p-3 text-sm text-slate-100 font-mono outline-none focus:border-white/20"
+              className="app-input-shell-strong w-full resize-y rounded-lg border p-3 text-sm font-mono outline-none"
               placeholder="输入 CLAUDE.md 内容..."
             />
           ) : claudeMd ? (
-            <pre className="whitespace-pre-wrap text-sm text-slate-300 font-mono max-h-96 overflow-y-auto">{claudeMd}</pre>
+            <pre className="app-text-soft whitespace-pre-wrap text-sm font-mono max-h-96 overflow-y-auto">{claudeMd}</pre>
           ) : (
-            <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">还没有 CLAUDE.md 文件。</div>
+            <div className="app-border app-text-faint rounded-lg border border-dashed p-8 text-center">还没有 CLAUDE.md 文件。</div>
           )}
         </div>
       </section>
 
       {/* Rules section */}
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+      <section className="app-panel app-border rounded-xl border">
+        <div className="app-border flex items-start justify-between gap-3 border-b px-4 py-3">
           <div>
-            <div className="text-sm font-medium text-slate-100">规则文件</div>
-            <div className="mt-1 text-xs text-slate-500">来源：项目 .claude/rules/*.md，签入代码库。</div>
+            <div className="app-text text-sm font-medium">规则文件</div>
+            <div className="app-text-faint mt-1 text-xs">来源：项目 .claude/rules/*.md，签入代码库。</div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={loadRules} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+            <button onClick={loadRules} className="app-button-secondary rounded-lg border px-2.5 py-1.5 text-sm" title="刷新">
               ⟳
             </button>
-            <button onClick={openCreateRule} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950">新建</button>
+            <button onClick={openCreateRule} className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium">新建</button>
           </div>
         </div>
         <div className="p-4">
-          {rulesError ? <p className="mb-2 rounded-lg border border-red-500/20 bg-red-500/5 p-2 text-xs text-red-400">{rulesError}</p> : null}
-          {rulesLoading ? <div className="py-8 text-center text-sm text-slate-600">规则加载中...</div> : null}
+          {rulesError ? <p className="app-danger-soft mb-2 rounded-lg border p-2 text-xs">{rulesError}</p> : null}
+          {rulesLoading ? <div className="app-text-fainter py-8 text-center text-sm">规则加载中...</div> : null}
           {!rulesLoading && rules.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">还没有规则文件。</div>
+            <div className="app-border app-text-faint rounded-lg border border-dashed p-8 text-center">还没有规则文件。</div>
           ) : null}
           {!rulesLoading && rules.length > 0 ? (
             <div className="space-y-2">
               {rules.map((rule) => {
                 const busy = ruleOperationName === rule.name;
                 return (
-                  <div key={rule.name} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+                  <div key={rule.name} className="app-card app-border flex items-center justify-between rounded-lg border p-3 text-sm">
                     <div>
-                      <span className="font-medium text-slate-100">{rule.name}</span>
+                      <span className="app-text font-medium">{rule.name}</span>
                     </div>
                     <div className="flex gap-1">
-                      <button onClick={() => openEditRule(rule)} disabled={busy} className="rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-50">编辑</button>
-                      <button onClick={() => handleDeleteRule(rule)} disabled={busy} className="rounded border border-white/10 px-2 py-0.5 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50">{busy ? "删除中..." : "删除"}</button>
+                      <button onClick={() => openEditRule(rule)} disabled={busy} className="app-button-secondary rounded border px-2 py-0.5 text-xs disabled:opacity-50">编辑</button>
+                      <button onClick={() => handleDeleteRule(rule)} disabled={busy} className="app-button-danger rounded border px-2 py-0.5 text-xs disabled:opacity-50">{busy ? "删除中..." : "删除"}</button>
                     </div>
                   </div>
                 );
@@ -6838,43 +6866,43 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
       </section>
 
       {/* Auto memory section */}
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+      <section className="app-panel app-border rounded-xl border">
+        <div className="app-border flex items-start justify-between gap-3 border-b px-4 py-3">
           <div>
-            <div className="text-sm font-medium text-slate-100">自动记忆</div>
-            <div className="mt-1 text-xs text-slate-500">来源：~/.claude/projects/&lt;project&gt;/memory/，Claude Code 自动生成。</div>
+            <div className="app-text text-sm font-medium">自动记忆</div>
+            <div className="app-text-faint mt-1 text-xs">来源：~/.claude/projects/&lt;project&gt;/memory/，Claude Code 自动生成。</div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={loadMemories} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+            <button onClick={loadMemories} className="app-button-secondary rounded-lg border px-2.5 py-1.5 text-sm" title="刷新">
               ⟳
             </button>
-            <button onClick={openCreateMemory} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950">新建</button>
+            <button onClick={openCreateMemory} className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium">新建</button>
           </div>
         </div>
         <div className="p-4">
-          {memoriesError ? <p className="mb-2 rounded-lg border border-red-500/20 bg-red-500/5 p-2 text-xs text-red-400">{memoriesError}</p> : null}
-          {memoriesLoading ? <div className="py-8 text-center text-sm text-slate-600">记忆加载中...</div> : null}
+          {memoriesError ? <p className="app-danger-soft mb-2 rounded-lg border p-2 text-xs">{memoriesError}</p> : null}
+          {memoriesLoading ? <div className="app-text-fainter py-8 text-center text-sm">记忆加载中...</div> : null}
           {!memoriesLoading && memories.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">还没有自动记忆文件。</div>
+            <div className="app-border app-text-faint rounded-lg border border-dashed p-8 text-center">还没有自动记忆文件。</div>
           ) : null}
           {!memoriesLoading && memories.length > 0 ? (
             <div className="space-y-2">
               {memories.map((memory) => {
                 const busy = memoryOperationName === memory.name;
                 return (
-                  <div key={memory.name} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+                  <div key={memory.name} className="app-card app-border flex items-center justify-between rounded-lg border p-3 text-sm">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-slate-100 truncate">{memory.name}</span>
-                        <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${memoryTypeColors[memory.type]}`}>
+                        <span className="app-text font-medium truncate">{memory.name}</span>
+                        <span className={`memory-chip shrink-0 rounded px-1.5 py-0.5 text-xs ${memoryTypeClasses[memory.type]}`}>
                           {memoryTypeLabels[memory.type]}
                         </span>
                       </div>
-                      <div className="mt-0.5 truncate text-xs text-slate-500">{memory.description}</div>
+                      <div className="app-text-faint mt-0.5 truncate text-xs">{memory.description}</div>
                     </div>
                     <div className="ml-3 flex shrink-0 gap-1">
-                      <button onClick={() => openEditMemory(memory)} disabled={busy} className="rounded border border-white/10 px-2 py-0.5 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-50">编辑</button>
-                      <button onClick={() => handleDeleteMemory(memory)} disabled={busy} className="rounded border border-white/10 px-2 py-0.5 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50">{busy ? "删除中..." : "删除"}</button>
+                      <button onClick={() => openEditMemory(memory)} disabled={busy} className="app-button-secondary rounded border px-2 py-0.5 text-xs disabled:opacity-50">编辑</button>
+                      <button onClick={() => handleDeleteMemory(memory)} disabled={busy} className="app-button-danger rounded border px-2 py-0.5 text-xs disabled:opacity-50">{busy ? "删除中..." : "删除"}</button>
                     </div>
                   </div>
                 );
@@ -6893,12 +6921,12 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                 value={ruleContentDraft}
                 onChange={(e) => setRuleContentDraft(e.target.value)}
                 rows={16}
-                className="w-full resize-y rounded-lg border border-white/10 bg-[#0b0c10] p-3 text-sm text-slate-100 font-mono outline-none focus:border-white/20"
+                className="app-input-shell-strong w-full resize-y rounded-lg p-3 text-sm font-mono outline-none"
               />
             </Field>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => { setRuleFormOpen(false); setEditingRule(null); }} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">取消</button>
-              <button type="submit" disabled={savingRule} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950 disabled:opacity-50">{savingRule ? "保存中..." : "保存"}</button>
+              <button type="button" onClick={() => { setRuleFormOpen(false); setEditingRule(null); }} className="app-button-secondary rounded-lg border px-3 py-1.5 text-sm">取消</button>
+              <button type="submit" disabled={savingRule} className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50">{savingRule ? "保存中..." : "保存"}</button>
             </div>
           </form>
         </Modal>
@@ -6913,7 +6941,7 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                 <input
                   value={memoryDraft.name}
                   onChange={(e) => setMemoryDraft((d) => ({ ...d, name: e.target.value }))}
-                  className="w-full rounded-lg border border-white/10 bg-[#0b0c10] px-3 py-2 text-sm text-slate-100 outline-none focus:border-white/20"
+                  className="app-input-shell-strong w-full rounded-lg px-3 py-2 text-sm outline-none"
                   placeholder="my-memory"
                 />
               </Field>
@@ -6921,7 +6949,7 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                 <select
                   value={memoryDraft.type}
                   onChange={(e) => setMemoryDraft((d) => ({ ...d, type: e.target.value as MemoryType }))}
-                  className="w-full rounded-lg border border-white/10 bg-[#0b0c10] px-3 py-2 text-sm text-slate-100 outline-none"
+                  className="app-input-shell-strong w-full rounded-lg px-3 py-2 text-sm outline-none"
                 >
                   <option value="user">用户 (user)</option>
                   <option value="feedback">反馈 (feedback)</option>
@@ -6933,7 +6961,7 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                 <input
                   value={memoryDraft.description}
                   onChange={(e) => setMemoryDraft((d) => ({ ...d, description: e.target.value }))}
-                  className="w-full rounded-lg border border-white/10 bg-[#0b0c10] px-3 py-2 text-sm text-slate-100 outline-none focus:border-white/20"
+                  className="app-input-shell-strong w-full rounded-lg px-3 py-2 text-sm outline-none"
                   placeholder="简要描述"
                 />
               </Field>
@@ -6943,12 +6971,12 @@ function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                 value={memoryDraft.content}
                 onChange={(e) => setMemoryDraft((d) => ({ ...d, content: e.target.value }))}
                 rows={14}
-                className="w-full resize-y rounded-lg border border-white/10 bg-[#0b0c10] p-3 text-sm text-slate-100 font-mono outline-none focus:border-white/20"
+                className="app-input-shell-strong w-full resize-y rounded-lg p-3 text-sm font-mono outline-none"
               />
             </Field>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => { setMemoryFormOpen(false); setEditingMemory(null); }} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">取消</button>
-              <button type="submit" disabled={savingMemory} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950 disabled:opacity-50">{savingMemory ? "保存中..." : "保存"}</button>
+              <button type="button" onClick={() => { setMemoryFormOpen(false); setEditingMemory(null); }} className="app-button-secondary rounded-lg border px-3 py-1.5 text-sm">取消</button>
+              <button type="submit" disabled={savingMemory} className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50">{savingMemory ? "保存中..." : "保存"}</button>
             </div>
           </form>
         </Modal>
@@ -6988,50 +7016,50 @@ function GlobalMemoryPanel({ selectedProject, onRefresh }: { selectedProject: Pr
 
   return (
     <div className="space-y-5">
-      <section className="rounded-xl border border-white/10 bg-[#151821]">
-        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+      <section className="app-panel app-border rounded-xl border">
+        <div className="app-border flex items-start justify-between gap-3 border-b px-4 py-3">
           <div>
-            <div className="text-sm font-medium text-slate-100">全局 CLAUDE.md</div>
-            <div className="mt-1 text-xs text-slate-500">来源：~/.claude/CLAUDE.md，所有项目的全局指令。</div>
+            <div className="app-text text-sm font-medium">全局 CLAUDE.md</div>
+            <div className="app-text-faint mt-1 text-xs">来源：~/.claude/CLAUDE.md，所有项目的全局指令。</div>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => { if (onRefresh) onRefresh(); else loadContent(); }} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200" title="刷新">
+            <button onClick={() => { if (onRefresh) onRefresh(); else loadContent(); }} className="app-button-secondary rounded-lg border px-2.5 py-1.5 text-sm" title="刷新">
               ⟳
             </button>
             {editing ? (
               <>
-                <button onClick={() => { setEditing(false); setEditDraft(content); }} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">取消</button>
-                <button onClick={handleSave} disabled={saving} className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-950 disabled:opacity-50">{saving ? "保存中..." : "保存"}</button>
+                <button onClick={() => { setEditing(false); setEditDraft(content); }} className="app-button-secondary rounded-lg border px-3 py-1.5 text-sm">取消</button>
+                <button onClick={handleSave} disabled={saving} className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50">{saving ? "保存中..." : "保存"}</button>
               </>
             ) : (
-              <button onClick={() => { setEditDraft(content); setEditing(true); }} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">编辑</button>
+              <button onClick={() => { setEditDraft(content); setEditing(true); }} className="app-button-secondary rounded-lg border px-3 py-1.5 text-sm">编辑</button>
             )}
           </div>
         </div>
         <div className="p-4">
           {loading ? (
-            <div className="py-8 text-center text-sm text-slate-600">加载中...</div>
+            <div className="app-text-fainter py-8 text-center text-sm">加载中...</div>
           ) : editing ? (
             <textarea
               value={editDraft}
               onChange={(e) => setEditDraft(e.target.value)}
               rows={12}
-              className="w-full resize-y rounded-lg border border-white/10 bg-[#0b0c10] p-3 text-sm text-slate-100 font-mono outline-none focus:border-white/20"
+              className="app-input-shell-strong w-full resize-y rounded-lg p-3 text-sm font-mono outline-none"
               placeholder="输入全局 CLAUDE.md 内容..."
             />
           ) : content ? (
-            <pre className="whitespace-pre-wrap text-sm text-slate-300 font-mono max-h-80 overflow-y-auto">{content}</pre>
+            <pre className="app-text-soft whitespace-pre-wrap text-sm font-mono max-h-80 overflow-y-auto">{content}</pre>
           ) : (
-            <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-slate-500">还没有全局 CLAUDE.md 文件。</div>
+            <div className="app-border app-text-faint rounded-lg border border-dashed p-8 text-center">还没有全局 CLAUDE.md 文件。</div>
           )}
         </div>
       </section>
 
       {selectedProject ? (
-        <section className="rounded-xl border border-white/10 bg-[#151821]">
-          <div className="border-b border-white/10 px-4 py-3">
-            <div className="text-sm font-medium text-slate-100">项目记忆</div>
-            <div className="mt-1 text-xs text-slate-500">进入项目「{selectedProject.name}」的记忆标签页管理 CLAUDE.md、规则和自动记忆。</div>
+        <section className="app-panel app-border rounded-xl border">
+          <div className="app-border border-b px-4 py-3">
+            <div className="app-text text-sm font-medium">项目记忆</div>
+            <div className="app-text-faint mt-1 text-xs">进入项目「{selectedProject.name}」的记忆标签页管理 CLAUDE.md、规则和自动记忆。</div>
           </div>
         </section>
       ) : null}

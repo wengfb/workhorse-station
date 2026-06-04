@@ -126,7 +126,6 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  const isPrompt = dialog.type === "prompt";
   const options = dialog.options;
 
   // --- Confirm Popover (near click position) ---
@@ -136,33 +135,29 @@ export function DialogProvider({ children }: { children: ReactNode }) {
       <DialogContext.Provider value={{ confirm, prompt: promptFn }}>
         {children}
         {/* Subtle overlay — block background clicks while keeping context visible */}
-        <div className="fixed inset-0 z-50 bg-black/20" onClick={() => dismiss(null)} />
+        <div className="app-backdrop-soft fixed inset-0 z-50" onClick={() => dismiss(null)} />
         {/* Popover */}
         <div
           ref={popoverRef}
-          className="fixed z-50 min-w-[220px] max-w-[320px] rounded-xl border border-white/10 bg-[#1a1d28] p-4 shadow-2xl ring-1 ring-black/20 duration-150 animate-in fade-in zoom-in-95"
+          className="app-panel-strong app-border app-text fixed z-50 min-w-[220px] max-w-[320px] rounded-xl border p-4 shadow-2xl ring-1 ring-black/20 duration-150 animate-in fade-in zoom-in-95"
           style={{ left: position.left, top: position.top }}
           onClick={(e) => e.stopPropagation()}
         >
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-200">
+          <p className="app-text-soft whitespace-pre-wrap text-sm leading-relaxed">
             {dialog.message}
           </p>
           <div className="mt-4 flex justify-end gap-2">
             <button
               type="button"
               onClick={() => dismiss(null)}
-              className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-400 transition-colors hover:border-white/15 hover:bg-white/5 hover:text-slate-200"
+              className="app-button-secondary app-hover-border rounded-lg border px-3 py-1.5 text-sm transition-colors"
             >
               {options.cancelLabel ?? "取消"}
             </button>
             <button
               type="button"
               onClick={() => dismiss(true)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                isDanger
-                  ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
-                  : "bg-white text-slate-900 hover:bg-slate-200"
-              }`}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${isDanger ? "app-button-danger border" : "app-button-primary"}`}
             >
               {options.confirmLabel ?? "确认"}
             </button>
@@ -177,21 +172,21 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     <DialogContext.Provider value={{ confirm, prompt: promptFn }}>
       {children}
       {/* Overlay */}
-      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
+      <div className="app-backdrop fixed inset-0 z-50 backdrop-blur-sm" />
       {/* Centered modal */}
       <div
         className="fixed inset-0 z-50 flex items-center justify-center p-4"
         onClick={() => dismiss(null)}
       >
         <div
-          className="w-full max-w-sm rounded-xl border border-white/10 bg-[#1a1d28] shadow-2xl ring-1 ring-black/20"
+          className="app-panel-strong app-border w-full max-w-sm rounded-xl border shadow-2xl ring-1 ring-black/20"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="p-4 pb-0">
             {options.title && (
-              <h3 className="text-sm font-medium text-slate-100">{options.title}</h3>
+              <h3 className="app-text text-sm font-medium">{options.title}</h3>
             )}
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-300">
+            <p className="app-text-muted whitespace-pre-wrap text-sm leading-relaxed">
               {dialog.message}
             </p>
           </div>
@@ -207,22 +202,22 @@ export function DialogProvider({ children }: { children: ReactNode }) {
                   dismiss(true);
                 }
               }}
-              className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-white/20 focus:bg-black/40"
+              className="app-input-shell-strong w-full rounded-lg border px-3 py-2 text-sm outline-none"
               placeholder={dialog.message}
             />
           </div>
-          <div className="mt-4 flex justify-end gap-2 border-t border-white/5 p-4">
+          <div className="app-border-soft mt-4 flex justify-end gap-2 border-t p-4">
             <button
               type="button"
               onClick={() => dismiss(null)}
-              className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-400 transition-colors hover:border-white/15 hover:bg-white/5 hover:text-slate-200"
+              className="app-button-secondary app-hover-border rounded-lg border px-3 py-1.5 text-sm transition-colors"
             >
               {options.cancelLabel ?? "取消"}
             </button>
             <button
               type="button"
               onClick={() => dismiss(true)}
-              className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-200"
+              className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
             >
               {options.confirmLabel ?? "确认"}
             </button>

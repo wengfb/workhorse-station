@@ -1,3 +1,4 @@
+import { Monitor, Moon, Sun } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type {
   ExecutionListItem,
@@ -22,6 +23,7 @@ import {
   getWorkspaceTerminal
 } from "./api";
 import { PtyTerminal, type PtyTerminalSnapshot } from "./pty-terminal";
+import { useThemeSettings, type TerminalThemeMode } from "./theme";
 import { WorkspaceTerminal } from "./workspace-terminal";
 import { Select } from "./components/ui/Select";
 
@@ -48,6 +50,18 @@ type SessionModalTerminalSource = {
   onSessionRuntimeEvent?: (event: SessionStreamEvent) => void;
   onWorkspaceTerminalRuntimeEvent?: (event: WorkspaceTerminalStreamEvent) => void;
 } | null;
+
+type TerminalThemeOption = {
+  mode: TerminalThemeMode;
+  label: string;
+  icon: typeof Monitor;
+};
+
+const terminalThemeOptions: TerminalThemeOption[] = [
+  { mode: "follow", label: "跟随界面", icon: Monitor },
+  { mode: "dark", label: "暗色终端", icon: Moon },
+  { mode: "light", label: "亮色终端", icon: Sun }
+];
 
 export function SessionsWorkspace({
   selectedProject,
@@ -76,62 +90,66 @@ export function SessionsWorkspace({
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(360px,0.7fr)]">
-      <section className="rounded-xl border border-white/10 bg-[#151821] p-4">
+      <section className="app-panel app-border rounded-xl border p-4">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <div>
-            <div className="text-sm font-medium text-slate-100">Claude Code 会话</div>
-            <p className="mt-1 text-xs text-slate-500">会话已接入真实启动，可绑定已有 Worktree 或在启动时自动创建新 Worktree。</p>
+            <div className="app-text text-sm font-medium">Claude Code 会话</div>
+            <p className="app-text-faint mt-1 text-xs">会话已接入真实启动，可绑定已有 Worktree 或在启动时自动创建新 Worktree。</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => onOpenSession("direct")} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950">
+            <button onClick={() => onOpenSession("direct")} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
               直接创建
             </button>
             <button
               disabled={!firstTodo}
               onClick={() => onOpenSession("todo", firstTodo?.id)}
-              className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+              className="app-button-secondary rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
               从任务创建
             </button>
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-400">
-          <span className="rounded-full border border-white/10 px-2 py-1">会话 {sessions.length}</span>
-          <span className="rounded-full border border-white/10 px-2 py-1">Prompt 草稿 {promptDrafts.length}</span>
-          <span className="rounded-full border border-white/10 px-2 py-1">当前 Worktree：{selectedWorktree?.name ?? "未选择"}</span>
+        <div className="app-text-faint mt-4 flex flex-wrap gap-2 text-xs">
+          <span className="app-pill-neutral rounded-full border px-2 py-1">会话 {sessions.length}</span>
+          <span className="app-pill-neutral rounded-full border px-2 py-1">Prompt 草稿 {promptDrafts.length}</span>
+          <span className="app-pill-neutral rounded-full border px-2 py-1">当前 Worktree：{selectedWorktree?.name ?? "未选择"}</span>
         </div>
 
-        {error ? <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-        {loading ? <div className="mt-4 rounded-lg border border-white/10 p-3 text-xs text-slate-400">会话加载中...</div> : null}
-        {!loading && sessions.length === 0 ? <div className="mt-4 rounded-lg border border-dashed border-white/10 p-4 text-xs text-slate-500">当前项目还没有保存的会话记录。</div> : null}
+        {error ? <p className="app-banner-danger mt-4 rounded-lg border p-3 text-xs">{error}</p> : null}
+        {loading ? <div className="app-border app-text-faint mt-4 rounded-lg border p-3 text-xs">会话加载中...</div> : null}
+        {!loading && sessions.length === 0 ? <div className="app-border app-text-faint mt-4 rounded-lg border border-dashed p-4 text-xs">当前项目还没有保存的会话记录。</div> : null}
 
         {!loading && sessions.length > 0 ? (
           <div className="mt-4 space-y-2">
             {sessions.map((session) => (
-              <button key={session.id} onClick={() => onOpenSession(session.source, session.todoId ?? undefined, session.id)} className="block w-full rounded-lg border border-white/10 bg-white/[0.03] p-3 text-left text-sm hover:bg-white/[0.06]">
+              <button
+                key={session.id}
+                onClick={() => onOpenSession(session.source, session.todoId ?? undefined, session.id)}
+                className="app-card app-card-hover app-hover-border block w-full rounded-lg border p-3 text-left text-sm"
+              >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-slate-100">{session.name}</span>
+                  <span className="app-text font-medium">{session.name}</span>
                   <SessionStatusPill status={session.status} />
                 </div>
-                <div className="mt-2 text-xs text-slate-500">来源：{session.source === "todo" ? "任务" : "直接创建"}</div>
-                {session.summary ? <div className="mt-1 line-clamp-2 text-xs text-slate-400">结果：{session.summary}</div> : null}
-                <div className="mt-1 text-xs text-slate-500">更新：{formatDateTime(session.updatedAt)}</div>
+                <div className="app-text-faint mt-2 text-xs">来源：{session.source === "todo" ? "任务" : "直接创建"}</div>
+                {session.summary ? <div className="app-text-muted mt-1 line-clamp-2 text-xs">结果：{session.summary}</div> : null}
+                <div className="app-text-faint mt-1 text-xs">更新：{formatDateTime(session.updatedAt)}</div>
               </button>
             ))}
           </div>
         ) : null}
       </section>
 
-      <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
-        <div className="font-medium text-slate-100">会话上下文</div>
+      <section className="app-panel app-border app-text-muted rounded-xl border p-4 text-sm">
+        <div className="app-text font-medium">会话上下文</div>
         <div className="mt-4 space-y-2">
           <DetailRow label="项目" value={selectedProject.name} />
           <DetailRow label="Worktree" value={selectedWorktree?.name ?? "未选择"} />
           <DetailRow label="Prompt 草稿" value={String(promptDrafts.length)} />
           <DetailRow label="关闭窗口" value="后台运行，不停止会话" />
         </div>
-        <p className="mt-4 rounded-lg border border-emerald-400/30 bg-emerald-400/10 p-3 text-xs text-emerald-100">当前版本支持真实 Claude Code 会话启动、终端输出和停止操作；删除会话不会自动删除关联 Worktree。</p>
+        <p className="app-banner-success mt-4 rounded-lg border p-3 text-xs">当前版本支持真实 Claude Code 会话启动、终端输出和停止操作；删除会话不会自动删除关联 Worktree。</p>
       </section>
     </div>
   );
@@ -175,26 +193,26 @@ export function CreateSessionModal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 md:p-6">
-      <div className="w-full max-w-4xl overflow-hidden rounded-2xl border border-white/10 bg-[#101114] shadow-2xl">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+    <div className="app-overlay fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6">
+      <div className="app-panel app-border w-full max-w-4xl overflow-hidden rounded-2xl border shadow-2xl">
+        <div className="app-border flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
           <div>
-            <div className="text-sm font-semibold text-slate-100">创建 Claude Code 会话</div>
-            <div className="mt-1 text-xs text-slate-500">先确认 prompt 草稿，再真实启动 Claude Code 会话并打开终端。</div>
+            <div className="app-text text-sm font-semibold">创建 Claude Code 会话</div>
+            <div className="app-text-faint mt-1 text-xs">先确认 prompt 草稿，再真实启动 Claude Code 会话并打开终端。</div>
           </div>
-          <button onClick={onClose} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10">
+          <button onClick={onClose} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
             关闭
           </button>
         </div>
 
         <div className="max-h-[calc(100vh-120px)] overflow-auto p-4 md:p-5">
-          <section className="rounded-xl border border-white/10 bg-[#151821] p-4 text-sm text-slate-300">
+          <section className="app-panel-strong app-border app-text-muted rounded-xl border p-4 text-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div className="font-medium text-slate-100">会话创建表单</div>
-                <p className="mt-1 text-xs text-slate-500">入口：{source === "todo" ? "从任务创建" : "直接创建"}</p>
+                <div className="app-text font-medium">会话创建表单</div>
+                <p className="app-text-faint mt-1 text-xs">入口：{source === "todo" ? "从任务创建" : "直接创建"}</p>
               </div>
-              <div className="text-right text-xs text-slate-500">
+              <div className="app-text-faint text-right text-xs">
                 <div>项目：{selectedProject?.name ?? "未选择"}</div>
                 <div className="mt-1">当前 Worktree：{selectedWorktree?.name ?? "未选择"}</div>
               </div>
@@ -204,7 +222,7 @@ export function CreateSessionModal({
                 <input
                   value={draft.sessionName}
                   onChange={(event) => onDraftChange("sessionName", event.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                  className="app-input-shell w-full rounded-lg border px-3 py-2 text-sm outline-none"
                   placeholder="例如：任务会话 / 直接会话"
                 />
               </Field>
@@ -212,7 +230,7 @@ export function CreateSessionModal({
                 <input
                   value={draft.promptTitle}
                   onChange={(event) => onDraftChange("promptTitle", event.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                  className="app-input-shell w-full rounded-lg border px-3 py-2 text-sm outline-none"
                   placeholder="例如：Prompt 草稿：会话入口改造"
                 />
               </Field>
@@ -236,12 +254,12 @@ export function CreateSessionModal({
                 <input
                   value={draft.requestedWorktreeName}
                   onChange={(event) => onDraftChange("requestedWorktreeName", event.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                  className="app-input-shell w-full rounded-lg border px-3 py-2 text-sm outline-none"
                   placeholder="例如：phase-2-session-flow"
                 />
               </Field>
             </div>
-            <p className="mt-2 text-xs text-slate-500">已有 Worktree 和新 Worktree 名称二选一；填写新名称时会在启动会话时自动创建。</p>
+            <p className="app-text-faint mt-2 text-xs">已有 Worktree 和新 Worktree 名称二选一；填写新名称时会在启动会话时自动创建。</p>
             {sessions.length > 0 ? (
               <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <Field label="续接历史会话（可选）">
@@ -258,12 +276,12 @@ export function CreateSessionModal({
                 </Field>
                 {draft.resumeSessionId ? (
                   <Field label="分叉模式">
-                    <label className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                    <label className="app-text-faint mt-2 flex items-center gap-2 text-xs">
                       <input
                         type="checkbox"
                         checked={draft.forkSession}
                         onChange={(event) => onDraftChange("forkSession", event.target.checked)}
-                        className="rounded border-white/10 bg-black/20"
+                        className="app-input-shell rounded border"
                       />
                       分叉会话（保留原会话历史，在新分支中继续）
                     </label>
@@ -276,18 +294,18 @@ export function CreateSessionModal({
                 <textarea
                   value={draft.prompt}
                   onChange={(event) => onDraftChange("prompt", event.target.value)}
-                  className="min-h-56 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-400"
+                  className="app-input-shell min-h-56 w-full rounded-lg border px-3 py-2 text-sm outline-none"
                   placeholder="先生成 prompt 草稿，或直接手动编辑。"
                 />
               </Field>
             </div>
-            {error ? <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+            {error ? <p className="app-banner-danger mt-4 rounded-lg border p-3 text-xs">{error}</p> : null}
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
                 disabled={loading || previewingPrompt}
                 onClick={onPreviewPrompt}
-                className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-button-secondary rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {previewingPrompt ? "生成中..." : "生成 Prompt 草稿"}
               </button>
@@ -295,7 +313,7 @@ export function CreateSessionModal({
                 type="button"
                 disabled={loading || savingPromptDraft}
                 onClick={onSavePromptDraft}
-                className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-button-success rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {savingPromptDraft ? "保存中..." : draft.promptDraftId ? "更新草稿" : "保存草稿"}
               </button>
@@ -303,7 +321,7 @@ export function CreateSessionModal({
                 type="button"
                 disabled={loading || creatingSession}
                 onClick={onCreateSession}
-                className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {creatingSession ? "启动中..." : "启动会话并打开"}
               </button>
@@ -329,21 +347,21 @@ export function ExecutionModalFrame({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 p-0 md:p-6">
-      <div className="flex h-full w-full flex-col overflow-hidden bg-[#101114] shadow-2xl md:max-w-[min(96vw,1800px)] md:rounded-2xl md:border md:border-white/10">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+    <div className="app-overlay fixed inset-0 z-50 flex items-stretch justify-center p-0 md:p-6">
+      <div className="app-panel app-border flex h-full w-full flex-col overflow-hidden shadow-2xl md:max-w-[min(96vw,1800px)] md:rounded-2xl md:border">
+        <div className="app-border flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-slate-100">{title}</div>
-            <div className="mt-1 text-xs text-slate-500">{subtitle}</div>
+            <div className="app-text truncate text-sm font-semibold">{title}</div>
+            <div className="app-text-faint mt-1 text-xs">{subtitle}</div>
           </div>
-          <button onClick={onClose} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10">
+          <button onClick={onClose} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
             关闭
           </button>
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="min-h-0 overflow-auto border-b border-white/10 bg-[#151821] p-3 xl:border-b-0 xl:border-r">{sidebar}</aside>
-          <section className="flex min-h-0 flex-col overflow-hidden bg-black/20">{content}</section>
+          <aside className="app-panel-strong app-border min-h-0 overflow-auto border-b p-3 xl:border-b-0 xl:border-r">{sidebar}</aside>
+          <section className="app-input flex min-h-0 flex-col overflow-hidden">{content}</section>
         </div>
       </div>
     </div>
@@ -415,6 +433,7 @@ export function SessionModal({
   onWorkspaceTerminalRuntimeEvent: (event: WorkspaceTerminalStreamEvent) => void;
   onClose: () => void;
 }) {
+  const { terminalTheme, terminalThemeMode, setTerminalThemeMode } = useThemeSettings();
   const runtimeStatus = selectedSession?.runtimeStatus ?? null;
   const isWorkspaceTerminalSelected = selectedExecution?.kind === "workspace-terminal";
   const [searchQuery, setSearchQuery] = useState("");
@@ -545,14 +564,14 @@ export function SessionModal({
             <input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-slate-400"
+              className="app-input-shell w-full rounded-lg border px-3 py-2 text-sm outline-none"
               placeholder="搜索会话、终端、项目或 worktree"
             />
             <div className="grid grid-cols-3 gap-2">
               <select
                 value={projectFilter}
                 onChange={(event) => setProjectFilter(event.target.value)}
-                className="min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-400"
+                className="app-input-shell min-w-0 rounded-lg border px-3 py-2 text-xs outline-none"
               >
                 <option value="all">全部项目</option>
                 {projects.map((project) => (
@@ -564,7 +583,7 @@ export function SessionModal({
               <select
                 value={statusFilter}
                 onChange={(event) => setStatusFilter(event.target.value as ExecutionStatusFilter)}
-                className="min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-400"
+                className="app-input-shell min-w-0 rounded-lg border px-3 py-2 text-xs outline-none"
               >
                 <option value="all">全部状态</option>
                 <option value="active">运行中</option>
@@ -574,7 +593,7 @@ export function SessionModal({
               <select
                 value={kindFilter}
                 onChange={(event) => setKindFilter(event.target.value as ExecutionKindFilter)}
-                className="min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-200 outline-none focus:border-slate-400"
+                className="app-input-shell min-w-0 rounded-lg border px-3 py-2 text-xs outline-none"
               >
                 <option value="all">全部类型</option>
                 <option value="session">Claude 会话</option>
@@ -582,8 +601,8 @@ export function SessionModal({
               </select>
             </div>
           </div>
-          {error ? <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-          {workspaceTerminalError && isWorkspaceTerminalSelected ? <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{workspaceTerminalError}</p> : null}
+          {error ? <p className="app-banner-danger mt-4 rounded-lg border p-3 text-xs">{error}</p> : null}
+          {workspaceTerminalError && isWorkspaceTerminalSelected ? <p className="app-banner-danger mt-4 rounded-lg border p-3 text-xs">{workspaceTerminalError}</p> : null}
           <div className="mt-3 space-y-1.5">
             {filteredExecutionItems.map((execution) => {
               const isSelected = selectedExecution?.kind === execution.kind && selectedExecution.id === execution.id;
@@ -599,20 +618,15 @@ export function SessionModal({
               const isActionMenuOpen = expandedActionKey === executionKey;
 
               return (
-                <div
-                  key={executionKey}
-                  className={`group rounded-lg border px-3 py-2 text-left text-sm transition ${
-                    isSelected ? "border-slate-300/50 bg-white/[0.08]" : "border-white/5 bg-white/[0.02] hover:border-white/10 hover:bg-white/[0.04]"
-                  }`}
-                >
+                <div key={executionKey} className={`group rounded-lg border px-3 py-2 text-left text-sm transition ${isSelected ? "app-card-selected" : "app-card app-card-hover app-hover-border"}`}>
                   <div className="flex items-start gap-2">
                     <button onClick={() => onSelectExecution(execution)} className="min-w-0 flex-1 text-left">
                       <div className="flex items-center gap-2">
                         <span className={`h-2 w-2 shrink-0 rounded-full ${getExecutionStatusDotClass(execution)}`} />
-                        <div className="min-w-0 flex-1 truncate font-medium text-slate-100">{execution.name}</div>
-                        <span className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-slate-500">{isSession ? "Claude" : "Shell"}</span>
+                        <div className="app-text min-w-0 flex-1 truncate font-medium">{execution.name}</div>
+                        <span className="app-text-faint shrink-0 text-[10px] uppercase tracking-[0.12em]">{isSession ? "Claude" : "Shell"}</span>
                       </div>
-                      <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
+                      <div className="app-text-faint mt-1 flex items-center gap-2 text-[11px]">
                         <span className="min-w-0 flex-1 truncate">{secondaryText}</span>
                         <span className="shrink-0">{formatDateTime(execution.updatedAt)}</span>
                       </div>
@@ -626,7 +640,7 @@ export function SessionModal({
                                 <button
                                   disabled={continuingSessionId === sessionRecord.id}
                                   onClick={() => onContinueSession(sessionRecord)}
-                                  className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-1 text-[10px] text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                                  className="app-button-success rounded-md border px-1.5 py-1 text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   {continuingSessionId === sessionRecord.id ? "继续中" : "继续"}
                                 </button>
@@ -634,7 +648,7 @@ export function SessionModal({
                                 <button
                                   disabled={updatingSessionId === sessionRecord.id || sessionRecord.runtimeStatus === "stopped" || sessionRecord.runtimeStatus === "failed"}
                                   onClick={() => onStopSession(sessionRecord)}
-                                  className="rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-1 text-[10px] text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+                                  className="app-button-warning rounded-md border px-1.5 py-1 text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   {updatingSessionId === sessionRecord.id ? "停止中" : "停止"}
                                 </button>
@@ -643,14 +657,14 @@ export function SessionModal({
                             <button
                               disabled={renamingSessionId === sessionRecord.id}
                               onClick={() => onRenameSession(sessionRecord)}
-                              className="rounded-md border border-sky-400/30 bg-sky-400/10 px-1.5 py-1 text-[10px] text-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="app-button-info rounded-md border px-1.5 py-1 text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {renamingSessionId === sessionRecord.id ? "重命名中" : "重命名"}
                             </button>
                             <button
                               disabled={deletingSessionId === sessionRecord.id}
                               onClick={() => onDeleteSession(sessionRecord)}
-                              className="rounded-md border border-red-400/30 bg-red-500/10 px-1.5 py-1 text-[10px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="app-button-danger rounded-md border px-1.5 py-1 text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {deletingSessionId === sessionRecord.id ? "删除中" : "删除"}
                             </button>
@@ -658,7 +672,7 @@ export function SessionModal({
                               <button
                                 type="button"
                                 onClick={() => setExpandedActionKey(null)}
-                                className="-mr-1 flex h-6 shrink-0 items-center px-1 text-[12px] leading-none text-slate-400 hover:text-slate-200"
+                                className="app-text-faint app-hover-text -mr-1 flex h-6 shrink-0 items-center px-1 text-[12px] leading-none"
                                 aria-label="收起操作"
                               >
                                 ⋮
@@ -669,7 +683,7 @@ export function SessionModal({
                           <button
                             type="button"
                             onClick={() => setExpandedActionKey(executionKey)}
-                            className="-mr-1 flex h-6 shrink-0 items-center self-center px-1 text-[12px] leading-none text-slate-400 hover:text-slate-200"
+                            className="app-text-faint app-hover-text -mr-1 flex h-6 shrink-0 items-center self-center px-1 text-[12px] leading-none"
                             aria-label="展开操作"
                           >
                             ⋮
@@ -683,7 +697,7 @@ export function SessionModal({
                           <button
                             disabled={deletingWorkspaceTerminalId === execution.id}
                             onClick={() => onDeleteWorkspaceTerminal(execution)}
-                            className="rounded-md border border-red-400/30 bg-red-500/10 px-1.5 py-1 text-[10px] text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="app-button-danger rounded-md border px-1.5 py-1 text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {deletingWorkspaceTerminalId === execution.id ? "删除中" : "删除"}
                           </button>
@@ -691,7 +705,7 @@ export function SessionModal({
                             <button
                               type="button"
                               onClick={() => setExpandedActionKey(null)}
-                              className="-mr-1 flex h-6 shrink-0 items-center px-1 text-[12px] leading-none text-slate-400 hover:text-slate-200"
+                              className="app-text-faint app-hover-text -mr-1 flex h-6 shrink-0 items-center px-1 text-[12px] leading-none"
                               aria-label="收起操作"
                             >
                               ⋮
@@ -702,7 +716,7 @@ export function SessionModal({
                         <button
                           type="button"
                           onClick={() => setExpandedActionKey(executionKey)}
-                          className="-mr-1 flex h-6 shrink-0 items-center self-center px-1 text-[12px] leading-none text-slate-400 hover:text-slate-200"
+                          className="app-text-faint app-hover-text -mr-1 flex h-6 shrink-0 items-center self-center px-1 text-[12px] leading-none"
                           aria-label="展开操作"
                         >
                           ⋮
@@ -713,17 +727,17 @@ export function SessionModal({
                 </div>
               );
             })}
-            {!loading && executionItems.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-xs text-slate-500">还没有执行项。</div> : null}
-            {!loading && executionItems.length > 0 && filteredExecutionItems.length === 0 ? <div className="rounded-lg border border-dashed border-white/10 p-3 text-xs text-slate-500">没有匹配的执行项。</div> : null}
+            {!loading && executionItems.length === 0 ? <div className="app-border app-text-faint rounded-lg border border-dashed p-3 text-xs">还没有执行项。</div> : null}
+            {!loading && executionItems.length > 0 && filteredExecutionItems.length === 0 ? <div className="app-border app-text-faint rounded-lg border border-dashed p-3 text-xs">没有匹配的执行项。</div> : null}
           </div>
         </>
       }
       content={
         <>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 p-3">
+          <div className="app-border flex flex-wrap items-center justify-between gap-2 border-b p-3">
             <div className="flex items-center gap-2">
               {isWorkspaceTerminalSelected ? (
-                <div className="text-sm text-slate-300">普通终端</div>
+                <div className="app-text-muted text-sm">普通终端</div>
               ) : (
                 [
                   { id: "terminal", label: "操作终端" },
@@ -732,21 +746,39 @@ export function SessionModal({
                   <button
                     key={tab.id}
                     onClick={() => setView(tab.id as SessionView)}
-                    className={`rounded-md px-3 py-1.5 text-sm ${view === tab.id ? "bg-white text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-slate-100"}`}
+                    className={`rounded-md px-3 py-1.5 text-sm ${view === tab.id ? "app-button-primary" : "app-button-secondary border"}`}
                   >
                     {tab.label}
                   </button>
                 ))
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">{terminalSource?.runtimeStatus ?? runtimeStatus ?? workspaceTerminal?.runtimeStatus ?? "stopped"}</span>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="app-panel-strong app-border flex items-center gap-1 rounded-lg border p-1">
+                {terminalThemeOptions.map((option) => {
+                  const Icon = option.icon;
+                  const active = terminalThemeMode === option.mode;
+                  return (
+                    <button
+                      key={option.mode}
+                      type="button"
+                      onClick={() => setTerminalThemeMode(option.mode)}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md transition ${active ? "app-button-primary" : "app-button-secondary border"}`}
+                      aria-label={option.label}
+                      title={option.label}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="app-pill-success rounded-full border px-2 py-1 text-xs">{terminalSource?.runtimeStatus ?? runtimeStatus ?? workspaceTerminal?.runtimeStatus ?? "stopped"}</span>
               {isWorkspaceTerminalSelected && workspaceTerminal ? (
                 workspaceTerminal.runtimeStatus === "starting" || workspaceTerminal.runtimeStatus === "running" || workspaceTerminal.runtimeStatus === "stopping" ? (
                   <button
                     onClick={onStopWorkspaceTerminal}
                     disabled={stoppingWorkspaceTerminal}
-                    className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="app-button-warning rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {stoppingWorkspaceTerminal ? "停止中..." : "停止终端"}
                   </button>
@@ -754,7 +786,7 @@ export function SessionModal({
                   <button
                     onClick={onRestartWorkspaceTerminal}
                     disabled={openingWorkspaceTerminal}
-                    className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {openingWorkspaceTerminal ? "打开中..." : "重新打开终端"}
                   </button>
@@ -772,35 +804,35 @@ export function SessionModal({
                   loadSnapshot={terminalSource.loadSnapshot}
                   createSocket={terminalSource.createSocket}
                   onRuntimeEvent={handleTerminalRuntimeEvent}
-                  className="h-full min-h-[320px] w-full rounded-xl border border-white/10 bg-black"
+                  className="terminal-surface app-border h-full min-h-[320px] w-full rounded-xl border"
                   visible={view === "terminal" || isWorkspaceTerminalSelected}
                 />
               </div>
             ) : (
-              <section className="flex h-full min-h-[320px] items-center justify-center rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">
+              <section className="terminal-surface app-border app-text-faint flex h-full min-h-[320px] items-center justify-center rounded-xl border p-4 font-mono text-sm">
                 请先选择一个 Claude 会话。
               </section>
             )}
 
             {!isWorkspaceTerminalSelected && view === "history" ? (
               selectedSession ? (
-                <section className="h-full min-h-[320px] overflow-auto rounded-xl border border-white/10 bg-black/30 p-4">
+                <section className="app-input-shell-strong app-border h-full min-h-[320px] overflow-auto rounded-xl border p-4">
                   {historyLoading ? (
-                    <div className="text-sm text-slate-400">会话历史加载中...</div>
+                    <div className="app-text-faint text-sm">会话历史加载中...</div>
                   ) : historyMessages.length === 0 ? (
-                    <div className="text-sm text-slate-500">当前会话还没有可展示的历史记录。</div>
+                    <div className="app-text-faint text-sm">当前会话还没有可展示的历史记录。</div>
                   ) : (
                     <div className="space-y-3">
                       {historyMessages.map((message, index) => (
-                        <div key={`${message.timestamp ?? "no-ts"}-${index}`} className="rounded-xl border border-white/10 bg-black/30 p-3">
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                            <span className="rounded-full border border-white/10 px-2 py-0.5 text-slate-300">{message.role === "assistant" ? "Claude" : "User"}</span>
-                            {message.isSidechain ? <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-amber-200">Sidechain</span> : null}
+                        <div key={`${message.timestamp ?? "no-ts"}-${index}`} className="app-input-shell-strong app-border rounded-xl border p-3">
+                          <div className="app-text-faint flex flex-wrap items-center gap-2 text-xs">
+                            <span className="app-pill-neutral rounded-full border px-2 py-0.5">{message.role === "assistant" ? "Claude" : "User"}</span>
+                            {message.isSidechain ? <span className="app-pill-warning rounded-full border px-2 py-0.5">Sidechain</span> : null}
                             <span>{message.timestamp ? formatDateTime(message.timestamp) : "无时间"}</span>
                           </div>
                           <div className="mt-3 space-y-2">
                             {message.content.map((block, blockIndex) => (
-                              <div key={blockIndex} className="whitespace-pre-wrap break-words rounded-lg border border-white/5 bg-white/[0.03] p-3 font-mono text-xs text-slate-200">
+                              <div key={blockIndex} className="app-card app-border-soft app-text-soft whitespace-pre-wrap break-words rounded-lg border p-3 font-mono text-xs">
                                 {formatSessionHistoryBlock(block)}
                               </div>
                             ))}
@@ -811,7 +843,7 @@ export function SessionModal({
                   )}
                 </section>
               ) : (
-                <section className="flex h-full min-h-[320px] items-center justify-center rounded-xl border border-white/10 bg-black p-4 font-mono text-sm text-slate-400">
+                <section className="terminal-surface app-border app-text-faint flex h-full min-h-[320px] items-center justify-center rounded-xl border p-4 font-mono text-sm">
                   请先选择一个 Claude 会话。
                 </section>
               )
@@ -857,11 +889,11 @@ export function WorkspaceExecutionModal({
       sidebar={
         <>
           <div>
-            <div className="text-sm font-medium text-slate-100">终端上下文</div>
-            <div className="mt-1 text-xs text-slate-500">关闭窗口只会隐藏终端，不会停止后台进程。</div>
+            <div className="app-text text-sm font-medium">终端上下文</div>
+            <div className="app-text-faint mt-1 text-xs">关闭窗口只会隐藏终端，不会停止后台进程。</div>
           </div>
 
-          <div className="mt-4 space-y-2 text-sm text-slate-300">
+          <div className="app-text-muted mt-4 space-y-2 text-sm">
             <DetailCard label="项目" value={context?.projectName ?? "工作台根目录"} />
             <DetailCard label="Worktree" value={context?.worktreeName ?? terminal.requestedWorktreeName ?? "未绑定"} />
             <DetailCard label="状态" value={terminal.runtimeStatus} />
@@ -869,14 +901,14 @@ export function WorkspaceExecutionModal({
             <DetailCard label="目录" value={terminal.cwd} />
           </div>
 
-          {error ? <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+          {error ? <p className="app-banner-danger mt-4 rounded-lg border p-3 text-xs">{error}</p> : null}
 
           <div className="mt-4 flex flex-wrap gap-2">
             {isRunning ? (
               <button
                 onClick={onStop}
                 disabled={stopping}
-                className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-button-warning rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {stopping ? "停止中..." : "停止终端"}
               </button>
@@ -884,7 +916,7 @@ export function WorkspaceExecutionModal({
               <button
                 onClick={onRestart}
                 disabled={opening}
-                className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {opening ? "打开中..." : "重新打开终端"}
               </button>
@@ -894,14 +926,14 @@ export function WorkspaceExecutionModal({
       }
       content={
         <>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 p-3">
-            <div className="text-sm text-slate-300">操作终端</div>
-            <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">{terminal.runtimeStatus}</span>
+          <div className="app-border flex flex-wrap items-center justify-between gap-2 border-b p-3">
+            <div className="app-text-muted text-sm">操作终端</div>
+            <span className="app-pill-success rounded-full border px-2 py-1 text-xs">{terminal.runtimeStatus}</span>
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-4">
             <div className="space-y-3">
               <WorkspaceTerminal terminalId={terminal.id} runtimeStatus={terminal.runtimeStatus} onRuntimeEvent={onRuntimeEvent} />
-              <div className="rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-xs text-slate-300">
+              <div className="app-input app-border app-text-muted rounded-xl border p-3 font-mono text-xs">
                 <div>project: {context?.projectName ?? "none"}</div>
                 <div className="mt-1">worktree: {context?.worktreeName ?? terminal.requestedWorktreeName ?? "none"}</div>
                 <div className="mt-1">cwd: {terminal.cwd}</div>
@@ -918,8 +950,8 @@ export function WorkspaceExecutionModal({
 
 function EmptyProjectNotice() {
   return (
-    <section className="rounded-xl border border-dashed border-white/10 bg-[#151821] p-6 text-sm text-slate-400">
-      <div className="text-base font-medium text-slate-100">还没有选择项目</div>
+    <section className="app-panel app-border app-text-faint rounded-xl border border-dashed p-6 text-sm">
+      <div className="app-text text-base font-medium">还没有选择项目</div>
       <p className="mt-2">请在工作台页面选择或创建项目后，再查看任务、项目笔记、项目 Skill、会话和 Worktree。</p>
     </section>
   );
@@ -928,7 +960,7 @@ function EmptyProjectNotice() {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block space-y-2">
-      <span className="text-xs text-slate-500">{label}</span>
+      <span className="app-text-faint text-xs">{label}</span>
       {children}
     </label>
   );
@@ -936,11 +968,11 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function RuntimeStatusPill({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    starting: "border-sky-400/30 bg-sky-400/10 text-sky-200",
-    running: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
-    stopping: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-    stopped: "border-slate-400/30 bg-slate-400/10 text-slate-300",
-    failed: "border-red-400/30 bg-red-500/10 text-red-200"
+    starting: "app-pill-info",
+    running: "app-pill-success",
+    stopping: "app-pill-warning",
+    stopped: "app-pill-neutral",
+    failed: "app-pill-danger"
   };
 
   return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${styles[status] ?? styles.stopped}`}>{status}</span>;
@@ -948,11 +980,11 @@ function RuntimeStatusPill({ status }: { status: string }) {
 
 function SessionStatusPill({ status }: { status: SessionStatus }) {
   const styles: Record<SessionStatus, string> = {
-    draft: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-    queued: "border-sky-400/30 bg-sky-400/10 text-sky-200",
-    running: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
-    completed: "border-slate-400/30 bg-slate-400/10 text-slate-300",
-    failed: "border-red-400/30 bg-red-500/10 text-red-200"
+    draft: "app-pill-warning",
+    queued: "app-pill-info",
+    running: "app-pill-success",
+    completed: "app-pill-neutral",
+    failed: "app-pill-danger"
   };
 
   return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${styles[status]}`}>{status}</span>;
@@ -980,14 +1012,14 @@ function getExecutionStatusDotClass(execution: ExecutionListItem) {
   const runtimeStatus = execution.runtimeStatus ?? "stopped";
 
   if (runtimeStatus === "running" || runtimeStatus === "starting" || runtimeStatus === "stopping") {
-    return "bg-emerald-400";
+    return "app-dot-success";
   }
 
   if (runtimeStatus === "failed" || execution.status === "failed") {
-    return "bg-red-400";
+    return "app-dot-danger";
   }
 
-  return "bg-slate-500";
+  return "app-dot-neutral";
 }
 
 function getSessionPrimaryAction(session: Pick<SessionSummary, "status" | "runtimeStatus">): "continue" | "stop" | null {
@@ -1022,17 +1054,17 @@ function formatSessionHistoryBlock(block: SessionHistoryMessage["content"][numbe
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <span className="shrink-0 text-slate-500">{label}</span>
-      <span className="truncate text-right text-slate-100">{value}</span>
+      <span className="app-text-faint shrink-0">{label}</span>
+      <span className="app-text truncate text-right">{value}</span>
     </div>
   );
 }
 
 function DetailCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="mt-2 truncate text-slate-100">{value}</div>
+    <div className="app-input app-border rounded-lg border p-3">
+      <div className="app-text-faint text-xs">{label}</div>
+      <div className="app-text mt-2 truncate">{value}</div>
     </div>
   );
 }
