@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import React, { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   ExecutionListItem,
   ChatArtifactSuggestion,
@@ -4533,6 +4533,7 @@ function ProjectWorkspacePage({
           project={selectedProject}
           notes={notes}
           todos={todos}
+          sessions={sessions}
           selectedTodo={selectedTodo}
           loading={todosLoading}
           error={todosError}
@@ -6139,6 +6140,7 @@ function TodoPanel({
   project,
   notes,
   todos,
+  sessions,
   selectedTodo,
   loading,
   error,
@@ -6167,6 +6169,7 @@ function TodoPanel({
   project: ProjectSummary | null;
   notes: NoteSummary[];
   todos: TodoSummary[];
+  sessions: SessionSummary[];
   selectedTodo: TodoSummary | null;
   loading: boolean;
   error: string | null;
@@ -6209,6 +6212,26 @@ function TodoPanel({
   const noteOptions = notes.map((note) => ({ id: note.id, title: note.title }));
   const linkedNote = draft.sourceNoteId ? noteOptions.find((note) => note.id === draft.sourceNoteId) ?? null : null;
   const isEditing = selectedTodo !== null;
+  const relatedSessionsByTodoId = useMemo(() => {
+    const next = new Map<string, SessionSummary[]>();
+
+    for (const session of sessions) {
+      if (!session.todoId) {
+        continue;
+      }
+
+      const current = next.get(session.todoId);
+      if (current) {
+        current.push(session);
+      } else {
+        next.set(session.todoId, [session]);
+      }
+    }
+
+    return next;
+  }, [sessions]);
+  const relatedSessions = selectedTodo ? relatedSessionsByTodoId.get(selectedTodo.id) ?? [] : [];
+  const latestRelatedSession = relatedSessions[0] ?? null;
 
   const openCreateModal = () => {
     onCreate();
@@ -6448,6 +6471,47 @@ function TodoPanel({
                 placeholder="逗号分隔，例如：phase2, api"
               />
             </Field>
+            {linkedNote ? <p className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">当前关联笔记：{linkedNote.title}</p> : null}
+            {selectedTodo ? (
+              <div className="flex flex-wrap gap-3 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">
+                <span>创建于：{formatDateTime(selectedTodo.createdAt)}</span>
+                <span>{selectedTodo.status === "completed" ? "完成于" : "更新于"}：{formatDateTime((selectedTodo.status === "completed" ? selectedTodo.completedAt : selectedTodo.updatedAt) ?? selectedTodo.updatedAt)}</span>
+              </div>
+            ) : null}
+            {selectedTodo ? (
+              <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs text-emerald-50">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-emerald-100">关联会话</div>
+                    <div className="mt-1 text-emerald-100/80">{relatedSessions.length > 0 ? `共 ${relatedSessions.length} 个` : "当前没有关联会话"}</div>
+                  </div>
+                  {latestRelatedSession ? <SessionStatusPill status={latestRelatedSession.status} /> : null}
+                </div>
+                {latestRelatedSession ? (
+                  <>
+                    <div className="mt-2 text-emerald-100">{latestRelatedSession.name}</div>
+                    {latestRelatedSession.summary ? <div className="mt-1 whitespace-pre-wrap text-emerald-50/90">{latestRelatedSession.summary}</div> : null}
+                    <div className="mt-2 flex flex-wrap gap-3 text-emerald-100/80">
+                      <span>状态：{latestRelatedSession.status}</span>
+                      <span>退出码：{latestRelatedSession.exitCode ?? "无"}</span>
+                      <span>更新：{formatDateTime(latestRelatedSession.updatedAt)}</span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onOpenSession("todo", selectedTodo.id, latestRelatedSession.id)}
+                        className="rounded-md border border-emerald-200/20 px-2 py-1 text-xs text-emerald-50 hover:bg-white/5"
+                      >
+                        打开最新会话
+                      </button>
+                      {relatedSessions.length > 1 ? (
+                        <span className="self-center text-[11px] text-emerald-100/70">其余会话可在会话页查看</span>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
             <Field label="描述">
               <textarea
                 value={draft.description}
@@ -6456,32 +6520,7 @@ function TodoPanel({
                 placeholder="补充任务目标、验收点或限制。"
               />
             </Field>
-            {linkedNote ? <p className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">当前关联笔记：{linkedNote.title}</p> : null}
-            {selectedTodo ? (
-              <div className="flex flex-wrap gap-3 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">
-                <span>创建于：{formatDateTime(selectedTodo.createdAt)}</span>
-                <span>{selectedTodo.status === "completed" ? "完成于" : "更新于"}：{formatDateTime((selectedTodo.status === "completed" ? selectedTodo.completedAt : selectedTodo.updatedAt) ?? selectedTodo.updatedAt)}</span>
-              </div>
-            ) : null}
-            {selectedTodo?.latestSessionResult ? (
-              <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs text-emerald-50">
-                <div className="font-medium text-emerald-100">最新会话结果</div>
-                <div className="mt-2 text-emerald-100">{selectedTodo.latestSessionResult.sessionName}</div>
-                <div className="mt-1 whitespace-pre-wrap text-emerald-50/90">{selectedTodo.latestSessionResult.summary}</div>
-                <div className="mt-2 flex flex-wrap gap-3 text-emerald-100/80">
-                  <span>状态：{selectedTodo.latestSessionResult.status}</span>
-                  <span>退出码：{selectedTodo.latestSessionResult.exitCode ?? "无"}</span>
-                  <span>更新：{formatDateTime(selectedTodo.latestSessionResult.updatedAt)}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onOpenSession("todo", selectedTodo.id, selectedTodo.latestSessionResult?.sessionId)}
-                  className="mt-3 rounded-md border border-emerald-200/20 px-2 py-1 text-xs text-emerald-50 hover:bg-white/5"
-                >
-                  打开会话
-                </button>
-              </div>
-            ) : null}
+
             {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex gap-2" />
