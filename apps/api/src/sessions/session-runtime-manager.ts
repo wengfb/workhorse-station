@@ -36,7 +36,7 @@ type RuntimeSession = RuntimeSessionState & {
   lastBufferFlushedLength: number;
 };
 
-const maxBufferLength = 200_000;
+const maxBufferLength = 2_000_000;
 const runtimeFlushTickMs = 1_000;
 const bufferFlushDelayMs = 5_000;
 const bufferFlushThresholdBytes = 50_000;

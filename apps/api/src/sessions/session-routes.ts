@@ -157,7 +157,18 @@ export async function registerSessionRoutes(
         throw new Error("Failed to read launched session");
       }
 
-      const resolvedSession = await resolveProviderSessionState(database, request.params.projectId, launchedSession);
+      const resolvedSession = launchedSession;
+
+      // codex 日志匹配可能阻塞 3s，放到后台执行，不影响接口响应
+      if (launchedSession.provider === "codex") {
+        resolveProviderSessionState(database, request.params.projectId, launchedSession)
+          .then((resolved) => {
+            if (resolved.providerThreadId !== launchedSession.providerThreadId) {
+              return database.persist();
+            }
+          })
+          .catch((err) => console.error("[Session] codex 异步状态解析失败:", err));
+      }
 
       await maybeMarkTodoInProgress(database, request.params.projectId, resolvedSession.todoId);
       await database.persist();
@@ -284,7 +295,18 @@ export async function registerSessionRoutes(
         throw new Error("Failed to read launched session");
       }
 
-      const resolvedSession = await resolveProviderSessionState(database, request.params.projectId, launchedSession);
+      const resolvedSession = launchedSession;
+
+      if (launchedSession.provider === "codex") {
+        resolveProviderSessionState(database, request.params.projectId, launchedSession)
+          .then((resolved) => {
+            if (resolved.providerThreadId !== launchedSession.providerThreadId) {
+              return database.persist();
+            }
+          })
+          .catch((err) => console.error("[Session] codex 异步状态解析失败:", err));
+      }
+
       await database.persist();
 
       return {

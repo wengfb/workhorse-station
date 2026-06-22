@@ -2471,7 +2471,6 @@ export function App() {
       setSessionDraft(sessionToDraft(data.session, promptDrafts));
       await Promise.all([
         reloadSessions(selectedProject.id, data.session.id),
-        reloadExecutions({ kind: "session", id: data.session.id }),
         reloadWorktrees(selectedProject.id, data.session.worktreeId ?? selectedWorktreeId),
         data.session.todoId ? projectTodosList.refresh(data.session.todoId) : Promise.resolve(),
         sessionDraft.promptDraftId ? reloadPromptDrafts(selectedProject.id, sessionDraft.promptDraftId) : Promise.resolve()

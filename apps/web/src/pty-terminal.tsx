@@ -103,7 +103,11 @@ const terminalThemes: Record<"dark" | "light", XtermTheme> = {
 };
 
 const defaultContainerClassName = "terminal-surface app-border h-[60vh] min-h-[320px] w-full rounded-xl border";
-const maxBufferedLength = 200_000;
+const maxBufferedLength = 2_000_000;
+
+// Session 级终端状态缓存：切换会话时保留 buffer + WS 连接
+const snapshotCache = new Map<string, PtyTerminalSnapshot>();
+const wsPool = new Map<string, WebSocket>();
 
 type TerminalControls = {
   clear: () => void;
@@ -199,6 +203,30 @@ function trimTerminalBuffer(buffer: string) {
   return buffer.length > maxBufferedLength ? buffer.slice(-maxBufferedLength) : buffer;
 }
 
+function createEmptySnapshot(): PtyTerminalSnapshot {
+  return { buffer: "", runtimeStatus: null, cwd: null };
+}
+
+// 后台 WS 消息处理：持续更新缓存中的 snapshot，让切换回来时看到最新内容
+function createPoolMessageHandler(key: string) {
+  return (msg: MessageEvent) => {
+    try {
+      const event = JSON.parse(typeof msg.data === "string" ? msg.data : String(msg.data));
+      const cached = snapshotCache.get(key) ?? createEmptySnapshot();
+      const nextRuntimeStatus = event.runtimeStatus ?? cached.runtimeStatus;
+      const nextCwd = event.cwd ?? cached.cwd;
+      if (typeof event.output === "string") {
+        cached.buffer = trimTerminalBuffer(`${cached.buffer}${event.output}`);
+      }
+      cached.runtimeStatus = nextRuntimeStatus;
+      cached.cwd = nextCwd;
+      snapshotCache.set(key, cached);
+    } catch {
+      // ignore malformed messages
+    }
+  };
+}
+
 export function PtyTerminal<TEvent extends PtyTerminalEvent>({
   sourceKey,
   runtimeStatus,
@@ -269,12 +297,6 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
       terminal.clear();
     }
   };
-
-  useLayoutEffect(() => {
-    activeTokenRef.current += 1;
-    closeSocket();
-    resetTerminalState();
-  }, [sourceKey]);
 
   const fitTerminal = () => {
     const terminal = terminalRef.current;
@@ -467,14 +489,36 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
 
     const token = activeTokenRef.current + 1;
     activeTokenRef.current = token;
+    const oldSourceKey = loadedSourceKeyRef.current;
+
+    // 保存旧会话的 snapshot 到缓存，把 WS 放入连接池
+    if (oldSourceKey && oldSourceKey !== sourceKey) {
+      const snapshot = { ...currentSnapshotRef.current };
+      snapshotCache.set(oldSourceKey, snapshot);
+      onBufferChangeRef.current?.(snapshot);
+
+      // 把旧 WS 放入连接池，不关闭，继续收消息更新缓存
+      const pooledSocket = socketRef.current;
+      if (pooledSocket) {
+        pooledSocket.onmessage = createPoolMessageHandler(oldSourceKey);
+        pooledSocket.onerror = null;
+        wsPool.set(oldSourceKey, pooledSocket);
+        socketRef.current = null;
+      }
+    }
+
     closeSocket();
-    resetTerminalState();
+    loadedSourceKeyRef.current = sourceKey;
+
+    // 检查缓存：如果有快照，直接恢复；否则看是否有连接池中的 WS 可复用
+    const cachedSnapshot = snapshotCache.get(sourceKey);
+    const pooledWs = wsPool.get(sourceKey);
+    if (pooledWs) {
+      wsPool.delete(sourceKey);
+    }
 
     terminal.options.cursorBlink = isLive;
     terminal.options.disableStdin = !isLive;
-
-    const isSameSource = loadedSourceKeyRef.current === sourceKey;
-    loadedSourceKeyRef.current = sourceKey;
 
     let receivedOutput = false;
 
@@ -496,6 +540,50 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
     };
 
     const openSocket = () => {
+      // 复用连接池中的 WS
+      if (pooledWs?.readyState === WebSocket.OPEN) {
+        const ws = pooledWs;
+        socketRef.current = ws;
+
+        ws.onmessage = (msg) => {
+          if (activeTokenRef.current !== token) {
+            return;
+          }
+
+          try {
+            const event = JSON.parse(typeof msg.data === "string" ? msg.data : String(msg.data)) as TEvent;
+            onRuntimeEventRef.current?.(event);
+
+            const nextRuntimeStatus = event.runtimeStatus ?? currentSnapshotRef.current.runtimeStatus;
+            const nextCwd = event.cwd ?? currentSnapshotRef.current.cwd;
+
+            if (typeof event.output === "string") {
+              receivedOutput = true;
+              const nextBuffer = trimTerminalBuffer(`${currentSnapshotRef.current.buffer}${event.output}`);
+              publishSnapshot({
+                buffer: nextBuffer,
+                runtimeStatus: nextRuntimeStatus,
+                cwd: nextCwd
+              });
+              writeToTerminal(token, event.output);
+              return;
+            }
+
+            publishSnapshot({
+              buffer: currentSnapshotRef.current.buffer,
+              runtimeStatus: nextRuntimeStatus,
+              cwd: nextCwd
+            });
+          } catch {
+            // ignore malformed messages
+          }
+        };
+
+        fitTerminal();
+        return;
+      }
+
+      // 创建新的 WS
       const ws = createSocketRef.current();
       socketRef.current = ws;
 
@@ -559,10 +647,15 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
       openSocket();
     }
 
-    // Avoid re-fetching snapshot when only isLive changed for the same session
-    if (!isSameSource) {
-      void loadSnapshotRef.current().then(maybeHydrateFromSnapshot).catch(() => {});
+    // 如果有缓存快照，直接恢复，跳过 HTTP 请求
+    if (cachedSnapshot) {
+      snapshotCache.delete(sourceKey);
+      renderSnapshot(token, cachedSnapshot, !isLive, false);
+      return;
     }
+
+    // 首次加载或缓存已过期，走 HTTP 拉取
+    void loadSnapshotRef.current().then(maybeHydrateFromSnapshot).catch(() => {});
 
     return () => {
       if (activeTokenRef.current === token) {

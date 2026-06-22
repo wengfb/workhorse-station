@@ -97,7 +97,7 @@ const SESSION_LIST_SELECT = `SELECT id, project_id, provider, provider_thread_id
 const SESSION_SELECT = `SELECT id, project_id, provider, provider_thread_id, provider_metadata_json, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, terminal_buffer, created_at, updated_at
      FROM sessions`;
 
-const OVERVIEW_SESSION_SELECT = `SELECT s.id, s.project_id, s.provider, s.provider_thread_id, s.provider_metadata_json, s.worktree_id, s.todo_id, s.prompt_draft_id, s.requested_worktree_name, s.source, s.name, s.prompt, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.resolved_worktree_path, s.exit_code, s.last_activity_at, s.terminal_buffer, s.created_at, s.updated_at, p.name AS project_name
+const OVERVIEW_SESSION_SELECT = `SELECT s.id, s.project_id, s.provider, s.provider_thread_id, s.provider_metadata_json, s.worktree_id, s.todo_id, s.prompt_draft_id, s.requested_worktree_name, s.source, s.name, s.prompt, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.resolved_worktree_path, s.exit_code, s.last_activity_at, s.created_at, s.updated_at, p.name AS project_name
      FROM sessions s
      JOIN projects p ON s.project_id = p.id`;
 
