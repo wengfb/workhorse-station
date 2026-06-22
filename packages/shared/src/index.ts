@@ -205,12 +205,14 @@ export type SendStoreSkillToProjectRequest = {
 
 // Skill Store types
 
-export type InstallTarget = "claude-code" | "chat" | "claude-code-project";
+export type InstallTarget = "claude-global" | "claude-project" | "codex-global" | "codex-project" | "chat";
 
 export type StoreSkillInstallStatus = {
-  claudeCode: boolean;
+  claudeGlobal: boolean;
+  claudeProject: boolean;
+  codexGlobal: boolean;
+  codexProject: boolean;
   chat: boolean;
-  claudeCodeProject: boolean;
 };
 
 export type StoreSkill = {
@@ -352,6 +354,7 @@ export type DeleteTodoResponse = {
 };
 
 export type SessionSource = "direct" | "todo";
+export type AgentProvider = "claude" | "codex";
 export type PromptDraftStatus = "draft" | "confirmed" | "archived";
 export type SessionStatus = "draft" | "queued" | "running" | "completed" | "failed";
 export type SessionRuntimeStatus = "starting" | "running" | "stopping" | "stopped" | "failed";
@@ -411,6 +414,9 @@ export type UpdatePromptDraftRequest = Partial<CreatePromptDraftRequest>;
 export type SessionListItem = {
   id: string;
   projectId: string;
+  provider: AgentProvider;
+  providerThreadId: string | null;
+  providerMetadata: Record<string, unknown> | null;
   worktreeId: string | null;
   todoId: string | null;
   promptDraftId: string | null;
@@ -442,6 +448,7 @@ export type OverviewSessionSummary = {
   id: string;
   projectId: string;
   projectName: string;
+  provider: AgentProvider;
   name: string;
   status: SessionStatus;
   runtimeStatus: SessionRuntimeStatus | null;
@@ -466,6 +473,7 @@ export type ExecutionListItemBase = {
 
 export type SessionExecutionListItem = ExecutionListItemBase & {
   kind: "session";
+  provider: AgentProvider;
   status: SessionStatus;
   source: SessionSource;
   summary: string | null;
@@ -590,6 +598,7 @@ export type CreateWorkspaceTerminalRequest = {
 };
 
 export type CreateSessionRequest = {
+  provider?: AgentProvider;
   worktreeId?: string | null;
   todoId?: string | null;
   promptDraftId?: string | null;
@@ -775,33 +784,52 @@ export type ConfirmToolRequest = {
   approved: boolean;
 };
 
-// CLAUDE.md types
+// Agent instructions types
 
-export type ClaudeMdResponse = {
+export type AgentDocScope = "global" | "project";
+
+export type AgentDocResponse = {
+  provider: AgentProvider;
+  scope: AgentDocScope;
   path: string;
   content: string;
+  fileName: string;
+  title: string;
 };
 
-export type UpdateClaudeMdRequest = {
+export type UpdateAgentDocRequest = {
   content: string;
 };
+
+// Backward-compatible aliases
+
+export type ClaudeMdResponse = AgentDocResponse;
+export type UpdateClaudeMdRequest = UpdateAgentDocRequest;
 
 // Rules types
 
 export type RuleSummary = {
   name: string;
+  provider: AgentProvider;
   path: string;
+  fileName: string;
 };
 
 export type RuleDetail = {
   name: string;
+  provider: AgentProvider;
   path: string;
+  fileName: string;
   content: string;
   frontmatter: Record<string, unknown>;
 };
 
 export type RulesResponse = {
+  provider?: AgentProvider;
   rules: RuleSummary[];
+  available?: boolean;
+  readOnly?: boolean;
+  notice?: string | null;
 };
 
 export type RuleResponse = {
@@ -827,6 +855,7 @@ export type MemoryType = "user" | "feedback" | "project" | "reference";
 
 export type MemorySummary = {
   name: string;
+  provider: AgentProvider;
   type: MemoryType;
   description: string;
   path: string;
@@ -834,6 +863,7 @@ export type MemorySummary = {
 
 export type MemoryDetail = {
   name: string;
+  provider: AgentProvider;
   type: MemoryType;
   description: string;
   content: string;
@@ -841,8 +871,12 @@ export type MemoryDetail = {
 };
 
 export type MemoriesResponse = {
+  provider: AgentProvider;
   memories: MemorySummary[];
   indexEntries: MemoryIndexEntry[];
+  available?: boolean;
+  readOnly?: boolean;
+  notice?: string | null;
 };
 
 export type MemoryResponse = {
@@ -874,6 +908,9 @@ export type DeleteMemoryRequest = {
 };
 
 export type MemoryIndexResponse = {
+  provider?: AgentProvider;
   entries: MemoryIndexEntry[];
+  available?: boolean;
+  readOnly?: boolean;
+  notice?: string | null;
 };
-

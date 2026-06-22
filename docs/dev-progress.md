@@ -1,5 +1,63 @@
 # 开发进度
 
+## 2026-06-18：Codex Provider 最小接入与方案落档
+
+### 已完成
+- 会话链路增加 `AgentProvider = "claude" | "codex"` 抽象，`sessions` 表新增 `provider`、`provider_thread_id`、`provider_metadata_json`。
+- 后端新增 `codex-cli.ts` 与 Provider Registry，`SessionRuntimeManager` 已改为按 Provider 构建启动命令。
+- 会话创建、执行列表、概览页、会话详情已支持展示 Provider。
+- 前端创建会话表单新增“执行器”选择，支持 Claude / Codex。
+- 修复创建会话请求漏传 `provider` 的问题，避免前端选择 Codex 后后端仍按 Claude 启动。
+- 新增 Codex 历史日志解析与线程落盘匹配逻辑，支持从 `~/.codex/sessions/.../*.jsonl` 解析会话消息。
+- 修复 Codex 续接保护：当真实线程 ID 尚未解析出来时，后端不再错误回退到 Workhorse 自己的 session id 继续会话。
+- 新增方案文档 [docs/codex-support-plan.md](/home/wengfb/code/workhorse-station/docs/codex-support-plan.md:1)，并已根据 2026-06-18 官方手册修正 `.agents/skills`、`AGENTS.md`、`.codex/config.toml` 等路径说明。
+
+### 验收记录
+- `pnpm -r typecheck`：通过。
+
+### 待验证
+- `pnpm run dev`
+- 浏览器中实际创建 Claude / Codex 会话各一次，确认执行器选择、终端输出、停止、继续、历史解析都符合预期。
+- Skill Store / Memory / Rules 面板尚未做 Codex 原生目录适配，属于下一阶段工作。
+
+## 2026-06-18：Codex 原生目录第二阶段适配
+
+### 已完成
+- Skill Store 安装目标从旧的 `claude-code` / `claude-code-project` 升级为：
+  - `claude-global`
+  - `claude-project`
+  - `codex-global`
+  - `codex-project`
+  - `chat`
+- 后端 `skill-store` 已支持 Codex 原生 skills 目录：
+  - 全局：`$HOME/.agents/skills`
+  - 项目：`<project>/.agents/skills`
+- 新增 provider-aware 指令文件接口：
+  - `GET/PUT /api/agent-docs/global?provider=claude|codex`
+  - `GET/PUT /api/projects/:projectId/agent-docs?provider=claude|codex`
+- 旧 `claude-md` 路由仍保留兼容，但内部已复用新的通用指令文件模型。
+- Memory / Rules API 已增加 `provider` 维度。
+  - Claude 继续映射到现有 `CLAUDE.md`、`.claude/rules`、`~/.claude/projects/.../memory`
+  - Codex 当前支持项目/全局 `AGENTS.md`
+  - Codex 的 rules / auto memory 暂无可靠原生等价目录，因此 API 明确返回 `available: false`、`readOnly: true` 和提示文案，而不是伪造路径
+- 前端全局记忆面板与项目记忆面板已支持切换 `Claude / Codex`。
+- 前端 Skill Store 已支持安装到 Claude / Codex / Chat 各目标，并在选择项目后支持项目级安装状态展示。
+
+### 验收记录
+- `pnpm -r typecheck`：通过。
+- 单独启动 API（`3003`）后验证以下接口通过：
+  - `GET /api/agent-docs/global?provider=codex`
+  - `GET /api/projects/:projectId/agent-docs?provider=claude`
+  - `GET /api/projects/:projectId/rules?provider=codex`
+  - `GET /api/projects/:projectId/memory?provider=codex`
+- 已验证通过 Skill Store 安装到 `codex-global`：
+  - API 返回 `installed.codexGlobal = true`
+  - 目标目录实际落盘到 `$HOME/.agents/skills/<skill>`
+
+### 当前边界
+- 本阶段没有把 `~/.codex/skills` 作为 Skill Store 安装目标；仍按方案文档只支持 Codex 官方原生 `.agents/skills`。
+- Codex 的规则目录和自动记忆目录当前没有继续硬映射到 Claude 概念，避免后续产品语义失真。
+
 ## 2026-06-04：网页主题与终端主题切换
 
 ### 已完成

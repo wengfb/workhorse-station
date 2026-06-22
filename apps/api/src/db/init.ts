@@ -101,6 +101,18 @@ async function ensureSchema(pool: Pool) {
     await pool.query(statement);
   }
 
+  if (!(await hasColumn(pool, "sessions", "provider"))) {
+    await pool.query("ALTER TABLE sessions ADD COLUMN provider VARCHAR(64) NOT NULL DEFAULT 'claude' AFTER project_id");
+  }
+
+  if (!(await hasColumn(pool, "sessions", "provider_thread_id"))) {
+    await pool.query("ALTER TABLE sessions ADD COLUMN provider_thread_id VARCHAR(255) NULL AFTER provider");
+  }
+
+  if (!(await hasColumn(pool, "sessions", "provider_metadata_json"))) {
+    await pool.query("ALTER TABLE sessions ADD COLUMN provider_metadata_json LONGTEXT NULL AFTER provider_thread_id");
+  }
+
   if (!(await hasColumn(pool, "todos", "completed_at"))) {
     await pool.query("ALTER TABLE todos ADD COLUMN completed_at DATETIME NULL AFTER source_chat_suggestion_json");
   }

@@ -1,13 +1,14 @@
 import type {
   AddGlobalSkillToStoreRequest,
   AddProjectSkillToStoreRequest,
+  AgentDocResponse,
+  AgentProvider,
   ApiResponse,
   ApplyChatSuggestionRequest,
   ApplyChatSuggestionResponse,
   ChatSessionResponse,
   ChatSessionsResponse,
   ChatStreamEvent,
-  ClaudeMdResponse,
   ConfirmToolRequest,
   CreateChatMessageRequest,
   CreateChatSessionRequest,
@@ -81,7 +82,7 @@ import type {
   StopSessionResponse,
   TodoResponse,
   TodosResponse,
-  UpdateClaudeMdRequest,
+  UpdateAgentDocRequest,
   UpdateMemoryRequest,
   UpdateNoteRequest,
   UpdateProjectRequest,
@@ -681,92 +682,108 @@ export function getRecentSessions(limit?: number) {
   return fetchJson<RecentSessionsResponse>(`/api/sessions/recent${query}`);
 }
 
-export function getGlobalClaudeMd() {
-  return fetchJson<ClaudeMdResponse>("/api/claude-md/global");
+export function getGlobalAgentDoc(provider: AgentProvider) {
+  return fetchJson<AgentDocResponse>(`/api/agent-docs/global?provider=${encodeURIComponent(provider)}`);
 }
 
-export function updateGlobalClaudeMd(input: UpdateClaudeMdRequest) {
-  return fetchJson<ClaudeMdResponse>("/api/claude-md/global", {
+export function updateGlobalAgentDoc(provider: AgentProvider, input: UpdateAgentDocRequest) {
+  return fetchJson<AgentDocResponse>(`/api/agent-docs/global?provider=${encodeURIComponent(provider)}`, {
     method: "PUT",
     body: input
   });
+}
+
+export function getProjectAgentDoc(projectId: string, provider: AgentProvider) {
+  return fetchJson<AgentDocResponse>(`/api/projects/${projectId}/agent-docs?provider=${encodeURIComponent(provider)}`);
+}
+
+export function updateProjectAgentDoc(projectId: string, provider: AgentProvider, input: UpdateAgentDocRequest) {
+  return fetchJson<AgentDocResponse>(`/api/projects/${projectId}/agent-docs?provider=${encodeURIComponent(provider)}`, {
+    method: "PUT",
+    body: input
+  });
+}
+
+export function getGlobalClaudeMd() {
+  return getGlobalAgentDoc("claude");
+}
+
+export function updateGlobalClaudeMd(input: UpdateAgentDocRequest) {
+  return updateGlobalAgentDoc("claude", input);
 }
 
 export function getProjectClaudeMd(projectId: string) {
-  return fetchJson<ClaudeMdResponse>(`/api/projects/${projectId}/claude-md`);
+  return getProjectAgentDoc(projectId, "claude");
 }
 
-export function updateProjectClaudeMd(projectId: string, input: UpdateClaudeMdRequest) {
-  return fetchJson<ClaudeMdResponse>(`/api/projects/${projectId}/claude-md`, {
-    method: "PUT",
-    body: input
-  });
+export function updateProjectClaudeMd(projectId: string, input: UpdateAgentDocRequest) {
+  return updateProjectAgentDoc(projectId, "claude", input);
 }
 
-export function getRules(projectId: string) {
-  return fetchJson<RulesResponse>(`/api/projects/${projectId}/rules`);
+export function getRules(projectId: string, provider: AgentProvider = "claude") {
+  return fetchJson<RulesResponse>(`/api/projects/${projectId}/rules?provider=${encodeURIComponent(provider)}`);
 }
 
-export function getRule(projectId: string, name: string) {
-  return fetchJson<RuleResponse>(`/api/projects/${projectId}/rules/${encodeURIComponent(name)}`);
+export function getRule(projectId: string, name: string, provider: AgentProvider = "claude") {
+  return fetchJson<RuleResponse>(`/api/projects/${projectId}/rules/${encodeURIComponent(name)}?provider=${encodeURIComponent(provider)}`);
 }
 
-export function createRule(projectId: string, input: CreateRuleRequest) {
-  return fetchJson<RuleResponse>(`/api/projects/${projectId}/rules`, {
+export function createRule(projectId: string, input: CreateRuleRequest, provider: AgentProvider = "claude") {
+  return fetchJson<RuleResponse>(`/api/projects/${projectId}/rules?provider=${encodeURIComponent(provider)}`, {
     method: "POST",
     body: input
   });
 }
 
-export function updateRule(projectId: string, name: string, input: UpdateRuleRequest) {
-  return fetchJson<RuleResponse>(`/api/projects/${projectId}/rules/${encodeURIComponent(name)}`, {
+export function updateRule(projectId: string, name: string, input: UpdateRuleRequest, provider: AgentProvider = "claude") {
+  return fetchJson<RuleResponse>(`/api/projects/${projectId}/rules/${encodeURIComponent(name)}?provider=${encodeURIComponent(provider)}`, {
     method: "PUT",
     body: input
   });
 }
 
-export function deleteRule(projectId: string, name: string, input: DeleteRuleRequest) {
-  return fetchJson<{ deleted: true }>(`/api/projects/${projectId}/rules/${encodeURIComponent(name)}`, {
+export function deleteRule(projectId: string, name: string, input: DeleteRuleRequest, provider: AgentProvider = "claude") {
+  return fetchJson<{ deleted: true }>(`/api/projects/${projectId}/rules/${encodeURIComponent(name)}?provider=${encodeURIComponent(provider)}`, {
     method: "DELETE",
     body: input
   });
 }
 
-export function getMemories(projectId: string) {
-  return fetchJson<MemoriesResponse>(`/api/projects/${projectId}/memory`);
+export function getMemories(projectId: string, provider: AgentProvider = "claude") {
+  return fetchJson<MemoriesResponse>(`/api/projects/${projectId}/memory?provider=${encodeURIComponent(provider)}`);
 }
 
-export function getMemory(projectId: string, name: string) {
-  return fetchJson<MemoryResponse>(`/api/projects/${projectId}/memory/${encodeURIComponent(name)}`);
+export function getMemory(projectId: string, name: string, provider: AgentProvider = "claude") {
+  return fetchJson<MemoryResponse>(`/api/projects/${projectId}/memory/${encodeURIComponent(name)}?provider=${encodeURIComponent(provider)}`);
 }
 
-export function createMemory(projectId: string, input: CreateMemoryRequest) {
-  return fetchJson<MemoryResponse>(`/api/projects/${projectId}/memory`, {
+export function createMemory(projectId: string, input: CreateMemoryRequest, provider: AgentProvider = "claude") {
+  return fetchJson<MemoryResponse>(`/api/projects/${projectId}/memory?provider=${encodeURIComponent(provider)}`, {
     method: "POST",
     body: input
   });
 }
 
-export function updateMemory(projectId: string, name: string, input: UpdateMemoryRequest) {
-  return fetchJson<MemoryResponse>(`/api/projects/${projectId}/memory/${encodeURIComponent(name)}`, {
+export function updateMemory(projectId: string, name: string, input: UpdateMemoryRequest, provider: AgentProvider = "claude") {
+  return fetchJson<MemoryResponse>(`/api/projects/${projectId}/memory/${encodeURIComponent(name)}?provider=${encodeURIComponent(provider)}`, {
     method: "PUT",
     body: input
   });
 }
 
-export function deleteMemory(projectId: string, name: string, input: DeleteMemoryRequest) {
-  return fetchJson<{ deleted: true }>(`/api/projects/${projectId}/memory/${encodeURIComponent(name)}`, {
+export function deleteMemory(projectId: string, name: string, input: DeleteMemoryRequest, provider: AgentProvider = "claude") {
+  return fetchJson<{ deleted: true }>(`/api/projects/${projectId}/memory/${encodeURIComponent(name)}?provider=${encodeURIComponent(provider)}`, {
     method: "DELETE",
     body: input
   });
 }
 
-export function getMemoryIndex(projectId: string) {
-  return fetchJson<MemoryIndexResponse>(`/api/projects/${projectId}/memory-index`);
+export function getMemoryIndex(projectId: string, provider: AgentProvider = "claude") {
+  return fetchJson<MemoryIndexResponse>(`/api/projects/${projectId}/memory-index?provider=${encodeURIComponent(provider)}`);
 }
 
-export function updateMemoryIndex(projectId: string, entries: { name: string; file: string; description: string }[]) {
-  return fetchJson<MemoryIndexResponse>(`/api/projects/${projectId}/memory-index`, {
+export function updateMemoryIndex(projectId: string, entries: { name: string; file: string; description: string }[], provider: AgentProvider = "claude") {
+  return fetchJson<MemoryIndexResponse>(`/api/projects/${projectId}/memory-index?provider=${encodeURIComponent(provider)}`, {
     method: "PUT",
     body: { entries }
   });

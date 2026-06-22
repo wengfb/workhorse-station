@@ -1,5 +1,5 @@
 import React, { useState, type FormEvent } from "react";
-import type { StoreSkillStatus, ChatSkill } from "@workhorse-station/shared";
+import type { InstallTarget, StoreSkillStatus, ChatSkill } from "@workhorse-station/shared";
 
 export function SkillStorePanel({
   skills,
@@ -13,6 +13,7 @@ export function SkillStorePanel({
   onSendToProject,
   onEditDocument,
   onRefreshStore,
+  hasProjectContext,
   chatSkills,
   chatSkillsLoading,
   chatSkillsError,
@@ -27,10 +28,11 @@ export function SkillStorePanel({
   onCreate: (name: string, description: string) => void;
   onRename: (skill: StoreSkillStatus) => void;
   onDelete: (skill: StoreSkillStatus) => void;
-  onInstall: (skill: StoreSkillStatus, target: "claude-code" | "chat") => void;
+  onInstall: (skill: StoreSkillStatus, target: InstallTarget) => void;
   onSendToProject: (skill: StoreSkillStatus) => void;
   onEditDocument: (skill: StoreSkillStatus) => void;
   onRefreshStore: () => void;
+  hasProjectContext: boolean;
   chatSkills: ChatSkill[];
   chatSkillsLoading: boolean;
   chatSkillsError: string | null;
@@ -57,6 +59,20 @@ export function SkillStorePanel({
     setCreateDesc("");
     setShowCreate(true);
   }
+
+  const installTargets: Array<{
+    key: InstallTarget;
+    label: string;
+    title: string;
+    installedKey: keyof StoreSkillStatus["installed"];
+    requiresProject?: boolean;
+  }> = [
+    { key: "claude-global", label: "装到 Claude", title: "安装到全局 Claude Skills", installedKey: "claudeGlobal" },
+    { key: "codex-global", label: "装到 Codex", title: "安装到全局 Codex Skills", installedKey: "codexGlobal" },
+    { key: "chat", label: "装到 Chat", title: "安装到 AI Chat", installedKey: "chat" },
+    { key: "claude-project", label: "项目 Claude", title: "安装到当前项目的 Claude Skills", installedKey: "claudeProject", requiresProject: true },
+    { key: "codex-project", label: "项目 Codex", title: "安装到当前项目的 Codex Skills", installedKey: "codexProject", requiresProject: true }
+  ];
 
   return (
     <section className="app-panel app-border rounded-xl border">
@@ -92,26 +108,43 @@ export function SkillStorePanel({
                       </div>
                       <div className="app-text-fainter mt-1 break-all text-xs">{item.skill.path}</div>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] ${item.installed.claudeCode ? "app-pill-success" : "app-card app-border app-text-fainter"}`}>
-                          {item.installed.claudeCode ? "全局 CC" : "全局 CC"}
+                        <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] ${item.installed.claudeGlobal ? "app-pill-success" : "app-card app-border app-text-fainter"}`}>
+                          Claude 全局
+                        </span>
+                        <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] ${item.installed.codexGlobal ? "app-pill-success" : "app-card app-border app-text-fainter"}`}>
+                          Codex 全局
                         </span>
                         <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] ${item.installed.chat ? "app-pill-success" : "app-card app-border app-text-fainter"}`}>
-                          {item.installed.chat ? "Chat" : "Chat"}
+                          Chat
                         </span>
-                        <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] ${item.installed.claudeCodeProject ? "app-pill-success" : "app-card app-border app-text-fainter"}`}>
-                          {item.installed.claudeCodeProject ? "项目 CC" : "项目 CC"}
+                        <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] ${item.installed.claudeProject ? "app-pill-success" : "app-card app-border app-text-fainter"}`}>
+                          Claude 项目
+                        </span>
+                        <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] ${item.installed.codexProject ? "app-pill-success" : "app-card app-border app-text-fainter"}`}>
+                          Codex 项目
                         </span>
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                      <button disabled={busy || item.installed.claudeCode} onClick={() => onInstall(item, "claude-code")} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50" title="安装到全局 Claude Code">
-                        安装到 CC
-                      </button>
-                      <button disabled={busy || item.installed.chat} onClick={() => onInstall(item, "chat")} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50" title="安装到 AI Chat">
-                        安装到 Chat
-                      </button>
+                      {installTargets.map((target) => {
+                        const disabled = busy || item.installed[target.installedKey] || (target.requiresProject ? !hasProjectContext : false);
+                        return (
+                          <button
+                            key={target.key}
+                            disabled={disabled}
+                            onClick={() => onInstall(item, target.key)}
+                            className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50"
+                            title={target.requiresProject && !hasProjectContext ? "请先选择一个项目" : target.title}
+                          >
+                            {target.label}
+                          </button>
+                        );
+                      })}
                       <button disabled={busy} onClick={() => onSendToProject(item)} className="app-button-success rounded-md border px-2 py-1 text-xs disabled:opacity-50" title="发送到指定项目">
                         发送到项目
+                      </button>
+                      <button disabled={busy} onClick={() => onRename(item)} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50">
+                        重命名
                       </button>
                       <button disabled={busy} onClick={() => onEditDocument(item)} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50">
                         编辑文档

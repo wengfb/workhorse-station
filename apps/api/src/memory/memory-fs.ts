@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { MemoryIndexEntry, MemorySummary, MemoryType, RuleSummary } from "@workhorse-station/shared";
+import type { AgentDocResponse, AgentProvider, MemoryIndexEntry, MemorySummary, MemoryType, RuleSummary } from "@workhorse-station/shared";
 import { HttpError } from "../projects/http-error.js";
 import { isPathInside } from "../worktrees/git-worktree.js";
 
@@ -15,6 +15,14 @@ export function claudeMdProjectPath(projectPath: string) {
   return path.join(projectPath, "CLAUDE.md");
 }
 
+export function codexAgentsGlobalPath() {
+  return path.join(os.homedir(), ".codex", "AGENTS.md");
+}
+
+export function codexAgentsProjectPath(projectPath: string) {
+  return path.join(projectPath, "AGENTS.md");
+}
+
 export function rulesRoot(projectPath: string) {
   return path.join(projectPath, ".claude", "rules");
 }
@@ -22,6 +30,59 @@ export function rulesRoot(projectPath: string) {
 export function memoryRoot(projectPath: string) {
   const transformed = projectPath.replace(/\//g, "-");
   return path.join(os.homedir(), ".claude", "projects", transformed, "memory");
+}
+
+export function providerProjectSkillRoot(provider: AgentProvider, projectPath: string) {
+  return provider === "codex" ? path.join(projectPath, ".agents", "skills") : path.join(projectPath, ".claude", "skills");
+}
+
+export function providerGlobalSkillRoot(provider: AgentProvider) {
+  return provider === "codex" ? path.join(os.homedir(), ".agents", "skills") : path.join(os.homedir(), ".claude", "skills");
+}
+
+export function getAgentDocPath(provider: AgentProvider, scope: "global" | "project", projectPath?: string) {
+  if (scope === "global") {
+    return provider === "codex" ? codexAgentsGlobalPath() : claudeMdGlobalPath();
+  }
+
+  if (!projectPath) {
+    throw new HttpError(400, "project_required", "项目级指令需要提供 projectPath");
+  }
+
+  return provider === "codex" ? codexAgentsProjectPath(projectPath) : claudeMdProjectPath(projectPath);
+}
+
+export function buildAgentDocResponse(provider: AgentProvider, scope: "global" | "project", filePath: string, content: string): AgentDocResponse {
+  const fileName = path.basename(filePath);
+
+  return {
+    provider,
+    scope,
+    path: filePath,
+    content,
+    fileName,
+    title: provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
+  };
+}
+
+export function isRulesSupported(provider: AgentProvider) {
+  return provider === "claude";
+}
+
+export function isMemorySupported(provider: AgentProvider) {
+  return provider === "claude";
+}
+
+export function assertRulesSupported(provider: AgentProvider) {
+  if (!isRulesSupported(provider)) {
+    throw new HttpError(400, "unsupported_provider_feature", "当前仅 Claude 支持规则文件目录");
+  }
+}
+
+export function assertMemorySupported(provider: AgentProvider) {
+  if (!isMemorySupported(provider)) {
+    throw new HttpError(400, "unsupported_provider_feature", "当前仅 Claude 支持自动记忆目录");
+  }
 }
 
 // ─── File I/O helpers ───
@@ -81,6 +142,7 @@ export async function saveClaudeMd(filePath: string, content: string) {
 // ─── Rules ───
 
 export async function listRules(projectPath: string): Promise<RuleSummary[]> {
+  const provider: AgentProvider = "claude";
   const root = rulesRoot(projectPath);
 
   let entries;
@@ -97,7 +159,9 @@ export async function listRules(projectPath: string): Promise<RuleSummary[]> {
     if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
     rules.push({
       name: entry.name.replace(/\.md$/, ""),
-      path: path.join(root, entry.name)
+      provider,
+      path: path.join(root, entry.name),
+      fileName: entry.name
     });
   }
 
@@ -105,6 +169,7 @@ export async function listRules(projectPath: string): Promise<RuleSummary[]> {
 }
 
 export async function readRule(projectPath: string, name: string) {
+  const provider: AgentProvider = "claude";
   const filePath = resolveRulePath(projectPath, name);
   const content = await readTextFile(filePath);
 
@@ -116,7 +181,9 @@ export async function readRule(projectPath: string, name: string) {
 
   return {
     name,
+    provider,
     path: filePath,
+    fileName: path.basename(filePath),
     content: parsed.body,
     frontmatter: { name: parsed.name, description: parsed.description }
   };
@@ -174,6 +241,7 @@ export async function deleteRule(projectPath: string, nameInput: unknown, confir
 // ─── Auto memory ───
 
 export async function listMemories(projectPath: string) {
+  const provider: AgentProvider = "claude";
   const root = memoryRoot(projectPath);
 
   let entries;
@@ -197,6 +265,7 @@ export async function listMemories(projectPath: string) {
     const parsed = parseMemoryFrontmatter(content);
     memories.push({
       name: entry.name.replace(/\.md$/, ""),
+      provider,
       type: (parsed.metadata?.type as MemoryType) ?? "reference",
       description: parsed.description ?? "",
       path: filePath
@@ -213,6 +282,7 @@ export async function listMemories(projectPath: string) {
 }
 
 export async function readMemory(projectPath: string, nameInput: unknown) {
+  const provider: AgentProvider = "claude";
   const name = validateName(nameInput);
   const filePath = resolveMemoryPath(projectPath, name);
 
@@ -225,6 +295,7 @@ export async function readMemory(projectPath: string, nameInput: unknown) {
 
   return {
     name,
+    provider,
     type: (parsed.metadata?.type as MemoryType) ?? "reference",
     description: parsed.description ?? "",
     content: parsed.body,

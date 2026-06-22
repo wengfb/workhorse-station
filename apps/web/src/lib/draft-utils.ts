@@ -41,6 +41,7 @@ export function emptyWorktreeDraft(): WorktreeDraft {
 
 export function emptySessionEditorDraft(): SessionEditorDraft {
   return {
+    provider: "claude",
     sessionName: "",
     promptTitle: "",
     prompt: "",
@@ -81,6 +82,7 @@ export function buildSessionDraft({
   selectedWorktree: WorktreeSummary | null;
 }): SessionEditorDraft {
   return {
+    provider: "claude",
     sessionName:
       source === "todo" && todo
         ? todo.title
@@ -104,6 +106,7 @@ export function promptDraftToSessionDraft(
   promptDraft: PromptDraftSummary
 ): SessionEditorDraft {
   return {
+    provider: "claude",
     sessionName: promptDraft.source === "todo" ? "任务会话" : "直接会话",
     promptTitle: promptDraft.title,
     prompt: promptDraft.prompt,
@@ -125,6 +128,7 @@ export function sessionToDraft(
     : null;
 
   return {
+    provider: session.provider,
     sessionName: session.name,
     promptTitle: promptDraft?.title ?? "",
     prompt: session.prompt ?? "",
@@ -143,6 +147,7 @@ export function sessionDraftToPromptDraftRequest(
   source: SessionSource
 ) {
   return {
+    provider: draft.provider,
     todoId: optionalId(draft.todoId),
     worktreeId: optionalId(draft.worktreeId),
     requestedWorktreeName: optionalText(draft.requestedWorktreeName),
@@ -158,6 +163,7 @@ export function sessionDraftToCreateSessionRequest(
   source: SessionSource
 ) {
   return {
+    provider: draft.provider,
     todoId: optionalId(draft.todoId),
     worktreeId: optionalId(draft.worktreeId),
     promptDraftId: optionalId(draft.promptDraftId),

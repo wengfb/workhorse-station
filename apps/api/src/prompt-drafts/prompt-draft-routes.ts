@@ -13,6 +13,7 @@ import type {
 import type { DatabaseState } from "../db/init.js";
 import { getProject } from "../projects/project-repository.js";
 import { HttpError } from "../projects/http-error.js";
+import { requireProject } from "../utils/session-utils.js";
 import { getProjectTodo } from "../todos/todo-repository.js";
 import { getProjectWorktree } from "../worktrees/worktree-repository.js";
 import { buildPromptPreview } from "./prompt-preview.js";
@@ -117,16 +118,6 @@ async function assertProjectExists(database: DatabaseState, projectId: string) {
   if (!(await getProject(database.db, projectId))) {
     throw new HttpError(404, "project_not_found", "项目不存在");
   }
-}
-
-async function requireProject(database: DatabaseState, projectId: string) {
-  const project = await getProject(database.db, projectId);
-
-  if (!project) {
-    throw new HttpError(404, "project_not_found", "项目不存在");
-  }
-
-  return project;
 }
 
 async function requireTodo(database: DatabaseState, projectId: string, todoId: string) {

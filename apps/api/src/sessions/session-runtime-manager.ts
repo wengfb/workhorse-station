@@ -1,11 +1,17 @@
 import { EventEmitter } from "node:events";
+import type { AgentProvider } from "@workhorse-station/shared";
 import type { DatabaseState } from "../db/init.js";
 import { formatMysqlDateTime } from "../db/mysql.js";
 import { getProjectSession, updateSessionCompletion, updateSessionRuntime, updateSessionTerminalBuffer } from "./session-repository.js";
-import { resolveClaudeBinary } from "./claude-cli.js";
 import { SessionPty } from "./session-pty.js";
 import { createRuntimeEvent } from "./session-events.js";
 import { getPtySpawnContext } from "../shell-environment.js";
+import { getSessionProvider } from "./session-provider-registry.js";
+
+function formatProviderExitSummary(provider: AgentProvider, exitCode: number) {
+  const label = provider === "codex" ? "Codex" : "Claude";
+  return `${label} 退出，exit code ${exitCode}`;
+}
 
 export type RuntimeSessionState = {
   sessionId: string;
@@ -64,6 +70,7 @@ export class SessionRuntimeManager extends EventEmitter {
   async startSession(input: {
     sessionId: string;
     projectId: string;
+    provider: AgentProvider;
     cwd: string;
     resolvedWorktreePath: string | null;
     prompt: string;
@@ -72,7 +79,17 @@ export class SessionRuntimeManager extends EventEmitter {
     initialBuffer?: string;
   }) {
     const { env } = await getPtySpawnContext();
-    const command = await resolveClaudeBinary(env);
+    const provider = getSessionProvider(input.provider);
+    const launchSpec = await provider.buildLaunchSpec(
+      {
+        sessionId: input.sessionId,
+        cwd: input.cwd,
+        prompt: input.prompt,
+        resumeSessionId: input.resumeSessionId,
+        forkSession: input.forkSession
+      },
+      env
+    );
     const pty = new SessionPty();
 
     const state: RuntimeSession = {
@@ -156,7 +173,7 @@ export class SessionRuntimeManager extends EventEmitter {
           runtimeStatus: state.runtimeStatus,
           exitCode: stoppedByUser ? null : exitCode,
           lastActivityAt: state.lastActivityAt,
-          summary: stoppedByUser || exitCode === 0 ? currentSummary : currentSummary ?? `Claude Code 退出，exit code ${exitCode}`
+          summary: stoppedByUser || exitCode === 0 ? currentSummary : currentSummary ?? formatProviderExitSummary(input.provider, exitCode)
         });
         await this.database.persist();
         this.sessions.delete(input.sessionId);
@@ -165,12 +182,10 @@ export class SessionRuntimeManager extends EventEmitter {
       });
     });
 
-    const cliArgs = buildClaudeArgs(input.sessionId, input.prompt, input.resumeSessionId, input.forkSession);
-
     const pid = pty.start({
-      command,
-      args: cliArgs,
-      cwd: input.cwd,
+      command: launchSpec.command,
+      args: launchSpec.args,
+      cwd: launchSpec.cwd,
       env
     });
 
@@ -184,7 +199,9 @@ export class SessionRuntimeManager extends EventEmitter {
       pid,
       runtimeStatus: state.runtimeStatus,
       cwd: state.cwd,
-      lastActivityAt: state.lastActivityAt
+      lastActivityAt: state.lastActivityAt,
+      providerThreadId: launchSpec.providerThreadId,
+      providerMetadata: launchSpec.providerMetadata
     };
   }
 
@@ -303,23 +320,4 @@ export class SessionRuntimeManager extends EventEmitter {
 
     return Date.now() - session.bufferDirtyAt >= bufferFlushDelayMs;
   }
-}
-
-function buildClaudeArgs(sessionId: string, prompt: string, resumeSessionId?: string, forkSession?: boolean): string[] {
-  const args = ["--dangerously-skip-permissions"];
-
-  if (resumeSessionId) {
-    args.push("--resume", resumeSessionId);
-    if (forkSession) {
-      args.push("--fork-session");
-    }
-  } else {
-    args.push("--session-id", sessionId);
-  }
-
-  if (prompt.trim()) {
-    args.push(prompt);
-  }
-
-  return args;
 }

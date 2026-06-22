@@ -9,6 +9,7 @@ import type {
   ChatStreamEvent,
   ChatToolCall,
   ChatToolResult,
+  InstallTarget,
   CreateMemoryRequest,
   CreateRuleRequest,
   DeleteMemoryRequest,
@@ -750,7 +751,7 @@ export function App() {
   const featureCards = [
     { title: "项目", value: String(projects.length), detail: "已接入项目 CRUD 和目录绑定" },
     { title: "Worktree", value: String(worktrees.length), detail: selectedProject ? "当前项目 worktree" : "选择项目后查看" },
-    { title: "运行中会话", value: String(runningSessionCount), detail: "真实 Claude Code 会话与终端已接入" },
+    { title: "运行中会话", value: String(runningSessionCount), detail: "真实代码会话与终端已接入" },
     { title: "MySQL", value: databaseInfo?.connected ? "已连接" : "等待中", detail: databaseInfo ? `${databaseInfo.engine} @ ${databaseInfo.host}/${databaseInfo.database}` : "等待后端" }
   ];
 
@@ -1300,6 +1301,13 @@ export function App() {
 
   function updateSessionDraft(field: keyof SessionEditorDraft, value: string | boolean) {
     setSessionDraft((current) => {
+      if (field === "provider" && typeof value === "string" && (value === "claude" || value === "codex")) {
+        return {
+          ...current,
+          provider: value
+        };
+      }
+
       if (field === "worktreeId" && typeof value === "string") {
         return {
           ...current,
@@ -1527,8 +1535,20 @@ export function App() {
     }
   }
 
-  async function handleInstallStoreSkill(skill: StoreSkillStatus, target: "claude-code" | "chat") {
-    const targetLabel = target === "claude-code" ? "全局 Claude Code" : "AI Chat";
+  async function handleInstallStoreSkill(skill: StoreSkillStatus, target: InstallTarget) {
+    const targetLabelMap: Record<InstallTarget, string> = {
+      "claude-global": "全局 Claude Skills",
+      "claude-project": "当前项目 Claude Skills",
+      "codex-global": "全局 Codex Skills",
+      "codex-project": "当前项目 Codex Skills",
+      chat: "AI Chat"
+    };
+    const targetLabel = targetLabelMap[target];
+
+    if ((target === "claude-project" || target === "codex-project") && !selectedProject) {
+      setStoreSkillsError("安装到项目目标前请先选择一个项目");
+      return;
+    }
 
     const ok = await confirm(`确认将「${skill.skill.name}」安装到 ${targetLabel}？`);
 
@@ -1542,6 +1562,7 @@ export function App() {
     try {
       await installStoreSkill(skill.skill.name, {
         targets: [target],
+        projectId: target === "claude-project" || target === "codex-project" ? selectedProject?.id : undefined,
         overwrite: true
       });
       await reloadStoreSkills();

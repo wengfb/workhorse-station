@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  AgentProvider,
   ExecutionListItem,
   OverviewSessionSummary,
   SessionListItem,
@@ -14,6 +15,9 @@ import { execute, queryOne, queryRows } from "../db/mysql.js";
 export type SessionWriteInput = {
   id?: string;
   projectId: string;
+  provider: AgentProvider;
+  providerThreadId: string | null;
+  providerMetadata: Record<string, unknown> | null;
   worktreeId: string | null;
   todoId: string | null;
   promptDraftId: string | null;
@@ -36,6 +40,9 @@ export type SessionWriteInput = {
 type SessionRow = {
   id: string;
   project_id: string;
+  provider: AgentProvider;
+  provider_thread_id: string | null;
+  provider_metadata_json: string | null;
   worktree_id: string | null;
   todo_id: string | null;
   prompt_draft_id: string | null;
@@ -59,6 +66,9 @@ type SessionRow = {
 type SessionListRow = {
   id: string;
   project_id: string;
+  provider: AgentProvider;
+  provider_thread_id: string | null;
+  provider_metadata_json: string | null;
   worktree_id: string | null;
   todo_id: string | null;
   prompt_draft_id: string | null;
@@ -81,13 +91,13 @@ type OverviewSessionRow = SessionRow & {
   project_name: string;
 };
 
-const SESSION_LIST_SELECT = `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, created_at, updated_at
+const SESSION_LIST_SELECT = `SELECT id, project_id, provider, provider_thread_id, provider_metadata_json, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, created_at, updated_at
      FROM sessions`;
 
-const SESSION_SELECT = `SELECT id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, terminal_buffer, created_at, updated_at
+const SESSION_SELECT = `SELECT id, project_id, provider, provider_thread_id, provider_metadata_json, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at, terminal_buffer, created_at, updated_at
      FROM sessions`;
 
-const OVERVIEW_SESSION_SELECT = `SELECT s.id, s.project_id, s.worktree_id, s.todo_id, s.prompt_draft_id, s.requested_worktree_name, s.source, s.name, s.prompt, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.resolved_worktree_path, s.exit_code, s.last_activity_at, s.terminal_buffer, s.created_at, s.updated_at, p.name AS project_name
+const OVERVIEW_SESSION_SELECT = `SELECT s.id, s.project_id, s.provider, s.provider_thread_id, s.provider_metadata_json, s.worktree_id, s.todo_id, s.prompt_draft_id, s.requested_worktree_name, s.source, s.name, s.prompt, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.resolved_worktree_path, s.exit_code, s.last_activity_at, s.terminal_buffer, s.created_at, s.updated_at, p.name AS project_name
      FROM sessions s
      JOIN projects p ON s.project_id = p.id`;
 
@@ -115,11 +125,14 @@ export async function createSessionRecord(db: DatabaseExecutor, input: SessionWr
   const id = input.id ?? randomUUID();
   await execute(
     db,
-    `INSERT INTO sessions (id, project_id, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO sessions (id, project_id, provider, provider_thread_id, provider_metadata_json, worktree_id, todo_id, prompt_draft_id, requested_worktree_name, source, name, prompt, status, runtime_status, summary, pid, cwd, resolved_worktree_path, exit_code, last_activity_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.projectId,
+      input.provider,
+      input.providerThreadId,
+      input.providerMetadata ? JSON.stringify(input.providerMetadata) : null,
       input.worktreeId,
       input.todoId,
       input.promptDraftId,
@@ -172,6 +185,8 @@ export async function updateSessionLaunch(
   projectId: string,
   sessionId: string,
   updates: {
+    providerThreadId: string | null;
+    providerMetadata: Record<string, unknown> | null;
     status: SessionStatus;
     runtimeStatus: SessionRuntimeStatus | null;
     worktreeId: string | null;
@@ -186,9 +201,11 @@ export async function updateSessionLaunch(
   await execute(
     db,
     `UPDATE sessions
-     SET status = ?, runtime_status = ?, worktree_id = ?, requested_worktree_name = ?, pid = ?, cwd = ?, resolved_worktree_path = ?, last_activity_at = ?, summary = ?, updated_at = CURRENT_TIMESTAMP
+     SET provider_thread_id = ?, provider_metadata_json = ?, status = ?, runtime_status = ?, worktree_id = ?, requested_worktree_name = ?, pid = ?, cwd = ?, resolved_worktree_path = ?, last_activity_at = ?, summary = ?, updated_at = CURRENT_TIMESTAMP
      WHERE project_id = ? AND id = ?`,
     [
+      updates.providerThreadId,
+      updates.providerMetadata ? JSON.stringify(updates.providerMetadata) : null,
       updates.status,
       updates.runtimeStatus,
       updates.worktreeId,
@@ -201,6 +218,26 @@ export async function updateSessionLaunch(
       projectId,
       sessionId
     ]
+  );
+
+  return getProjectSession(db, projectId, sessionId);
+}
+
+export async function updateSessionProviderState(
+  db: DatabaseExecutor,
+  projectId: string,
+  sessionId: string,
+  updates: {
+    providerThreadId: string | null;
+    providerMetadata: Record<string, unknown> | null;
+  }
+) {
+  await execute(
+    db,
+    `UPDATE sessions
+     SET provider_thread_id = ?, provider_metadata_json = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE project_id = ? AND id = ?`,
+    [updates.providerThreadId, updates.providerMetadata ? JSON.stringify(updates.providerMetadata) : null, projectId, sessionId]
   );
 
   return getProjectSession(db, projectId, sessionId);
@@ -332,6 +369,9 @@ function mapSessionListRow(row: SessionListRow): SessionListItem {
   return {
     id: row.id,
     projectId: row.project_id,
+    provider: row.provider,
+    providerThreadId: row.provider_thread_id,
+    providerMetadata: parseProviderMetadata(row.provider_metadata_json),
     worktreeId: row.worktree_id,
     todoId: row.todo_id,
     promptDraftId: row.prompt_draft_id,
@@ -355,6 +395,9 @@ function mapSessionRow(row: SessionRow): SessionSummary {
   return {
     id: row.id,
     projectId: row.project_id,
+    provider: row.provider,
+    providerThreadId: row.provider_thread_id,
+    providerMetadata: parseProviderMetadata(row.provider_metadata_json),
     worktreeId: row.worktree_id,
     todoId: row.todo_id,
     promptDraftId: row.prompt_draft_id,
@@ -381,6 +424,7 @@ function mapOverviewSessionRow(row: OverviewSessionRow): OverviewSessionSummary 
     id: row.id,
     projectId: row.project_id,
     projectName: row.project_name,
+    provider: row.provider,
     name: row.name,
     status: row.status,
     runtimeStatus: row.runtime_status,
@@ -396,6 +440,7 @@ function mapExecutionSessionRow(row: OverviewSessionRow): ExecutionListItem {
     kind: "session",
     projectId: row.project_id,
     projectName: row.project_name,
+    provider: row.provider,
     name: row.name,
     status: row.status,
     source: row.source,
@@ -409,4 +454,17 @@ function mapExecutionSessionRow(row: OverviewSessionRow): ExecutionListItem {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function parseProviderMetadata(value: string | null): Record<string, unknown> | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }

@@ -10,6 +10,7 @@
 - `./docs/dev-management-mvp.md`：MVP 范围、核心功能和验收标准
 - `./docs/dev-management-tech-stack.md`：技术选型说明和方案取舍
 - `./docs/dev-progress.md`：实际开发进度、阶段结论和验收记录
+- `./docs/codex-support-plan.md`：Codex 支持接入方案、架构设计与实施任务拆分
 - `./Codeman/`：参考项目本体，当前项目只借鉴其实现思路，不直接把它当成本项目
 
 ## 设计约定

@@ -117,7 +117,7 @@ export function HomeChatWorkspace({
           <div className="flex items-center justify-between gap-2">
             <div>
               <div className="app-text text-sm font-medium">聊天会话</div>
-              <div className="app-text-faint mt-1 text-xs">不同于 Claude Code 会话</div>
+              <div className="app-text-faint mt-1 text-xs">不同于代码执行会话</div>
             </div>
             <button onClick={onCreate} className="app-button-secondary rounded-lg border px-2.5 py-1.5 text-xs">
               新建

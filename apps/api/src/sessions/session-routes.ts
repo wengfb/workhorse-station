@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type {
+  AgentProvider,
   ApiResponse,
   CreateSessionRequest,
   DeleteSessionResponse,
@@ -23,8 +24,9 @@ import type {
 } from "@workhorse-station/shared";
 import type { DatabaseState } from "../db/init.js";
 import { formatMysqlDateTime } from "../db/mysql.js";
-import { getProject, listProjects, updateProjectLatestSessionResult } from "../projects/project-repository.js";
+import { getProject as getProjectForCheck, listProjects, updateProjectLatestSessionResult } from "../projects/project-repository.js";
 import { HttpError } from "../projects/http-error.js";
+import { normalizeProvider as normalizeProviderUtil, requireProject } from "../utils/session-utils.js";
 import { getProjectPromptDraft } from "../prompt-drafts/prompt-draft-repository.js";
 import { getProjectTodo, updateTodo, updateTodoLatestSessionResult } from "../todos/todo-repository.js";
 import {
@@ -38,12 +40,14 @@ import {
   listSessions,
   updateSessionCompletion,
   updateSessionLaunch,
+  updateSessionProviderState,
   updateSessionRecord,
   type SessionWriteInput
 } from "./session-repository.js";
 import { resolveSessionWorktree } from "./resolve-session-worktree.js";
 import { SessionRuntimeManager } from "./session-runtime-manager.js";
 import { existsSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { createReadStream } from "node:fs";
 import path from "node:path";
@@ -60,6 +64,9 @@ type ProjectSessionParams = ProjectParams & {
 
 const sessionSources: SessionSource[] = ["direct", "todo"];
 const sessionStatuses: SessionStatus[] = ["draft", "queued", "running", "completed", "failed"];
+const codexSessionSearchLookbackMs = 10 * 60 * 1000;
+const codexSessionSearchSettleMs = 3000;
+const codexSessionSearchRetryMs = 500;
 
 export async function registerSessionRoutes(
   server: FastifyInstance,
@@ -110,6 +117,8 @@ export async function registerSessionRoutes(
       requestedWorktreeName: resolvedWorktree.requestedWorktreeName,
       status: "queued",
       runtimeStatus: "starting",
+      providerThreadId: null,
+      providerMetadata: null,
       pid: null,
       cwd: resolvedWorktree.cwd,
       resolvedWorktreePath: resolvedWorktree.resolvedWorktreePath,
@@ -122,6 +131,7 @@ export async function registerSessionRoutes(
       const runtime = await runtimeManager.startSession({
         sessionId: session.id,
         projectId: request.params.projectId,
+        provider: session.provider,
         cwd: resolvedWorktree.cwd,
         resolvedWorktreePath: resolvedWorktree.resolvedWorktreePath,
         prompt: input.prompt,
@@ -130,6 +140,8 @@ export async function registerSessionRoutes(
       });
 
       const launchedSession = await updateSessionLaunch(database.db, request.params.projectId, session.id, {
+        providerThreadId: runtime.providerThreadId,
+        providerMetadata: runtime.providerMetadata,
         status: "running",
         runtimeStatus: runtime.runtimeStatus,
         worktreeId: resolvedWorktree.worktreeId,
@@ -145,13 +157,15 @@ export async function registerSessionRoutes(
         throw new Error("Failed to read launched session");
       }
 
-      await maybeMarkTodoInProgress(database, request.params.projectId, launchedSession.todoId);
+      const resolvedSession = await resolveProviderSessionState(database, request.params.projectId, launchedSession);
+
+      await maybeMarkTodoInProgress(database, request.params.projectId, resolvedSession.todoId);
       await database.persist();
       reply.status(201);
 
       return {
         ok: true,
-        data: { session: launchedSession }
+        data: { session: resolvedSession }
       };
     } catch (error) {
       await updateSessionCompletion(database.db, request.params.projectId, session.id, {
@@ -159,10 +173,10 @@ export async function registerSessionRoutes(
         runtimeStatus: "failed",
         exitCode: 1,
         lastActivityAt: formatMysqlDateTime(),
-        summary: error instanceof Error ? error.message : "Claude Code 启动失败"
+        summary: error instanceof Error ? error.message : formatProviderStartFailure(session.provider)
       });
       await database.persist();
-      throw new HttpError(500, "session_start_failed", error instanceof Error ? error.message : "Claude Code 启动失败");
+      throw new HttpError(500, "session_start_failed", error instanceof Error ? error.message : formatProviderStartFailure(session.provider));
     }
   });
 
@@ -234,19 +248,27 @@ export async function registerSessionRoutes(
       throw new HttpError(400, "session_no_cwd", "会话缺少工作目录，无法继续");
     }
 
+    const providerResumeSessionId = resolveProviderResumeSessionId(currentSession);
+    if (!providerResumeSessionId) {
+      throw new HttpError(409, "session_provider_thread_missing", formatProviderContinueBlockedMessage(currentSession.provider));
+    }
+
     try {
       const runtime = await runtimeManager.startSession({
         sessionId: currentSession.id,
         projectId: request.params.projectId,
+        provider: currentSession.provider,
         cwd,
         resolvedWorktreePath: currentSession.resolvedWorktreePath,
         prompt: "",
-        resumeSessionId: currentSession.id,
+        resumeSessionId: providerResumeSessionId,
         forkSession: false,
         initialBuffer: currentSession.terminalBuffer ?? ""
       });
 
       const launchedSession = await updateSessionLaunch(database.db, request.params.projectId, currentSession.id, {
+        providerThreadId: runtime.providerThreadId ?? currentSession.providerThreadId,
+        providerMetadata: runtime.providerMetadata ?? currentSession.providerMetadata,
         status: "running",
         runtimeStatus: runtime.runtimeStatus,
         worktreeId: currentSession.worktreeId,
@@ -257,15 +279,17 @@ export async function registerSessionRoutes(
         lastActivityAt: runtime.lastActivityAt,
         summary: currentSession.summary
       });
-      await database.persist();
 
       if (!launchedSession) {
         throw new Error("Failed to read launched session");
       }
 
+      const resolvedSession = await resolveProviderSessionState(database, request.params.projectId, launchedSession);
+      await database.persist();
+
       return {
         ok: true,
-        data: { session: launchedSession }
+        data: { session: resolvedSession }
       };
     } catch (error) {
       await updateSessionCompletion(database.db, request.params.projectId, currentSession.id, {
@@ -273,10 +297,10 @@ export async function registerSessionRoutes(
         runtimeStatus: "failed",
         exitCode: 1,
         lastActivityAt: formatMysqlDateTime(),
-        summary: error instanceof Error ? error.message : "Claude Code 启动失败"
+        summary: error instanceof Error ? error.message : formatProviderStartFailure(currentSession.provider)
       });
       await database.persist();
-      throw new HttpError(500, "session_continue_failed", error instanceof Error ? error.message : "Claude Code 继续启动失败");
+      throw new HttpError(500, "session_continue_failed", error instanceof Error ? error.message : formatProviderContinueFailure(currentSession.provider));
     }
   });
 
@@ -417,7 +441,7 @@ export async function registerSessionRoutes(
       throw new HttpError(404, "session_not_found", "会话不存在");
     }
 
-    const messages = await parseClaudeCodeHistory(session.cwd ?? undefined, request.params.sessionId);
+    const messages = await parseSessionHistory(session);
 
     return {
       ok: true,
@@ -493,7 +517,7 @@ export async function registerSessionRoutes(
 }
 
 async function assertProjectExists(database: DatabaseState, projectId: string) {
-  if (!(await getProject(database.db, projectId))) {
+  if (!(await getProjectForCheck(database.db, projectId))) {
     throw new HttpError(404, "project_not_found", "项目不存在");
   }
 }
@@ -517,12 +541,16 @@ async function buildSessionInput(database: DatabaseState, projectId: string, bod
   }
 
   const prompt = normalizePrompt(body.prompt);
+  const provider = normalizeProvider(body.provider);
   const source = normalizeSource(body.source);
   const resumeSessionId = normalizeOptionalId(body.resumeSessionId, "续接会话 ID 不合法");
   const forkSession = normalizeBoolean(body.forkSession, "分叉标记不合法");
 
   return {
     projectId,
+    provider,
+    providerThreadId: null,
+    providerMetadata: null,
     worktreeId,
     todoId,
     promptDraftId,
@@ -599,7 +627,7 @@ async function applySessionResultToTodo(database: DatabaseState, projectId: stri
 async function applySessionResultToProject(database: DatabaseState, projectId: string, session: SessionSummary) {
   assertSummaryPresent(session.summary);
 
-  if (!(await getProject(database.db, projectId))) {
+  if (!(await getProjectForCheck(database.db, projectId))) {
     throw new HttpError(404, "project_not_found", "项目不存在");
   }
 
@@ -632,7 +660,7 @@ function normalizePrompt(value: unknown) {
     throw new HttpError(400, "validation_error", "会话 Prompt 不能超过 40000 个字符");
   }
 
-  return value;
+  return prompt;
 }
 
 function normalizeName(value: unknown, source: SessionSource, todoId: string | null) {
@@ -668,6 +696,8 @@ function normalizeStatus(value: unknown): SessionStatus {
 
   return value as SessionStatus;
 }
+
+const normalizeProvider = normalizeProviderUtil;
 
 function normalizeSource(value: unknown): SessionSource {
   if (value === undefined) {
@@ -747,28 +777,126 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function formatProviderLabel(provider: AgentProvider) {
+  return provider === "codex" ? "Codex" : "Claude";
+}
+
+function formatProviderStartFailure(provider: AgentProvider) {
+  return `${formatProviderLabel(provider)} 启动失败`;
+}
+
+function formatProviderContinueFailure(provider: AgentProvider) {
+  return `${formatProviderLabel(provider)} 继续启动失败`;
+}
+
+function formatProviderContinueBlockedMessage(provider: AgentProvider) {
+  if (provider === "codex") {
+    return "Codex 会话缺少真实线程 ID，当前无法继续。请先新建一次会话，等待线程落盘后再试。";
+  }
+
+  return "当前会话缺少可续接的 Provider 线程 ID。";
+}
+
+function resolveProviderResumeSessionId(session: SessionSummary) {
+  if (session.provider === "codex") {
+    return session.providerThreadId;
+  }
+
+  return session.providerThreadId ?? session.id;
+}
+
 function projectCwdToClaudeSlug(cwd: string): string {
   return cwd.replace(/\//g, "-");
 }
 
-type JsonlAssistantContent = {
+type ClaudeJsonlAssistantContent = {
   type: string;
   text?: string;
   name?: string;
   input?: Record<string, unknown>;
 };
 
-type JsonlUserMessage = {
+type ClaudeJsonlUserMessage = {
   role: string;
   content: string | Array<{ type: string; tool_use_id?: string; content?: unknown }>;
 };
 
-type JsonlRecord = {
+type ClaudeJsonlRecord = {
   type: string;
-  message?: JsonlUserMessage | { content: JsonlAssistantContent[] };
+  message?: ClaudeJsonlUserMessage | { content: ClaudeJsonlAssistantContent[] };
   isSidechain?: boolean;
   timestamp?: string;
 };
+
+type CodexMatchedSession = {
+  id: string;
+  path: string;
+  timestamp: string | null;
+  cliVersion: string | null;
+  threadSource: string | null;
+  source: string | null;
+};
+
+async function resolveProviderSessionState(database: DatabaseState, projectId: string, session: SessionSummary) {
+  if (session.provider !== "codex") {
+    return session;
+  }
+
+  const currentLogPath = getProviderMetadataString(session.providerMetadata, "sessionLogPath");
+  if (session.providerThreadId && currentLogPath && existsSync(currentLogPath)) {
+    return session;
+  }
+
+  const matched = session.providerThreadId
+    ? await findCodexSessionById(session.providerThreadId, getProviderMetadataString(session.providerMetadata, "startedAt"))
+    : await waitForLatestCodexSessionMatch({
+        cwd: session.cwd ?? session.resolvedWorktreePath ?? undefined,
+        startedAt: getProviderMetadataString(session.providerMetadata, "startedAt")
+      });
+
+  if (!matched) {
+    return session;
+  }
+
+  const nextMetadata = {
+    ...(session.providerMetadata ?? {}),
+    sessionLogPath: matched.path,
+    sessionMetaTimestamp: matched.timestamp,
+    cliVersion: matched.cliVersion,
+    threadSource: matched.threadSource,
+    sessionSource: matched.source
+  };
+
+  if (session.providerThreadId === matched.id && currentLogPath === matched.path) {
+    return {
+      ...session,
+      providerMetadata: nextMetadata
+    };
+  }
+
+  const updated = await updateSessionProviderState(database.db, projectId, session.id, {
+    providerThreadId: matched.id,
+    providerMetadata: nextMetadata
+  });
+
+  return updated ?? {
+    ...session,
+    providerThreadId: matched.id,
+    providerMetadata: nextMetadata
+  };
+}
+
+async function parseSessionHistory(session: SessionSummary): Promise<SessionHistoryMessage[]> {
+  if (session.provider === "codex") {
+    return parseCodexHistory({
+      cwd: session.cwd ?? session.resolvedWorktreePath ?? undefined,
+      providerThreadId: session.providerThreadId,
+      providerMetadata: session.providerMetadata
+    });
+  }
+
+  return parseClaudeCodeHistory(session.cwd ?? undefined, session.providerThreadId ?? session.id);
+}
 
 async function parseClaudeCodeHistory(cwd: string | undefined, sessionId: string): Promise<SessionHistoryMessage[]> {
   if (!cwd) {
@@ -790,10 +918,10 @@ async function parseClaudeCodeHistory(cwd: string | undefined, sessionId: string
 
   for await (const line of rl) {
     try {
-      const record: JsonlRecord = JSON.parse(line);
+      const record: ClaudeJsonlRecord = JSON.parse(line);
 
       if (record.type === "user" && record.message) {
-        const msg = record.message as JsonlUserMessage;
+        const msg = record.message as ClaudeJsonlUserMessage;
 
         if (Array.isArray(msg.content)) {
           const hasToolResult = msg.content.some((c) => c.type === "tool_result");
@@ -824,7 +952,7 @@ async function parseClaudeCodeHistory(cwd: string | undefined, sessionId: string
           });
         }
       } else if (record.type === "assistant" && record.message) {
-        const msg = record.message as { content: JsonlAssistantContent[] };
+        const msg = record.message as { content: ClaudeJsonlAssistantContent[] };
         const blocks: SessionHistoryMessageBlock[] = [];
 
         if (Array.isArray(msg.content)) {
@@ -857,6 +985,328 @@ async function parseClaudeCodeHistory(cwd: string | undefined, sessionId: string
   }
 
   return messages;
+}
+
+async function parseCodexHistory(input: {
+  cwd: string | undefined;
+  providerThreadId: string | null;
+  providerMetadata: Record<string, unknown> | null;
+}): Promise<SessionHistoryMessage[]> {
+  const jsonlPath = await resolveCodexSessionLogPath(input);
+
+  if (!jsonlPath || !existsSync(jsonlPath)) {
+    return [];
+  }
+
+  const messages: SessionHistoryMessage[] = [];
+  const fileStream = createReadStream(jsonlPath);
+  const rl = createInterface({ input: fileStream, crlfDelay: Infinity });
+
+  for await (const line of rl) {
+    try {
+      const record = JSON.parse(line) as Record<string, unknown>;
+
+      if (record.type !== "event_msg" || !isObject(record.payload)) {
+        continue;
+      }
+
+      const eventType = getRecordString(record.payload, "type");
+      const message = getRecordString(record.payload, "message");
+
+      if (!message?.trim()) {
+        continue;
+      }
+
+      if (eventType === "user_message") {
+        messages.push({
+          role: "user",
+          content: [{ type: "text", text: message }],
+          timestamp: getRecordString(record, "timestamp"),
+          isSidechain: false
+        });
+      } else if (eventType === "agent_message") {
+        messages.push({
+          role: "assistant",
+          content: [{ type: "text", text: message }],
+          timestamp: getRecordString(record, "timestamp"),
+          isSidechain: false
+        });
+      }
+    } catch {
+      // skip malformed lines
+    }
+  }
+
+  return messages;
+}
+
+async function resolveCodexSessionLogPath(input: {
+  cwd: string | undefined;
+  providerThreadId: string | null;
+  providerMetadata: Record<string, unknown> | null;
+}) {
+  const metadataPath = getProviderMetadataString(input.providerMetadata, "sessionLogPath");
+
+  if (metadataPath && existsSync(metadataPath)) {
+    return metadataPath;
+  }
+
+  if (input.providerThreadId) {
+    const matched = await findCodexSessionById(input.providerThreadId, getProviderMetadataString(input.providerMetadata, "startedAt"));
+    if (matched) {
+      return matched.path;
+    }
+  }
+
+  const startedAt = getProviderMetadataString(input.providerMetadata, "startedAt");
+  if (input.cwd && startedAt) {
+    const matched = await findLatestCodexSession({ cwd: input.cwd, startedAt });
+    return matched?.path ?? null;
+  }
+
+  return null;
+}
+
+async function waitForLatestCodexSessionMatch(input: { cwd: string | undefined; startedAt: string | null }) {
+  if (!input.cwd || !input.startedAt) {
+    return null;
+  }
+
+  const deadline = Date.now() + codexSessionSearchSettleMs;
+
+  while (true) {
+    const matched = await findLatestCodexSession({
+      cwd: input.cwd,
+      startedAt: input.startedAt
+    });
+
+    if (matched) {
+      return matched;
+    }
+
+    if (Date.now() >= deadline) {
+      return null;
+    }
+
+    await delay(codexSessionSearchRetryMs);
+  }
+}
+
+async function findLatestCodexSession(input: { cwd: string; startedAt: string }): Promise<CodexMatchedSession | null> {
+  const startedAtMs = Date.parse(input.startedAt);
+
+  if (!Number.isFinite(startedAtMs)) {
+    return null;
+  }
+
+  const files = await collectCodexSessionFiles(getCodexSessionSearchDirectories(input.startedAt));
+  let bestMatch: CodexMatchedSession | null = null;
+  let bestTimestamp = Number.NEGATIVE_INFINITY;
+
+  for (const filePath of files) {
+    const meta = await readCodexSessionMeta(filePath);
+
+    if (!meta?.id || meta.cwd !== input.cwd) {
+      continue;
+    }
+
+    const metaTimestamp = meta.timestamp ? Date.parse(meta.timestamp) : Number.NaN;
+    if (Number.isFinite(metaTimestamp)) {
+      if (metaTimestamp < startedAtMs - codexSessionSearchLookbackMs) {
+        continue;
+      }
+
+      if (metaTimestamp > Date.now() + codexSessionSearchSettleMs) {
+        continue;
+      }
+    }
+
+    const metaFinite = Number.isFinite(metaTimestamp);
+    const bestFinite = Number.isFinite(bestTimestamp);
+
+    if (!bestMatch) {
+      bestMatch = toCodexMatchedSession(filePath, meta);
+      bestTimestamp = metaFinite ? metaTimestamp : bestTimestamp;
+    } else if (metaFinite && bestFinite && metaTimestamp > bestTimestamp) {
+      bestMatch = toCodexMatchedSession(filePath, meta);
+      bestTimestamp = metaTimestamp;
+    } else if (metaFinite && !bestFinite) {
+      // current entry has a valid timestamp but bestMatch doesn't — replace
+      bestMatch = toCodexMatchedSession(filePath, meta);
+      bestTimestamp = metaTimestamp;
+    } else if (!metaFinite && !bestFinite && filePath.localeCompare(bestMatch.path) > 0) {
+      // both invalid, tiebreak by path
+      bestMatch = toCodexMatchedSession(filePath, meta);
+    }
+  }
+
+  return bestMatch;
+}
+
+async function findCodexSessionById(providerThreadId: string, startedAt: string | null): Promise<CodexMatchedSession | null> {
+  const preferredDirectories = startedAt ? getCodexSessionSearchDirectories(startedAt) : [];
+  const searchDirectories = preferredDirectories.length > 0 ? [...preferredDirectories, path.join(os.homedir(), ".codex", "sessions")] : [path.join(os.homedir(), ".codex", "sessions")];
+  const files = await collectCodexSessionFiles(searchDirectories);
+
+  for (const filePath of files) {
+    const meta = await readCodexSessionMeta(filePath);
+
+    if (meta?.id === providerThreadId) {
+      return toCodexMatchedSession(filePath, meta);
+    }
+  }
+
+  return null;
+}
+
+function getCodexSessionSearchDirectories(startedAt: string) {
+  const anchor = new Date(startedAt);
+
+  if (Number.isNaN(anchor.getTime())) {
+    return [path.join(os.homedir(), ".codex", "sessions")];
+  }
+
+  const offsets = [0, -1, 1];
+  const directories: string[] = [];
+  const seen = new Set<string>();
+
+  for (const offset of offsets) {
+    const current = new Date(anchor);
+    current.setDate(anchor.getDate() + offset);
+    const directory = path.join(
+      os.homedir(),
+      ".codex",
+      "sessions",
+      String(current.getFullYear()),
+      String(current.getMonth() + 1).padStart(2, "0"),
+      String(current.getDate()).padStart(2, "0")
+    );
+
+    if (!seen.has(directory)) {
+      seen.add(directory);
+      directories.push(directory);
+    }
+  }
+
+  return directories;
+}
+
+async function collectCodexSessionFiles(directories: string[]) {
+  const files: string[] = [];
+  const seen = new Set<string>();
+
+  for (const directory of directories) {
+    const nextFiles = await walkJsonlFiles(directory);
+    for (const filePath of nextFiles) {
+      if (!seen.has(filePath)) {
+        seen.add(filePath);
+        files.push(filePath);
+      }
+    }
+  }
+
+  files.sort((left, right) => right.localeCompare(left));
+  return files;
+}
+
+async function walkJsonlFiles(directory: string): Promise<string[]> {
+  if (!existsSync(directory)) {
+    return [];
+  }
+
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    const resolvedPath = path.join(directory, entry.name);
+
+    if (entry.isDirectory()) {
+      files.push(...(await walkJsonlFiles(resolvedPath)));
+    } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+      files.push(resolvedPath);
+    }
+  }
+
+  return files;
+}
+
+async function readCodexSessionMeta(filePath: string) {
+  const firstRecord = await readFirstJsonLine(filePath);
+
+  if (!firstRecord || firstRecord.type !== "session_meta" || !isObject(firstRecord.payload)) {
+    return null;
+  }
+
+  return {
+    id: getRecordString(firstRecord.payload, "id"),
+    timestamp: getRecordString(firstRecord.payload, "timestamp"),
+    cwd: getRecordString(firstRecord.payload, "cwd"),
+    cliVersion: getRecordString(firstRecord.payload, "cli_version"),
+    threadSource: getRecordString(firstRecord.payload, "thread_source"),
+    source: getRecordString(firstRecord.payload, "source")
+  };
+}
+
+async function readFirstJsonLine(filePath: string): Promise<Record<string, unknown> | null> {
+  const fileStream = createReadStream(filePath);
+  const rl = createInterface({ input: fileStream, crlfDelay: Infinity });
+
+  for await (const line of rl) {
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      return isObject(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function toCodexMatchedSession(
+  filePath: string,
+  meta: {
+    id: string | null;
+    timestamp: string | null;
+    cliVersion: string | null;
+    threadSource: string | null;
+    source: string | null;
+  }
+): CodexMatchedSession {
+  return {
+    id: meta.id ?? "",
+    path: filePath,
+    timestamp: meta.timestamp,
+    cliVersion: meta.cliVersion,
+    threadSource: meta.threadSource,
+    source: meta.source
+  };
+}
+
+function getProviderMetadataString(metadata: Record<string, unknown> | null, key: string) {
+  if (!metadata) {
+    return null;
+  }
+
+  const value = metadata[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function getRecordString(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "string" ? value : null;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function listProjectNameMap(database: DatabaseState) {

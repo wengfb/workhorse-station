@@ -34,7 +34,7 @@ export function buildPromptPreview({ project, todo, worktree, input }: PromptPre
       promptSections.push(`标签：${todo.tags.join(", ")}`);
     }
   } else {
-    promptSections.push("", "## 任务背景", "这是一个直接创建的 Claude Code 会话，请先根据项目上下文明确目标和改动范围。");
+    promptSections.push("", "## 任务背景", "这是一个直接创建的代码执行会话，请先根据项目上下文明确目标和改动范围。");
   }
 
   promptSections.push(

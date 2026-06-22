@@ -88,7 +88,7 @@ export function getChatToolDefs(skills?: SkillMetadata[]): ToolDef[] {
     },
     {
       name: "create_prompt_draft",
-      description: "创建一个 Prompt 草稿，用于后续启动 Claude Code 会话执行代码任务。当用户想要执行某个开发任务时使用。",
+      description: "创建一个 Prompt 草稿，用于后续启动代码执行会话处理开发任务。当用户想要执行某个开发任务时使用。",
       confirmation: "confirm",
       input_schema: {
         type: "object",

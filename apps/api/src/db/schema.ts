@@ -93,6 +93,9 @@ export const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS sessions (
     id CHAR(36) PRIMARY KEY,
     project_id CHAR(36) NOT NULL,
+    provider VARCHAR(64) NOT NULL DEFAULT 'claude',
+    provider_thread_id VARCHAR(255) NULL,
+    provider_metadata_json LONGTEXT NULL,
     worktree_id CHAR(36) NULL,
     todo_id CHAR(36) NULL,
     prompt_draft_id CHAR(36) NULL,

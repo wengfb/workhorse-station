@@ -1,7 +1,8 @@
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile, access } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { SkillDocumentDetail, StoreSkill, StoreSkillInstallStatus, StoreSkillStatus } from "@workhorse-station/shared";
+import type { InstallTarget, SkillDocumentDetail, StoreSkill, StoreSkillInstallStatus, StoreSkillStatus } from "@workhorse-station/shared";
 import { HttpError } from "../projects/http-error.js";
 import { isPathInside } from "../worktrees/git-worktree.js";
 import { transferSkillDirectory, validateSkillName } from "./skill-fs.js";
@@ -20,6 +21,14 @@ function getGlobalClaudeCodeSkillRoot(): string {
 
 function getProjectClaudeCodeSkillRoot(projectPath: string): string {
   return path.join(projectPath, ".claude", "skills");
+}
+
+function getGlobalCodexSkillRoot(): string {
+  return path.join(os.homedir(), ".agents", "skills");
+}
+
+function getProjectCodexSkillRoot(projectPath: string): string {
+  return path.join(projectPath, ".agents", "skills");
 }
 
 export async function listStoreSkillsWithStatus(projectPath?: string): Promise<StoreSkillStatus[]> {
@@ -144,12 +153,20 @@ export async function sendStoreSkillToProject(
   modeInput: unknown,
   overwriteInput: unknown
 ) {
-  return transferSkillDirectory(getStoreSkillRoot(), getProjectClaudeCodeSkillRoot(projectPath), nameInput, modeInput, overwriteInput);
+  const result = await transferSkillDirectory(getStoreSkillRoot(), getProjectClaudeCodeSkillRoot(projectPath), nameInput, modeInput, overwriteInput);
+  // Also install to Codex .agents/skills if it exists (project may use both providers)
+  try {
+    await access(getProjectCodexSkillRoot(projectPath), fsConstants.F_OK);
+    await transferSkillDirectory(getStoreSkillRoot(), getProjectCodexSkillRoot(projectPath), nameInput, "copy", overwriteInput);
+  } catch {
+    // Codex skill dir doesn't exist, skip
+  }
+  return result;
 }
 
 export async function installStoreSkill(
   nameInput: unknown,
-  targets: string[],
+  targets: InstallTarget[],
   projectPath?: string,
   overwrite?: boolean
 ): Promise<void> {
@@ -167,17 +184,26 @@ export async function installStoreSkill(
     let targetRoot: string;
 
     switch (target) {
-      case "claude-code":
+      case "claude-global":
         targetRoot = getGlobalClaudeCodeSkillRoot();
+        break;
+      case "codex-global":
+        targetRoot = getGlobalCodexSkillRoot();
         break;
       case "chat":
         targetRoot = getChatSkillsRoot();
         break;
-      case "claude-code-project":
+      case "claude-project":
         if (!projectPath) {
           throw new HttpError(400, "project_required", "安装到项目需要提供 projectPath");
         }
         targetRoot = getProjectClaudeCodeSkillRoot(projectPath);
+        break;
+      case "codex-project":
+        if (!projectPath) {
+          throw new HttpError(400, "project_required", "安装到项目需要提供 projectPath");
+        }
+        targetRoot = getProjectCodexSkillRoot(projectPath);
         break;
       default:
         throw new HttpError(400, "invalid_target", `无效的安装目标: ${target}`);
@@ -241,14 +267,24 @@ async function readStoreSkill(name: string): Promise<StoreSkill> {
 }
 
 async function getInstallStatus(name: string, projectPath?: string): Promise<StoreSkillInstallStatus> {
-  let claudeCode = false;
+  let claudeGlobal = false;
+  let codexGlobal = false;
   let chat = false;
-  let claudeCodeProject = false;
+  let claudeProject = false;
+  let codexProject = false;
 
   try {
     const ccPath = path.join(getGlobalClaudeCodeSkillRoot(), name);
     const ccStat = await stat(ccPath);
-    claudeCode = ccStat.isDirectory();
+    claudeGlobal = ccStat.isDirectory();
+  } catch {
+    // not installed
+  }
+
+  try {
+    const codexPath = path.join(getGlobalCodexSkillRoot(), name);
+    const codexStat = await stat(codexPath);
+    codexGlobal = codexStat.isDirectory();
   } catch {
     // not installed
   }
@@ -265,13 +301,21 @@ async function getInstallStatus(name: string, projectPath?: string): Promise<Sto
     try {
       const projPath = path.join(getProjectClaudeCodeSkillRoot(projectPath), name);
       const projStat = await stat(projPath);
-      claudeCodeProject = projStat.isDirectory();
+      claudeProject = projStat.isDirectory();
+    } catch {
+      // not installed
+    }
+
+    try {
+      const projPath = path.join(getProjectCodexSkillRoot(projectPath), name);
+      const projStat = await stat(projPath);
+      codexProject = projStat.isDirectory();
     } catch {
       // not installed
     }
   }
 
-  return { claudeCode, chat, claudeCodeProject };
+  return { claudeGlobal, claudeProject, codexGlobal, codexProject, chat };
 }
 
 async function copySkillDir(sourceRoot: string, targetRoot: string, name: string, overwrite: boolean): Promise<void> {

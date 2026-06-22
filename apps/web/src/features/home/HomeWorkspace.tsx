@@ -4,6 +4,7 @@ import type {
   ChatMessageSummary,
   ChatSessionSummary,
   ExecutionListItem,
+  InstallTarget,
   MetaResponse,
   NoteSummary,
   ProjectSkillSummary,
@@ -181,7 +182,7 @@ export function HomeWorkspace({
   onCreateStoreSkill: (name: string, description: string) => void;
   onRenameStoreSkill: (skill: StoreSkillStatus) => void;
   onDeleteStoreSkill: (skill: StoreSkillStatus) => void;
-  onInstallStoreSkill: (skill: StoreSkillStatus, target: "claude-code" | "chat") => void;
+  onInstallStoreSkill: (skill: StoreSkillStatus, target: InstallTarget) => void;
   onSendStoreSkillToProject: (skill: StoreSkillStatus) => void;
   onEditStoreSkillDocument: (skill: StoreSkillStatus) => void;
   chatSkills: ChatSkill[];

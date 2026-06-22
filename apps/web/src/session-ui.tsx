@@ -1,6 +1,7 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type {
+  AgentProvider,
   ExecutionListItem,
   ProjectSummary,
   PromptDraftSummary,
@@ -29,6 +30,7 @@ import { WorkspaceTerminal } from "./workspace-terminal";
 import { Select } from "./components/ui/Select";
 
 export type SessionEditorDraft = {
+  provider: AgentProvider;
   sessionName: string;
   promptTitle: string;
   prompt: string;
@@ -93,9 +95,9 @@ export function SessionsWorkspace({
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(360px,0.7fr)]">
       <section className="app-panel app-border rounded-xl border p-4">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-          <div>
-            <div className="app-text text-sm font-medium">Claude Code 会话</div>
-            <p className="app-text-faint mt-1 text-xs">会话已接入真实启动，可绑定已有 Worktree 或在启动时自动创建新 Worktree。</p>
+            <div>
+            <div className="app-text text-sm font-medium">代码会话</div>
+            <p className="app-text-faint mt-1 text-xs">支持 Claude 与 Codex 两种执行器，可绑定已有 Worktree 或在启动时自动创建新 Worktree。</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button onClick={() => onOpenSession("direct")} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
@@ -133,7 +135,7 @@ export function SessionsWorkspace({
                   <span className="app-text font-medium">{session.name}</span>
                   <SessionStatusPill status={session.status} />
                 </div>
-                <div className="app-text-faint mt-2 text-xs">来源：{session.source === "todo" ? "任务" : "直接创建"}</div>
+                <div className="app-text-faint mt-2 text-xs">执行器：{formatProviderLabel(session.provider)} / 来源：{session.source === "todo" ? "任务" : "直接创建"}</div>
                 {session.summary ? <div className="app-text-muted mt-1 line-clamp-2 text-xs">结果：{session.summary}</div> : null}
                 <div className="app-text-faint mt-1 text-xs">更新：{formatDateTime(session.updatedAt)}</div>
               </button>
@@ -150,7 +152,7 @@ export function SessionsWorkspace({
           <DetailRow label="Prompt 草稿" value={String(promptDrafts.length)} />
           <DetailRow label="关闭窗口" value="后台运行，不停止会话" />
         </div>
-        <p className="app-banner-success mt-4 rounded-lg border p-3 text-xs">当前版本支持真实 Claude Code 会话启动、终端输出和停止操作；删除会话不会自动删除关联 Worktree。</p>
+        <p className="app-banner-success mt-4 rounded-lg border p-3 text-xs">当前版本支持真实会话启动、终端输出和停止操作；删除会话不会自动删除关联 Worktree。</p>
       </section>
     </div>
   );
@@ -198,8 +200,8 @@ export function CreateSessionModal({
       <div className="app-panel app-border w-full max-w-4xl overflow-hidden rounded-2xl border shadow-2xl">
         <div className="app-border flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
           <div>
-            <div className="app-text text-sm font-semibold">创建 Claude Code 会话</div>
-            <div className="app-text-faint mt-1 text-xs">先确认 prompt 草稿，再真实启动 Claude Code 会话并打开终端。</div>
+            <div className="app-text text-sm font-semibold">创建代码会话</div>
+            <div className="app-text-faint mt-1 text-xs">先确认 prompt 草稿，再真实启动所选执行器会话并打开终端。</div>
           </div>
           <button onClick={onClose} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
             关闭
@@ -219,6 +221,16 @@ export function CreateSessionModal({
               </div>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <Field label="执行器">
+                <Select
+                  value={draft.provider}
+                  onChange={(value) => onDraftChange("provider", value)}
+                  options={[
+                    { value: "claude", label: "Claude" },
+                    { value: "codex", label: "Codex" }
+                  ]}
+                />
+              </Field>
               <Field label="会话名称">
                 <input
                   value={draft.sessionName}
@@ -566,7 +578,7 @@ export function SessionModal({
   return (
     <ExecutionModalFrame
       title={`会话执行：${selectedExecution?.name || selectedSession?.name || draft.sessionName || "新会话"}`}
-      subtitle="Claude Code 会话与普通终端共用同一个全局执行列表。"
+      subtitle="代码会话与普通终端共用同一个全局执行列表。"
       onClose={onClose}
       sidebar={
         <>
@@ -606,7 +618,7 @@ export function SessionModal({
                 className="app-input-shell min-w-0 rounded-lg border px-3 py-2 text-xs outline-none"
               >
                 <option value="all">全部类型</option>
-                <option value="session">Claude 会话</option>
+                <option value="session">代码会话</option>
                 <option value="workspace-terminal">普通终端</option>
               </select>
             </div>
@@ -634,7 +646,7 @@ export function SessionModal({
                       <div className="flex items-center gap-2">
                         <span className={`h-2 w-2 shrink-0 rounded-full ${getExecutionStatusDotClass(execution)}`} />
                         <div className="app-text min-w-0 flex-1 truncate font-medium">{execution.name}</div>
-                        <span className="app-text-faint shrink-0 text-[10px] uppercase tracking-[0.12em]">{isSession ? "Claude" : "Shell"}</span>
+                            <span className="app-text-faint shrink-0 text-[10px] uppercase tracking-[0.12em]">{isSession ? formatProviderLabel(execution.provider) : "Shell"}</span>
                       </div>
                       <div className="app-text-faint mt-1 flex items-center gap-2 text-[11px]">
                         <span className="min-w-0 flex-1 truncate">{secondaryText}</span>
@@ -820,7 +832,7 @@ export function SessionModal({
               </div>
             ) : (
               <section className="terminal-surface app-border app-text-faint flex h-full min-h-[320px] items-center justify-center rounded-xl border p-4 font-mono text-sm">
-                请先选择一个 Claude 会话。
+                请先选择一个代码会话。
               </section>
             )}
 
@@ -854,7 +866,7 @@ export function SessionModal({
                 </section>
               ) : (
                 <section className="terminal-surface app-border app-text-faint flex h-full min-h-[320px] items-center justify-center rounded-xl border p-4 font-mono text-sm">
-                  请先选择一个 Claude 会话。
+                  请先选择一个代码会话。
                 </section>
               )
             ) : null}
@@ -894,7 +906,7 @@ export function WorkspaceExecutionModal({
   return (
     <ExecutionModalFrame
       title="会话执行：工作台终端"
-      subtitle="普通 shell 终端，不会创建 Claude Code 会话记录。"
+      subtitle="普通 shell 终端，不会创建代码会话记录。"
       onClose={onClose}
       sidebar={
         <>
@@ -1016,6 +1028,10 @@ function matchesExecutionStatus(execution: ExecutionListItem, statusFilter: Exec
   }
 
   return runtimeStatus === "stopped" || execution.status === "completed";
+}
+
+function formatProviderLabel(provider: AgentProvider) {
+  return provider === "codex" ? "Codex" : "Claude";
 }
 
 function getExecutionStatusDotClass(execution: ExecutionListItem) {
