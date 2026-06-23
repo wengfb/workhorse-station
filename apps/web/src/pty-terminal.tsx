@@ -129,6 +129,20 @@ type XtermWithPrivateCore = Terminal & {
   };
 };
 
+type XtermWithOscParser = Terminal & {
+  parser?: {
+    registerOscHandler?: (ident: number, handler: (data: string) => boolean) => { dispose: () => void };
+  };
+};
+
+declare global {
+  interface Window {
+    workhorseDesktop?: {
+      writeClipboard?: (text: string) => Promise<boolean>;
+    };
+  }
+}
+
 function forceTerminalReflow(container: HTMLDivElement, runFit: () => void, getCellSize?: () => { width: number; height: number } | null) {
   runFit();
 
@@ -199,6 +213,44 @@ function bindTerminalCopyShortcut(terminal: Terminal) {
   });
 }
 
+function decodeBase64Text(value: string) {
+  const binary = window.atob(value);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+async function writeClipboardText(text: string) {
+  if (window.workhorseDesktop?.writeClipboard) {
+    await window.workhorseDesktop.writeClipboard(text);
+    return;
+  }
+
+  await navigator.clipboard.writeText(text);
+}
+
+function bindOsc52ClipboardHandler(terminal: Terminal) {
+  return (terminal as XtermWithOscParser).parser?.registerOscHandler?.(52, (data) => {
+    const separatorIndex = data.indexOf(";");
+    if (separatorIndex < 0) {
+      return true;
+    }
+
+    const encoded = data.slice(separatorIndex + 1);
+    if (!encoded || encoded === "?") {
+      return true;
+    }
+
+    try {
+      const text = decodeBase64Text(encoded);
+      void writeClipboardText(text).catch(() => {});
+    } catch {
+      // Ignore malformed OSC 52 payloads.
+    }
+
+    return true;
+  });
+}
+
 function trimTerminalBuffer(buffer: string) {
   return buffer.length > maxBufferedLength ? buffer.slice(-maxBufferedLength) : buffer;
 }
@@ -246,6 +298,7 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const inputDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const osc52DisposableRef = useRef<{ dispose: () => void } | null>(null);
   const pendingWriteRef = useRef<Promise<void>>(Promise.resolve());
   const activeTokenRef = useRef(0);
   const currentSnapshotRef = useRef<PtyTerminalSnapshot>({
@@ -407,6 +460,7 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
     terminal.loadAddon(fitAddon);
     terminal.open(container);
     bindTerminalCopyShortcut(terminal);
+    osc52DisposableRef.current = bindOsc52ClipboardHandler(terminal) ?? null;
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -449,6 +503,8 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
       resizeObserverRef.current = null;
       inputDisposableRef.current?.dispose();
       inputDisposableRef.current = null;
+      osc52DisposableRef.current?.dispose();
+      osc52DisposableRef.current = null;
       relayoutCleanupRef.current?.();
       relayoutCleanupRef.current = null;
       controlsRef.current = null;

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, clipboard, ipcMain, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -199,6 +199,10 @@ ipcMain.handle("workhorse-desktop:retry-connection", async () => {
   }
 
   return loadWindowContent(mainWindow);
+});
+ipcMain.handle("workhorse-desktop:write-clipboard", (_event, text: string) => {
+  clipboard.writeText(text);
+  return true;
 });
 
 app.whenReady().then(() => {
