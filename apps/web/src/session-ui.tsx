@@ -1,4 +1,4 @@
-import { Monitor, Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Plus, Sun } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type {
   AgentProvider,
@@ -404,9 +404,11 @@ export function SessionModal({
   deletingWorkspaceTerminalId,
   continuingSessionId,
   onSelectExecution,
+  onCreateWorkspaceTerminal,
   onRenameSession,
   onStopSession,
   onDeleteSession,
+  onRenameWorkspaceTerminal,
   onDeleteWorkspaceTerminal,
   onContinueSession,
   onRuntimeEvent,
@@ -437,9 +439,11 @@ export function SessionModal({
   deletingWorkspaceTerminalId: string | null;
   continuingSessionId: string | null;
   onSelectExecution: (execution: ExecutionListItem) => void;
+  onCreateWorkspaceTerminal: () => void;
   onRenameSession: (session: SessionListItem | Extract<ExecutionListItem, { kind: "session" }>) => void;
   onStopSession: (session: SessionListItem | Extract<ExecutionListItem, { kind: "session" }>) => void;
   onDeleteSession: (session: SessionListItem | Extract<ExecutionListItem, { kind: "session" }>) => void;
+  onRenameWorkspaceTerminal: (execution: Extract<ExecutionListItem, { kind: "workspace-terminal" }>) => void;
   onDeleteWorkspaceTerminal: (execution: Extract<ExecutionListItem, { kind: "workspace-terminal" }>) => void;
   onContinueSession: (session: SessionListItem | Extract<ExecutionListItem, { kind: "session" }>) => void;
   onRuntimeEvent: (event: SessionStreamEvent) => void;
@@ -583,12 +587,24 @@ export function SessionModal({
       sidebar={
         <>
           <div className="space-y-2">
-            <input
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              className="app-input-shell w-full rounded-lg border px-3 py-2 text-sm outline-none"
-              placeholder="搜索会话、终端、项目或 worktree"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                className="app-input-shell min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm outline-none"
+                placeholder="搜索会话、终端、项目或 worktree"
+              />
+              <button
+                type="button"
+                onClick={onCreateWorkspaceTerminal}
+                disabled={openingWorkspaceTerminal}
+                className="app-button-secondary flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="新建普通终端"
+                title="新建普通终端"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
             <div className="grid grid-cols-3 gap-2">
               <select
                 value={projectFilter}
@@ -716,6 +732,13 @@ export function SessionModal({
                     {!isSession ? (
                       isSelected || isActionMenuOpen ? (
                         <div className="flex min-h-6 shrink-0 items-center gap-1 self-center">
+                          <button
+                            disabled={renamingSessionId === execution.id}
+                            onClick={() => onRenameWorkspaceTerminal(execution)}
+                            className="app-button-info rounded-md border px-1.5 py-1 text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {renamingSessionId === execution.id ? "重命名中" : "重命名"}
+                          </button>
                           <button
                             disabled={deletingWorkspaceTerminalId === execution.id}
                             onClick={() => onDeleteWorkspaceTerminal(execution)}

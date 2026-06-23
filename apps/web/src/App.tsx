@@ -114,6 +114,7 @@ import {
   createWorkspaceTerminal,
   getWorkspaceTerminal,
   stopWorkspaceTerminal,
+  updateWorkspaceTerminal,
   updateGlobalNote,
   updateNote,
   updateProject,
@@ -2498,6 +2499,7 @@ export function App() {
           projectId: execution.projectId,
           worktreeId: execution.worktreeId,
           requestedWorktreeName: execution.requestedWorktreeName,
+          name: execution.name,
           runtimeStatus: data.runtimeStatus ?? execution.runtimeStatus ?? "stopped",
           pid: execution.pid,
           cwd: data.cwd ?? execution.cwd ?? "",
@@ -2835,6 +2837,30 @@ export function App() {
     }
   }
 
+  function createWorkspaceTerminalFromExecutionModal() {
+    const selectedItem = selectedExecution ? executionItems.find((item) => item.kind === selectedExecution.kind && item.id === selectedExecution.id) ?? null : null;
+    const selectedProjectForExecution = selectedItem?.projectId ? projects.find((project) => project.id === selectedItem.projectId) ?? null : null;
+    const selectedWorktreeForExecution =
+      selectedItem?.worktreeId && selectedItem.projectId === selectedProjectId
+        ? worktrees.find((worktree) => worktree.id === selectedItem.worktreeId) ?? null
+        : null;
+    const projectId = selectedItem ? selectedItem.projectId : selectedProject?.id ?? null;
+    const projectName = selectedItem ? selectedItem.projectName ?? selectedProjectForExecution?.name ?? null : selectedProject?.name ?? null;
+    const worktreeId = selectedItem ? selectedItem.worktreeId : selectedWorktree?.id ?? null;
+    const worktreeName = selectedItem ? selectedWorktreeForExecution?.name ?? null : selectedWorktree?.name ?? null;
+
+    void handleOpenWorkspaceTerminal(
+      {
+        projectId,
+        projectName,
+        worktreeId,
+        worktreeName,
+        requestedWorktreeName: selectedItem?.requestedWorktreeName ?? null
+      },
+      { forceCreate: true }
+    );
+  }
+
 
   async function handleStopWorkspaceTerminal() {
     if (!workspaceTerminal) {
@@ -2895,6 +2921,28 @@ export function App() {
       setWorkspaceTerminalError(formatError(error, "终端删除失败"));
     } finally {
       setDeletingWorkspaceTerminalId(null);
+    }
+  }
+
+  async function handleRenameWorkspaceTerminal(execution: Extract<ExecutionListItem, { kind: "workspace-terminal" }>) {
+    const nextName = await prompt("请输入新的终端名称", { defaultValue: execution.name });
+
+    if (!nextName || nextName.trim() === execution.name) {
+      return;
+    }
+
+    setRenamingSessionId(execution.id);
+    setWorkspaceTerminalError(null);
+    setSessionsError(null);
+
+    try {
+      const data = await updateWorkspaceTerminal(execution.id, { name: nextName.trim() });
+      setWorkspaceTerminal((current) => (current?.id === data.terminal.id ? data.terminal : current));
+      await reloadExecutions({ kind: "workspace-terminal", id: data.terminal.id });
+    } catch (error) {
+      setWorkspaceTerminalError(formatError(error, "终端重命名失败"));
+    } finally {
+      setRenamingSessionId(null);
     }
   }
 
@@ -3301,9 +3349,11 @@ export function App() {
           deletingWorkspaceTerminalId={deletingWorkspaceTerminalId}
           continuingSessionId={continuingSessionId}
           onSelectExecution={(execution) => void handleOpenExecution(execution)}
+          onCreateWorkspaceTerminal={createWorkspaceTerminalFromExecutionModal}
           onRenameSession={handleRenameSession}
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
+          onRenameWorkspaceTerminal={handleRenameWorkspaceTerminal}
           onDeleteWorkspaceTerminal={(execution) => void handleDeleteWorkspaceTerminal(execution)}
           onContinueSession={handleContinueSession}
           onRuntimeEvent={handleSessionRuntimeEvent}

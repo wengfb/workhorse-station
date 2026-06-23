@@ -90,6 +90,7 @@ import type {
   UpdatePromptDraftRequest,
   UpdateRuleRequest,
   UpdateSessionRequest,
+  UpdateWorkspaceTerminalRequest,
   UpdateSkillDocumentRequest,
   UpdateTodoRequest,
   WorktreeResponse,
@@ -617,6 +618,13 @@ export function getWorkspaceTerminal(terminalId: string) {
 export function stopWorkspaceTerminal(terminalId: string) {
   return fetchJson<WorkspaceTerminalResponse>(`/api/workspace-terminal/${terminalId}/stop`, {
     method: "POST"
+  });
+}
+
+export function updateWorkspaceTerminal(terminalId: string, input: UpdateWorkspaceTerminalRequest) {
+  return fetchJson<WorkspaceTerminalResponse>(`/api/workspace-terminal/${terminalId}`, {
+    method: "PATCH",
+    body: input
   });
 }
 

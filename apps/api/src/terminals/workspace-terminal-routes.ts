@@ -7,6 +7,7 @@ import type {
   DeleteWorkspaceTerminalResponse,
   SessionInputRequest,
   SessionResizeRequest,
+  UpdateWorkspaceTerminalRequest,
   WorkspaceTerminalResponse,
   WorkspaceTerminalSnapshotResponse
 } from "@workhorse-station/shared";
@@ -36,6 +37,7 @@ export async function registerWorkspaceTerminalRoutes(server: FastifyInstance, d
       projectId: input.projectId,
       worktreeId: resolved.worktreeId,
       requestedWorktreeName: resolved.requestedWorktreeName,
+      name: input.name,
       cwd: resolved.cwd
     });
 
@@ -56,6 +58,29 @@ export async function registerWorkspaceTerminalRoutes(server: FastifyInstance, d
     return {
       ok: true,
       data: snapshot
+    };
+  });
+
+  server.patch<{ Params: WorkspaceTerminalParams; Body: UpdateWorkspaceTerminalRequest }>("/api/workspace-terminal/:terminalId", async (request): Promise<ApiResponse<WorkspaceTerminalResponse>> => {
+    const currentTerminal = runtimeManager.get(request.params.terminalId);
+
+    if (!currentTerminal) {
+      throw new HttpError(404, "workspace_terminal_not_found", "终端不存在");
+    }
+
+    if (!isObject(request.body)) {
+      throw new HttpError(400, "validation_error", "请求体必须是 JSON 对象");
+    }
+
+    const terminal = runtimeManager.renameTerminal(request.params.terminalId, normalizeTerminalName(request.body.name ?? currentTerminal.name));
+
+    if (!terminal) {
+      throw new HttpError(404, "workspace_terminal_not_found", "终端不存在");
+    }
+
+    return {
+      ok: true,
+      data: { terminal }
     };
   });
 
@@ -179,7 +204,8 @@ function normalizeCreateRequest(body: CreateWorkspaceTerminalRequest | undefined
     return {
       projectId: null,
       worktreeId: null,
-      requestedWorktreeName: null
+      requestedWorktreeName: null,
+      name: null
     };
   }
 
@@ -190,6 +216,7 @@ function normalizeCreateRequest(body: CreateWorkspaceTerminalRequest | undefined
   const projectId = normalizeOptionalId(body.projectId, "项目 ID 不合法");
   const worktreeId = normalizeOptionalId(body.worktreeId, "Worktree ID 不合法");
   const requestedWorktreeName = normalizeOptionalText(body.requestedWorktreeName, "Worktree 名称不合法");
+  const name: string | null = body.name === undefined || body.name === null || body.name === "" ? null : normalizeTerminalName(body.name);
 
   if (!projectId && (worktreeId || requestedWorktreeName)) {
     throw new HttpError(400, "validation_error", "指定 Worktree 时必须同时提供项目 ID");
@@ -198,7 +225,8 @@ function normalizeCreateRequest(body: CreateWorkspaceTerminalRequest | undefined
   return {
     projectId,
     worktreeId,
-    requestedWorktreeName
+    requestedWorktreeName,
+    name
   };
 }
 
@@ -224,6 +252,24 @@ function normalizeOptionalText(value: unknown, message: string) {
   }
 
   return value.trim() || null;
+}
+
+function normalizeTerminalName(value: unknown) {
+  if (typeof value !== "string") {
+    throw new HttpError(400, "validation_error", "终端名称不合法");
+  }
+
+  const name = value.trim();
+
+  if (!name) {
+    throw new HttpError(400, "validation_error", "终端名称不能为空");
+  }
+
+  if (name.length > 120) {
+    throw new HttpError(400, "validation_error", "终端名称不能超过 120 个字符");
+  }
+
+  return name;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

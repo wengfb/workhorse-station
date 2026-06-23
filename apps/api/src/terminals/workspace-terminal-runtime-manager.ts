@@ -55,6 +55,7 @@ export class WorkspaceTerminalRuntimeManager extends EventEmitter {
     projectId: string | null;
     worktreeId: string | null;
     requestedWorktreeName: string | null;
+    name: string | null;
     cwd: string;
   }) {
     const { shell, env } = await getPtySpawnContext();
@@ -67,6 +68,7 @@ export class WorkspaceTerminalRuntimeManager extends EventEmitter {
       projectId: input.projectId,
       worktreeId: input.worktreeId,
       requestedWorktreeName: input.requestedWorktreeName,
+      name: input.name ?? input.cwd,
       runtimeStatus: "starting",
       pid: null,
       cwd: input.cwd,
@@ -198,6 +200,18 @@ export class WorkspaceTerminalRuntimeManager extends EventEmitter {
     return true;
   }
 
+  renameTerminal(terminalId: string, name: string) {
+    const terminal = this.terminals.get(terminalId);
+
+    if (!terminal) {
+      return null;
+    }
+
+    terminal.name = name;
+    terminal.updatedAt = new Date().toISOString();
+    return toSummary(terminal);
+  }
+
   deleteTerminal(terminalId: string) {
     const terminal = this.terminals.get(terminalId);
 
@@ -229,6 +243,7 @@ function toSummary(terminal: RuntimeTerminal): WorkspaceTerminalSummary {
     projectId: terminal.projectId,
     worktreeId: terminal.worktreeId,
     requestedWorktreeName: terminal.requestedWorktreeName,
+    name: terminal.name,
     runtimeStatus: terminal.runtimeStatus,
     pid: terminal.pid,
     cwd: terminal.cwd,
@@ -243,7 +258,7 @@ function toExecutionListItem(terminal: RuntimeTerminal): ExecutionListItem {
     kind: "workspace-terminal",
     projectId: terminal.projectId,
     projectName: null,
-    name: terminal.cwd,
+    name: terminal.name,
     status: terminal.runtimeStatus === "failed" ? "failed" : terminal.runtimeStatus === "stopped" ? "stopped" : "running",
     runtimeStatus: terminal.runtimeStatus,
     summary: null,

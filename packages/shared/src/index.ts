@@ -559,6 +559,7 @@ export type WorkspaceTerminalSummary = {
   projectId: string | null;
   worktreeId: string | null;
   requestedWorktreeName: string | null;
+  name: string;
   runtimeStatus: SessionRuntimeStatus;
   pid: number | null;
   cwd: string;
@@ -595,6 +596,11 @@ export type CreateWorkspaceTerminalRequest = {
   projectId?: string | null;
   worktreeId?: string | null;
   requestedWorktreeName?: string | null;
+  name?: string | null;
+};
+
+export type UpdateWorkspaceTerminalRequest = {
+  name?: string;
 };
 
 export type CreateSessionRequest = {
