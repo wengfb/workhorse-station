@@ -81,6 +81,8 @@ export function ProjectMemoryPanel({ projectId }: { projectId: string }) {
   const [editingRule, setEditingRule] = useState<RuleSummary | null>(null);
   const [ruleContentDraft, setRuleContentDraft] = useState("");
   const [savingRule, setSavingRule] = useState(false);
+  const ruleFormId = "project-memory-rule-form";
+  const memoryFormId = "project-memory-form";
 
   const { confirm, prompt } = useConfirmDialog();
 
@@ -466,8 +468,21 @@ export function ProjectMemoryPanel({ projectId }: { projectId: string }) {
 
       {/* Rule edit modal */}
       {ruleFormOpen ? (
-        <Modal onClose={() => { if (!savingRule) setRuleFormOpen(false); }} title={editingRule ? `编辑规则：${editingRule.name}` : "编辑规则"}>
-          <form onSubmit={handleSaveRule} className="space-y-4">
+        <Modal
+          onClose={() => { if (!savingRule) setRuleFormOpen(false); }}
+          title={editingRule ? `编辑规则：${editingRule.name}` : "编辑规则"}
+          footer={
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setRuleFormOpen(false)} className="app-button-secondary rounded-lg border px-3 py-1.5 text-sm">
+                取消
+              </button>
+              <button form={ruleFormId} type="submit" disabled={savingRule} className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50">
+                {savingRule ? "保存中..." : "保存"}
+              </button>
+            </div>
+          }
+        >
+          <form id={ruleFormId} onSubmit={handleSaveRule} className="space-y-4">
             <textarea
               value={ruleContentDraft}
               onChange={(e) => setRuleContentDraft(e.target.value)}
@@ -475,21 +490,26 @@ export function ProjectMemoryPanel({ projectId }: { projectId: string }) {
               className="app-input-shell-strong w-full resize-y rounded-lg border p-3 text-sm font-mono outline-none"
               placeholder="输入规则内容..."
             />
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setRuleFormOpen(false)} className="app-button-secondary rounded-lg border px-3 py-1.5 text-sm">
-                取消
-              </button>
-              <button type="submit" disabled={savingRule} className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50">
-                {savingRule ? "保存中..." : "保存"}
-              </button>
-            </div>
           </form>
         </Modal>
       ) : null}
       {/* Memory form modal */}
       {memoryFormOpen ? (
-        <Modal onClose={() => { if (!savingMemory) setMemoryFormOpen(false); }} title={editingMemory ? `编辑记忆：${editingMemory.name}` : "新建记忆"}>
-          <form onSubmit={handleSaveMemory} className="space-y-4">
+        <Modal
+          onClose={() => { if (!savingMemory) setMemoryFormOpen(false); }}
+          title={editingMemory ? `编辑记忆：${editingMemory.name}` : "新建记忆"}
+          footer={
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setMemoryFormOpen(false)} className="app-button-secondary rounded-lg border px-3 py-1.5 text-sm">
+                取消
+              </button>
+              <button form={memoryFormId} type="submit" disabled={savingMemory} className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50">
+                {savingMemory ? "保存中..." : "保存"}
+              </button>
+            </div>
+          }
+        >
+          <form id={memoryFormId} onSubmit={handleSaveMemory} className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
                 <label className="app-text-muted mb-1 block text-xs">名称</label>
@@ -536,14 +556,6 @@ export function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                 className="app-input-shell-strong w-full resize-y rounded-lg border p-3 text-sm font-mono outline-none"
                 placeholder="输入记忆内容..."
               />
-            </div>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setMemoryFormOpen(false)} className="app-button-secondary rounded-lg border px-3 py-1.5 text-sm">
-                取消
-              </button>
-              <button type="submit" disabled={savingMemory} className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50">
-                {savingMemory ? "保存中..." : "保存"}
-              </button>
             </div>
           </form>
         </Modal>

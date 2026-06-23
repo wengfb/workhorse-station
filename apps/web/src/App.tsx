@@ -3240,7 +3240,21 @@ export function App() {
 
 
       {skillDocumentEditor.open ? (
-        <Modal title={skillDocumentEditor.title} description={skillDocumentEditor.scopeLabel} onClose={closeSkillDocumentEditor}>
+        <Modal
+          title={skillDocumentEditor.title}
+          description={skillDocumentEditor.scopeLabel}
+          onClose={closeSkillDocumentEditor}
+          footer={
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={closeSkillDocumentEditor} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
+                取消
+              </button>
+              <button type="button" disabled={skillDocumentLoading || skillDocumentSaving} onClick={() => void handleSaveSkillDocument()} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50">
+                {skillDocumentSaving ? "保存中..." : "保存"}
+              </button>
+            </div>
+          }
+        >
           <div className="space-y-4">
             {skillDocumentError ? <p className="app-danger-soft rounded-lg border p-3 text-xs">{skillDocumentError}</p> : null}
             {skillDocumentLoading ? (
@@ -3253,14 +3267,6 @@ export function App() {
                 className="app-input-shell-strong w-full resize-y rounded-lg border p-3 font-mono text-sm outline-none"
               />
             )}
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={closeSkillDocumentEditor} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
-                取消
-              </button>
-              <button type="button" disabled={skillDocumentLoading || skillDocumentSaving} onClick={() => void handleSaveSkillDocument()} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50">
-                {skillDocumentSaving ? "保存中..." : "保存"}
-              </button>
-            </div>
           </div>
         </Modal>
       ) : null}

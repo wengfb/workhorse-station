@@ -197,8 +197,8 @@ export function CreateSessionModal({
 }) {
   return (
     <div className="app-overlay fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6">
-      <div className="app-panel app-border w-full max-w-4xl overflow-hidden rounded-2xl border shadow-2xl">
-        <div className="app-border flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+      <div className="app-panel app-border flex max-h-[calc(100vh-3rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border shadow-2xl">
+        <div className="app-border flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
           <div>
             <div className="app-text text-sm font-semibold">创建代码会话</div>
             <div className="app-text-faint mt-1 text-xs">先确认 prompt 草稿，再真实启动所选执行器会话并打开终端。</div>
@@ -208,7 +208,7 @@ export function CreateSessionModal({
           </button>
         </div>
 
-        <div className="max-h-[calc(100vh-120px)] overflow-auto p-4 md:p-5">
+        <div className="min-h-0 flex-1 overflow-auto p-4 md:p-5">
           <section className="app-panel-strong app-border app-text-muted rounded-xl border p-4 text-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -313,33 +313,33 @@ export function CreateSessionModal({
               </Field>
             </div>
             {error ? <p className="app-banner-danger mt-4 rounded-lg border p-3 text-xs">{error}</p> : null}
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={loading || previewingPrompt}
-                onClick={onPreviewPrompt}
-                className="app-button-secondary rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {previewingPrompt ? "生成中..." : "生成 Prompt 草稿"}
-              </button>
-              <button
-                type="button"
-                disabled={loading || savingPromptDraft}
-                onClick={onSavePromptDraft}
-                className="app-button-success rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {savingPromptDraft ? "保存中..." : draft.promptDraftId ? "更新草稿" : "保存草稿"}
-              </button>
-              <button
-                type="button"
-                disabled={loading || creatingSession}
-                onClick={onCreateSession}
-                className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {creatingSession ? "启动中..." : "启动会话并打开"}
-              </button>
-            </div>
           </section>
+        </div>
+        <div className="app-border flex shrink-0 flex-wrap justify-end gap-2 border-t px-4 py-3 md:px-5">
+          <button
+            type="button"
+            disabled={loading || previewingPrompt}
+            onClick={onPreviewPrompt}
+            className="app-button-secondary rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {previewingPrompt ? "生成中..." : "生成 Prompt 草稿"}
+          </button>
+          <button
+            type="button"
+            disabled={loading || savingPromptDraft}
+            onClick={onSavePromptDraft}
+            className="app-button-success rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {savingPromptDraft ? "保存中..." : draft.promptDraftId ? "更新草稿" : "保存草稿"}
+          </button>
+          <button
+            type="button"
+            disabled={loading || creatingSession}
+            onClick={onCreateSession}
+            className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {creatingSession ? "启动中..." : "启动会话并打开"}
+          </button>
         </div>
       </div>
     </div>

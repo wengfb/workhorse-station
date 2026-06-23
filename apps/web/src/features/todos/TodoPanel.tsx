@@ -110,6 +110,7 @@ export function TodoPanel({
   const relatedSessions = selectedTodo ? relatedSessionsByTodoId.get(selectedTodo.id) ?? [] : [];
   const latestRelatedSession = relatedSessions[0] ?? null;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const todoFormId = "todo-form-modal";
 
   if (!project) {
     return <EmptyProjectNotice onCreateProject={onCreateProject ?? (() => undefined)} />;
@@ -319,8 +320,21 @@ export function TodoPanel({
           title={isEditing ? "编辑任务" : "新建任务"}
           description="管理任务状态、标签和来源笔记关联。"
           onClose={() => setFormModalOpen(false)}
+          footer={
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex gap-2" />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setFormModalOpen(false)} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
+                  关闭
+                </button>
+                <button form={todoFormId} type="submit" disabled={saving} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50">
+                  {saving ? "保存中..." : isEditing ? "保存修改" : "创建任务"}
+                </button>
+              </div>
+            </div>
+          }
         >
-          <form onSubmit={(e) => { e.preventDefault(); onSave(e); }} className="space-y-4">
+          <form id={todoFormId} onSubmit={(e) => { e.preventDefault(); onSave(e); }} className="space-y-4">
             <Field label="标题">
               <input
                 value={draft.title}
@@ -403,17 +417,6 @@ export function TodoPanel({
               />
             </Field>
             {error ? <p className="app-danger-soft rounded-lg border p-3 text-xs">{error}</p> : null}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-2" />
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setFormModalOpen(false)} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
-                  关闭
-                </button>
-                <button type="submit" disabled={saving} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50">
-                  {saving ? "保存中..." : isEditing ? "保存修改" : "创建任务"}
-                </button>
-              </div>
-            </div>
           </form>
         </Modal>
       ) : null}

@@ -414,9 +414,25 @@ export function ProjectFormModal({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onClose: () => void;
 }) {
+  const formId = "project-form-modal";
+
   return (
-    <Modal title={mode === "create" ? "新建项目" : "编辑项目"} description="项目表单使用模态框承载，避免占用详情区域。" onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-4">
+    <Modal
+      title={mode === "create" ? "新建项目" : "编辑项目"}
+      description="项目表单使用模态框承载，避免占用详情区域。"
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
+            取消
+          </button>
+          <button form={formId} disabled={saving} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-60">
+            {saving ? "保存中..." : mode === "create" ? "创建项目" : "保存修改"}
+          </button>
+        </div>
+      }
+    >
+      <form id={formId} onSubmit={onSubmit} className="space-y-4">
         <Field label="名称">
           <input
             value={draft.name}
@@ -450,14 +466,6 @@ export function ProjectFormModal({
           />
         </Field>
         {error ? <p className="app-danger-soft rounded-lg border p-3 text-xs">{error}</p> : null}
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
-            取消
-          </button>
-          <button disabled={saving} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-60">
-            {saving ? "保存中..." : mode === "create" ? "创建项目" : "保存修改"}
-          </button>
-        </div>
       </form>
     </Modal>
   );
@@ -480,9 +488,25 @@ export function WorktreeCreateModal({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onClose: () => void;
 }) {
+  const formId = "worktree-create-modal";
+
   return (
-    <Modal title="创建 worktree" description={`${project.path}/.claude/worktree/`} onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-4">
+    <Modal
+      title="创建 worktree"
+      description={`${project.path}/.claude/worktree/`}
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
+            取消
+          </button>
+          <button form={formId} disabled={saving} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-60">
+            {saving ? "创建中..." : "创建 worktree"}
+          </button>
+        </div>
+      }
+    >
+      <form id={formId} onSubmit={onSubmit} className="space-y-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <Field label="名称">
             <input
@@ -510,14 +534,6 @@ export function WorktreeCreateModal({
           </Field>
         </div>
         {error ? <p className="app-danger-soft rounded-lg border p-3 text-xs">{error}</p> : null}
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
-            取消
-          </button>
-          <button disabled={saving} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-60">
-            {saving ? "创建中..." : "创建 worktree"}
-          </button>
-        </div>
       </form>
     </Modal>
   );

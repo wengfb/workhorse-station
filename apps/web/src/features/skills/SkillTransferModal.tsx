@@ -39,7 +39,21 @@ export function SkillTransferModal({
     : "选择复制或转移模式，将现有 Skill 放入技能仓库。";
 
   return (
-    <Modal title={title} description={description} onClose={onClose}>
+    <Modal
+      title={title}
+      description={description}
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
+            取消
+          </button>
+          <button type="button" onClick={onSubmit} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
+            确认
+          </button>
+        </div>
+      }
+    >
       <div className="space-y-4">
         <div className="grid gap-4 md:grid-cols-2">
           {needsProject ? (
@@ -58,15 +72,6 @@ export function SkillTransferModal({
         </div>
 
         {error ? <p className="app-danger-soft rounded-lg border p-3 text-xs">{error}</p> : null}
-
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
-            取消
-          </button>
-          <button type="button" onClick={onSubmit} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
-            确认
-          </button>
-        </div>
       </div>
     </Modal>
   );

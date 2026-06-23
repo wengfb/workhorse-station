@@ -78,6 +78,7 @@ export function NotePanel({
   const [formModalOpen, setFormModalOpen] = useState(false);
   const isEditing = selectedNote !== null;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const noteFormId = "note-form-modal";
 
   if (!project && showCreateTodo) {
     return <EmptyProjectNotice onCreateProject={onCreateProject ?? (() => undefined)} />;
@@ -229,8 +230,42 @@ export function NotePanel({
           title={isEditing ? "编辑笔记" : "新建笔记"}
           description="支持 Markdown，正文首行默认作为标题，自动保存已开启。"
           onClose={() => setFormModalOpen(false)}
+          footer={
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex gap-2">
+                {showCreateTodo && isEditing && selectedNote ? (
+                  <button
+                    type="button"
+                    disabled={creatingTodo}
+                    onClick={onCreateTodo}
+                    className="app-button-success rounded-md border px-3 py-1.5 text-xs disabled:opacity-50"
+                  >
+                    {creatingTodo ? "创建中..." : "创建任务"}
+                  </button>
+                ) : null}
+              </div>
+              <div className="flex gap-2">
+                {isEditing && selectedNote ? (
+                  <button
+                    type="button"
+                    disabled={deletingNoteId === selectedNote.id}
+                    onClick={() => onDelete(selectedNote)}
+                    className="app-button-danger rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+                  >
+                    {deletingNoteId === selectedNote.id ? "删除中..." : "删除笔记"}
+                  </button>
+                ) : null}
+                <button type="button" onClick={() => setFormModalOpen(false)} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
+                  关闭
+                </button>
+                <button form={noteFormId} type="submit" disabled={saving} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50">
+                  {saving ? "保存中..." : "保存"}
+                </button>
+              </div>
+            </div>
+          }
         >
-          <form onSubmit={(e) => { e.preventDefault(); onSave(e); }} className="space-y-4">
+          <form id={noteFormId} onSubmit={(e) => { e.preventDefault(); onSave(e); }} className="space-y-4">
             <Field label="标题">
               <input
                 value={draft.title}
@@ -259,38 +294,6 @@ export function NotePanel({
               <span>{saving ? "自动保存中..." : "已开启自动保存"}</span>
             </div>
             {error ? <p className="app-danger-soft rounded-lg border p-3 text-xs">{error}</p> : null}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-2">
-                {showCreateTodo && isEditing && selectedNote ? (
-                  <button
-                    type="button"
-                    disabled={creatingTodo}
-                    onClick={onCreateTodo}
-                    className="app-button-success rounded-md border px-3 py-1.5 text-xs disabled:opacity-50"
-                  >
-                    {creatingTodo ? "创建中..." : "创建任务"}
-                  </button>
-                ) : null}
-              </div>
-              <div className="flex gap-2">
-                {isEditing && selectedNote ? (
-                  <button
-                    type="button"
-                    disabled={deletingNoteId === selectedNote.id}
-                    onClick={() => onDelete(selectedNote)}
-                    className="app-button-danger rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
-                  >
-                    {deletingNoteId === selectedNote.id ? "删除中..." : "删除笔记"}
-                  </button>
-                ) : null}
-                <button type="button" onClick={() => setFormModalOpen(false)} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
-                  关闭
-                </button>
-                <button type="submit" disabled={saving} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50">
-                  {saving ? "保存中..." : "保存"}
-                </button>
-              </div>
-            </div>
           </form>
         </Modal>
       ) : null}
