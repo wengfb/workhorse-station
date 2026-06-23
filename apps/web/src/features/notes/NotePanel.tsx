@@ -1,15 +1,17 @@
 import React, { useState, type FormEvent } from "react";
+import { ChevronLeft, ChevronRight, LoaderCircle, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import type { NoteSummary, ProjectSummary } from "@workhorse-station/shared";
 import type { NoteDraft } from "../../lib/types";
 import { formatDateTime } from "../../lib/format-utils";
 import { Field } from "../../components/shared/DetailComponents";
+import { IconButton } from "../../components/shared/IconButton";
 import { Modal } from "../shared/Modal";
 import { EmptyProjectNotice } from "../shared/EmptyProjectNotice";
 
 export function NotePanel({
   project,
   title = "项目笔记",
-  description = "点击后直接进入 markdown 编辑器，正文首行默认作为标题。",
+  description,
   emptyText = "当前项目还没有笔记，先创建一条上下文记录。",
   notes,
   selectedNote,
@@ -103,9 +105,10 @@ export function NotePanel({
         <div className="app-border flex items-center justify-between border-b px-4 py-3">
           <div>
             <div className="text-sm font-medium">{title}</div>
-            <div className="app-text-faint mt-1 text-xs">{description}</div>
+            {description ? <div className="app-text-faint mt-1 text-xs">{description}</div> : null}
           </div>
-          <button onClick={openCreateModal} className="app-button-primary rounded-md px-3 py-1.5 text-xs font-medium">
+          <button onClick={openCreateModal} className="app-button-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium">
+            <Plus className="h-4 w-4" aria-hidden="true" />
             新建笔记
           </button>
         </div>
@@ -113,7 +116,7 @@ export function NotePanel({
         {showSearch ? (
           <div className="app-border border-b px-4 py-2 space-y-2">
             <div className="relative">
-              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 app-text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 app-text-faint" aria-hidden="true" />
               <input
                 type="text"
                 value={searchQuery}
@@ -192,13 +195,12 @@ export function NotePanel({
                   </div>
                   <div className="mt-2 flex items-center justify-between">
                     <span className="text-[11px] app-text-faint">{formatDateTime(note.updatedAt)}</span>
-                    <button
-                      type="button"
+                    <IconButton
+                      icon={Pencil}
+                      label="编辑"
+                      size="xs"
                       onClick={(e) => { e.stopPropagation(); openEditModal(note); }}
-                      className="app-button-secondary rounded border px-2 py-0.5 text-xs"
-                    >
-                      编辑
-                    </button>
+                    />
                   </div>
                 </div>
               ))
@@ -207,20 +209,22 @@ export function NotePanel({
         <div className="app-border app-text-faint flex items-center justify-between border-t px-4 py-2.5 text-xs">
           <span>共 {total} 条，第 {page} / {totalPages} 页</span>
           <div className="flex gap-1">
-            <button
+            <IconButton
+              icon={ChevronLeft}
+              label="上一页"
               disabled={page <= 1}
               onClick={() => onPageChange?.(page - 1)}
-              className="app-button-secondary rounded border px-2 py-1 text-xs disabled:opacity-30"
-            >
-              上一页
-            </button>
-            <button
+              size="xs"
+              className="disabled:opacity-30"
+            />
+            <IconButton
+              icon={ChevronRight}
+              label="下一页"
               disabled={page >= totalPages}
               onClick={() => onPageChange?.(page + 1)}
-              className="app-button-secondary rounded border px-2 py-1 text-xs disabled:opacity-30"
-            >
-              下一页
-            </button>
+              size="xs"
+              className="disabled:opacity-30"
+            />
           </div>
         </div>
       </section>
@@ -228,7 +232,6 @@ export function NotePanel({
       {formModalOpen ? (
         <Modal
           title={isEditing ? "编辑笔记" : "新建笔记"}
-          description="支持 Markdown，正文首行默认作为标题，自动保存已开启。"
           onClose={() => setFormModalOpen(false)}
           footer={
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -250,8 +253,9 @@ export function NotePanel({
                     type="button"
                     disabled={deletingNoteId === selectedNote.id}
                     onClick={() => onDelete(selectedNote)}
-                    className="app-button-danger rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+                    className="app-button-danger inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
                   >
+                    {deletingNoteId === selectedNote.id ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
                     {deletingNoteId === selectedNote.id ? "删除中..." : "删除笔记"}
                   </button>
                 ) : null}

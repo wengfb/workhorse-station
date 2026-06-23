@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { ChevronLeft, ChevronRight, LoaderCircle, MessageSquarePlus, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import type { NoteSummary, ProjectSummary, SessionListItem, SessionSource, TodoStatus, TodoSummary } from "@workhorse-station/shared";
 import type { TodoDraft } from "../../lib/types";
 import { formatDateTime, formatTodoTime } from "../../lib/format-utils";
 import { Field } from "../../components/shared/DetailComponents";
+import { IconButton } from "../../components/shared/IconButton";
 import { SessionStatusPill } from "../../components/shared/StatusPills";
 import { Select } from "../../components/ui/Select";
 import { Modal } from "../shared/Modal";
@@ -138,15 +140,15 @@ export function TodoPanel({
         <div className="app-border flex items-center justify-between border-b px-4 py-3">
           <div>
             <div className="text-sm font-medium">项目任务</div>
-            <div className="app-text-faint mt-1 text-xs">任务属于具体项目，可保留状态、标签和来源笔记关联。</div>
           </div>
-          <button onClick={openCreateModal} className="app-button-primary rounded-md px-3 py-1.5 text-xs font-medium">
+          <button onClick={openCreateModal} className="app-button-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium">
+            <Plus className="h-4 w-4" aria-hidden="true" />
             新建任务
           </button>
         </div>
         <div className="app-border border-b px-4 py-2.5 space-y-2">
           <div className="flex items-center gap-2">
-            <svg className="h-3.5 w-3.5 shrink-0 app-text-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <Search className="h-3.5 w-3.5 shrink-0 app-text-faint" aria-hidden="true" />
             <input
               value={searchQuery}
               onChange={(e) => onSearchChange?.(e.target.value)}
@@ -212,19 +214,15 @@ export function TodoPanel({
                   className={`rounded-lg border p-3 text-left text-sm transition-colors ${selectedTodo?.id === todo.id ? "app-card-selected" : "app-panel-strong app-border app-hover-border app-hover-accent"}`}
                 >
                   <div className="flex items-center justify-between">
-                    <select
+                    <Select
                       value={todo.status}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        onStatusChange?.(todo, e.target.value as TodoStatus);
+                      onChange={(value) => {
+                        onStatusChange?.(todo, value as TodoStatus);
                       }}
-                      className={`rounded-full border px-2 py-0.5 text-[11px] cursor-pointer appearance-none bg-transparent outline-none ${statusStyle(todo.status)}`}
-                    >
-                      {todoStatusOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value} className="app-panel-strong app-text-soft">{opt.label}</option>
-                      ))}
-                    </select>
+                      options={todoStatusOptions}
+                      className="w-28"
+                      size="sm"
+                    />
                     <span className="text-[11px] app-text-faint">{formatTodoTime(todo)}</span>
                   </div>
                   <div
@@ -257,38 +255,38 @@ export function TodoPanel({
                     ))}
                     {todo.sourceNoteId && <span className="text-[10px] app-text-fainter">关联笔记</span>}
                   </div>
-                  <div className="mt-2 flex items-center justify-end gap-2">
-                    <button
-                      type="button"
+                  <div className="mt-2 flex items-center justify-end gap-1.5">
+                    <IconButton
+                      icon={MessageSquarePlus}
+                      label="创建会话"
+                      variant="success"
+                      size="xs"
                       onClick={(e) => {
                         e.stopPropagation();
                         onOpenSession("todo", todo.id);
                       }}
-                      className="app-button-success rounded border px-2 py-0.5 text-xs"
-                    >
-                      创建会话
-                    </button>
-                    <button
-                      type="button"
+                    />
+                    <IconButton
+                      icon={Pencil}
+                      label="编辑"
+                      size="xs"
                       onClick={(e) => {
                         e.stopPropagation();
                         openEditModal(todo);
                       }}
-                      className="app-button-secondary rounded border px-2 py-0.5 text-xs"
-                    >
-                      编辑
-                    </button>
-                    <button
-                      type="button"
+                    />
+                    <IconButton
+                      icon={deletingTodoId === todo.id ? LoaderCircle : Trash2}
+                      label={deletingTodoId === todo.id ? "删除中" : "删除"}
+                      variant="danger"
+                      size="xs"
                       disabled={deletingTodoId === todo.id}
                       onClick={(e) => {
                         e.stopPropagation();
                         onDelete(todo);
                       }}
-                      className="app-button-danger rounded border px-2 py-0.5 text-xs disabled:opacity-50"
-                    >
-                      {deletingTodoId === todo.id ? "删除中..." : "删除"}
-                    </button>
+                      className={deletingTodoId === todo.id ? "[&_svg]:animate-spin" : undefined}
+                    />
                   </div>
                 </div>
               ))
@@ -297,20 +295,22 @@ export function TodoPanel({
         <div className="app-border app-text-faint flex items-center justify-between border-t px-4 py-2.5 text-xs">
           <span>共 {total} 条，第 {page} / {totalPages} 页</span>
           <div className="flex gap-1">
-            <button
+            <IconButton
+              icon={ChevronLeft}
+              label="上一页"
               disabled={page <= 1}
               onClick={() => onPageChange?.(page - 1)}
-              className="app-button-secondary rounded border px-2 py-1 text-xs disabled:opacity-30"
-            >
-              上一页
-            </button>
-            <button
+              size="xs"
+              className="disabled:opacity-30"
+            />
+            <IconButton
+              icon={ChevronRight}
+              label="下一页"
               disabled={page >= totalPages}
               onClick={() => onPageChange?.(page + 1)}
-              className="app-button-secondary rounded border px-2 py-1 text-xs disabled:opacity-30"
-            >
-              下一页
-            </button>
+              size="xs"
+              className="disabled:opacity-30"
+            />
           </div>
         </div>
       </section>
@@ -318,7 +318,6 @@ export function TodoPanel({
       {formModalOpen ? (
         <Modal
           title={isEditing ? "编辑任务" : "新建任务"}
-          description="管理任务状态、标签和来源笔记关联。"
           onClose={() => setFormModalOpen(false)}
           footer={
             <div className="flex flex-wrap items-center justify-between gap-2">

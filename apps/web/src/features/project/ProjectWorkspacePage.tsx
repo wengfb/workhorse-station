@@ -1,4 +1,5 @@
 import React, { type FormEvent } from "react";
+import { MessageSquarePlus, Pencil, TerminalSquare } from "lucide-react";
 import type {
   ProjectSummary,
   WorktreeSummary,
@@ -13,6 +14,7 @@ import type {
 import type { NoteDraft, ProjectDraft, ProjectMode, ProjectTab, TodoDraft, WorktreeDraft } from "../../lib/types";
 import { formatDateTime, formatError } from "../../lib/format-utils";
 import { Field, DetailRow, DetailCard, CompactMetaPill } from "../../components/shared/DetailComponents";
+import { IconButton } from "../../components/shared/IconButton";
 import { StatusPill, WorktreeStatusPill, SessionStatusPill } from "../../components/shared/StatusPills";
 import { NotePanel } from "../notes/NotePanel";
 import { TodoPanel } from "../todos/TodoPanel";
@@ -216,23 +218,22 @@ export function ProjectWorkspacePage({
             <div>
               <div className="app-text-faint text-xs">项目工作台</div>
               <h1 className="mt-2 text-2xl font-semibold">{selectedProject?.name ?? "选择或创建项目"}</h1>
-              <p className="app-text-muted mt-2 max-w-2xl text-sm">
-                项目内承载任务、笔记、Skill、会话和 Worktree。会话终端通过模态框打开，关闭后继续后台运行。
-              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
                 disabled={!selectedProject}
                 onClick={onOpenWorkspaceTerminal}
-                className="app-button-secondary rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-button-secondary inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
               >
+                <TerminalSquare className="h-4 w-4" aria-hidden="true" />
                 打开终端
               </button>
               <button
                 disabled={!selectedProject}
                 onClick={() => onOpenSession("direct")}
-                className="app-button-success rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-button-success inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
               >
+                <MessageSquarePlus className="h-4 w-4" aria-hidden="true" />
                 创建会话
               </button>
             </div>
@@ -244,9 +245,7 @@ export function ProjectWorkspacePage({
                 <CompactMetaPill label="分支" value={selectedProject.defaultBranch} />
                 <CompactMetaPill label="Worktree" value={selectedWorktree?.name ?? "未选择"} />
                 <CompactMetaPill label="更新时间" value={formatDateTime(selectedProject.updatedAt)} />
-                <button onClick={onEditProject} className="app-button-secondary shrink-0 rounded-md border px-3 py-1.5 text-xs">
-                  编辑
-                </button>
+                <IconButton icon={Pencil} label="编辑项目" onClick={onEditProject} size="sm" />
               </div>
               {selectedProject.description ? <p className="app-text-muted mt-3 line-clamp-2 text-xs">{selectedProject.description}</p> : null}
             </div>
@@ -419,7 +418,6 @@ export function ProjectFormModal({
   return (
     <Modal
       title={mode === "create" ? "新建项目" : "编辑项目"}
-      description="项目表单使用模态框承载，避免占用详情区域。"
       onClose={onClose}
       footer={
         <div className="flex justify-end gap-2">
@@ -493,7 +491,6 @@ export function WorktreeCreateModal({
   return (
     <Modal
       title="创建 worktree"
-      description={`${project.path}/.claude/worktree/`}
       onClose={onClose}
       footer={
         <div className="flex justify-end gap-2">

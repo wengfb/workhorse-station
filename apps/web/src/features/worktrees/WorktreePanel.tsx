@@ -1,6 +1,8 @@
 import React from "react";
+import { LoaderCircle, Plus, RefreshCw, Trash2 } from "lucide-react";
 import type { ProjectSummary, WorktreeSummary, WorktreeStatus } from "@workhorse-station/shared";
 import { formatDateTime } from "../../lib/format-utils";
+import { IconButton } from "../../components/shared/IconButton";
 import { WorktreeStatusPill } from "../../components/shared/StatusPills";
 
 export function WorktreePanel({
@@ -35,10 +37,9 @@ export function WorktreePanel({
         </div>
         <div className="flex items-center gap-2">
           <span className="app-pill-neutral rounded-full border px-2 py-1 text-xs">{worktrees.length} 个</span>
-          <button onClick={onRefresh} className="app-button-secondary rounded-lg border px-2.5 py-2 text-sm" title="刷新">
-            ⟳
-          </button>
-          <button onClick={onCreate} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
+          <IconButton icon={RefreshCw} label="刷新" onClick={onRefresh} size="md" />
+          <button onClick={onCreate} className="app-button-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium">
+            <Plus className="h-4 w-4" aria-hidden="true" />
             创建 worktree
           </button>
         </div>
@@ -70,14 +71,15 @@ export function WorktreePanel({
                   <span className="shrink-0">更新：{formatDateTime(worktree.updatedAt)}</span>
                 </div>
               </button>
-              <button
-                type="button"
+              <IconButton
+                icon={deletingWorktreeId === worktree.id ? LoaderCircle : Trash2}
+                label={deletingWorktreeId === worktree.id ? "删除中" : "删除"}
+                variant="danger"
+                size="sm"
                 disabled={deletingWorktreeId !== null}
                 onClick={() => onDelete(worktree)}
-                className="app-button-danger shrink-0 rounded-md border px-2 py-1 text-xs disabled:opacity-60"
-              >
-                {deletingWorktreeId === worktree.id ? "删除中" : "删除"}
-              </button>
+                className={deletingWorktreeId === worktree.id ? "[&_svg]:animate-spin" : undefined}
+              />
             </div>
           ))}
         </div>

@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react"
+import { Check, Copy } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import type { Components } from "react-markdown"
@@ -27,9 +28,11 @@ function PreBlock({ children }: { children: ReactNode }) {
     <div className="group relative mb-2 last:mb-0">
       <button
         onClick={handleCopy}
-        className="app-accent-strong app-text-faint app-hover-text absolute right-2 top-2 rounded-md px-2 py-1 text-[11px] opacity-0 transition group-hover:opacity-100"
+        className="app-accent-strong app-text-faint app-hover-text absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md opacity-0 transition group-hover:opacity-100"
+        aria-label={copied ? "已复制" : "复制"}
+        title={copied ? "已复制" : "复制"}
       >
-        {copied ? "已复制" : "复制"}
+        {copied ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
       </button>
       <pre className="app-input-shell-strong app-text-soft overflow-x-auto rounded-lg p-3 text-[13px] leading-relaxed">
         {children}

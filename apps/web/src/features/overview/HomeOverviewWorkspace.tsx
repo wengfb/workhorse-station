@@ -1,4 +1,5 @@
 import React, { useState, type FormEvent } from "react";
+import { ArrowRight, FilePenLine, LoaderCircle, Plus, RefreshCw, Send, TerminalSquare, Trash2 } from "lucide-react";
 import type {
   ChatSkill,
   ChatSessionSummary,
@@ -13,6 +14,7 @@ import type {
 } from "@workhorse-station/shared";
 import type { NoteDraft, WorkbenchTab } from "../../lib/types";
 import { formatDateTime } from "../../lib/format-utils";
+import { IconButton } from "../../components/shared/IconButton";
 import { NotePanel } from "../notes/NotePanel";
 import { SkillStorePanel } from "../skills/SkillStorePanel";
 import { GlobalMemoryPanel } from "../memory/GlobalMemoryPanel";
@@ -213,7 +215,6 @@ export function HomeOverviewWorkspace({
         <NotePanel
           project={null}
           title="全局笔记"
-          description="沉淀跨项目上下文、复盘和可复用想法。"
           emptyText="还没有全局笔记，先记录一条跨项目上下文。"
           notes={globalNotes}
           selectedNote={selectedGlobalNote}
@@ -283,9 +284,9 @@ export function HomeOverviewWorkspace({
           <div className="app-border flex items-center justify-between border-b px-4 py-3">
             <div>
               <div className="app-text text-sm font-medium">项目管理</div>
-              <p className="app-text-faint mt-0.5 text-xs">所有项目，点击进入项目工作台。</p>
             </div>
-            <button onClick={onCreateProject} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
+            <button onClick={onCreateProject} className="app-button-secondary inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm">
+              <Plus className="h-4 w-4" aria-hidden="true" />
               新建项目
             </button>
           </div>
@@ -301,9 +302,7 @@ export function HomeOverviewWorkspace({
                         <div className="app-text truncate font-medium">{project.name}</div>
                         <div className="app-text-faint mt-0.5 truncate text-xs">{project.path}</div>
                       </div>
-                      <button onClick={() => onEnterProject(project.id)} className="app-button-secondary shrink-0 rounded border px-2 py-0.5 text-xs">
-                        进入
-                      </button>
+                      <IconButton icon={ArrowRight} label="进入项目" onClick={() => onEnterProject(project.id)} size="xs" />
                     </div>
                     {project.latestSessionResult ? (
                       <div className="app-card app-text-faint mt-2 truncate rounded px-2 py-1 text-xs">
@@ -322,7 +321,6 @@ export function HomeOverviewWorkspace({
           <div className="app-border flex items-center justify-between border-b px-4 py-3">
             <div>
               <div className="app-text text-sm font-medium">聊天会话</div>
-              <p className="app-text-faint mt-0.5 text-xs">AI 聊天会话，点击进入聊天。</p>
             </div>
           </div>
           <div className="p-4">
@@ -354,9 +352,9 @@ export function HomeOverviewWorkspace({
           <div className="app-border flex items-center justify-between border-b px-4 py-3">
             <div>
               <div className="app-text text-sm font-medium">运行中执行项</div>
-              <p className="app-text-faint mt-0.5 text-xs">当前正在运行的代码会话与普通终端。</p>
             </div>
-            <button onClick={onOpenWorkspaceTerminal} className="app-button-secondary rounded-lg border px-3 py-2 text-sm">
+            <button onClick={onOpenWorkspaceTerminal} className="app-button-secondary inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm">
+              <TerminalSquare className="h-4 w-4" aria-hidden="true" />
               打开终端
             </button>
           </div>
@@ -381,12 +379,7 @@ export function HomeOverviewWorkspace({
                         <span>{formatDateTime(session.updatedAt)}</span>
                       </div>
                     </div>
-                    <button
-                      onClick={() => onOpenExecution(session)}
-                      className="app-button-secondary ml-3 shrink-0 rounded border px-2 py-0.5 text-xs"
-                    >
-                      打开
-                    </button>
+                    <IconButton icon={ArrowRight} label="打开" onClick={() => onOpenExecution(session)} size="xs" className="ml-3" />
                   </div>
                 ))}
               </div>
@@ -430,13 +423,11 @@ function GlobalSkillPanel({
       <div className="app-border flex items-start justify-between gap-3 border-b px-4 py-3">
         <div>
           <div className="app-text text-sm font-medium">全局 Skill 文件夹</div>
-          <div className="app-text-faint mt-1 text-xs">来源：~/.claude/skills/*，支持直接编辑 SKILL.md。</div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onRefresh} className="app-border app-text-muted app-hover-accent app-hover-border app-hover-text rounded-lg border px-2.5 py-2 text-sm" title="刷新">
-            ⟳
-          </button>
-          <button onClick={onCreate} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
+          <IconButton icon={RefreshCw} label="刷新" onClick={onRefresh} size="md" />
+          <button onClick={onCreate} className="app-button-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium">
+            <Plus className="h-4 w-4" aria-hidden="true" />
             新建
           </button>
         </div>
@@ -460,16 +451,18 @@ function GlobalSkillPanel({
                       </div>
                       <div className="app-text-faint mt-1 break-all text-xs">{skill.path}</div>
                     </div>
-                    <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                      <button disabled={busy} onClick={() => onEditDocument(skill)} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50">
-                        编辑文档
-                      </button>
-                      <button disabled={busy} onClick={() => onCopyToProject(skill)} className="app-button-success rounded-md border px-2 py-1 text-xs disabled:opacity-50">
-                        发送到项目
-                      </button>
-                      <button disabled={busy} onClick={() => onDelete(skill)} className="app-button-danger rounded-md border px-2 py-1 text-xs disabled:opacity-50">
-                        {busy ? "处理中" : "删除"}
-                      </button>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                      <IconButton icon={FilePenLine} label="编辑文档" disabled={busy} onClick={() => onEditDocument(skill)} size="sm" />
+                      <IconButton icon={Send} label="发送到项目" variant="success" disabled={busy} onClick={() => onCopyToProject(skill)} size="sm" />
+                      <IconButton
+                        icon={busy ? LoaderCircle : Trash2}
+                        label={busy ? "处理中" : "删除"}
+                        variant="danger"
+                        disabled={busy}
+                        onClick={() => onDelete(skill)}
+                        size="sm"
+                        className={busy ? "[&_svg]:animate-spin" : undefined}
+                      />
                     </div>
                   </div>
                 </div>

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { Check, ChevronDown } from "lucide-react";
 
 export type SelectOption = {
   value: string;
@@ -11,9 +12,10 @@ type SelectProps = {
   onChange?: (value: string) => void;
   placeholder?: string;
   className?: string;
+  size?: "default" | "sm";
 };
 
-export function Select({ options, value, onChange, placeholder, className = "" }: SelectProps) {
+export function Select({ options, value, onChange, placeholder, className = "", size = "default" }: SelectProps) {
   const [open, setOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -21,6 +23,10 @@ export function Select({ options, value, onChange, placeholder, className = "" }
 
   const selectedLabel = options.find((opt) => opt.value === value)?.label;
   const displayText = selectedLabel ?? placeholder ?? "";
+  const triggerClassName = size === "sm" ? "rounded-lg px-2.5 py-1.5 text-xs" : "rounded-lg px-3 py-2 text-sm";
+  const optionClassName = size === "sm" ? "px-2.5 py-1.5 text-xs" : "px-3 py-2 text-sm";
+  const chevronClassName = size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4";
+  const checkClassName = size === "sm" ? "h-3 w-3" : "h-3.5 w-3.5";
 
   useEffect(() => {
     if (!open) return;
@@ -92,17 +98,10 @@ export function Select({ options, value, onChange, placeholder, className = "" }
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         onKeyDown={handleTriggerKey}
-        className={`app-input-shell flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm outline-none transition-colors ${open ? "app-input-shell-strong app-hover-border" : "app-hover-border"} ${displayText ? "app-text" : "app-text-faint"}`}
+        className={`app-input-shell flex w-full items-center justify-between border outline-none transition-colors ${triggerClassName} ${open ? "app-input-shell-strong app-hover-border" : "app-hover-border"} ${displayText ? "app-text" : "app-text-faint"}`}
       >
         <span className="truncate text-left">{displayText}</span>
-        <svg
-          className={`app-text-faint ml-2 h-4 w-4 shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        <ChevronDown className={`app-text-faint ml-2 shrink-0 transition-transform duration-200 ${chevronClassName} ${open ? "rotate-180" : ""}`} aria-hidden="true" />
       </button>
 
       {open && (
@@ -121,14 +120,12 @@ export function Select({ options, value, onChange, placeholder, className = "" }
                   commit(opt.value);
                 }}
                 onMouseEnter={() => setHighlightIndex(index)}
-                className={`cursor-pointer px-3 py-2 text-sm transition-colors ${isHighlighted ? "app-accent-strong app-text" : isSelected ? "app-text-soft" : "app-text-faint app-hover-text"}`}
+                className={`cursor-pointer transition-colors ${optionClassName} ${isHighlighted ? "app-accent-strong app-text" : isSelected ? "app-text-soft" : "app-text-faint app-hover-text"}`}
               >
                 <span className="flex items-center justify-between">
                   {opt.label}
                   {isSelected && (
-                    <svg className="app-text-faint h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                    </svg>
+                    <Check className={`app-text-faint ${checkClassName}`} aria-hidden="true" />
                   )}
                 </span>
               </li>

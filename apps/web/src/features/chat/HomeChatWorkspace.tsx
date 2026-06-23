@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, type FormEvent } from "react";
+import { Check, ChevronDown, ChevronUp, LoaderCircle, Paperclip, Plus, Send, Trash2, X } from "lucide-react";
 import type {
   ChatArtifactSuggestion,
   ChatAttachment,
@@ -23,6 +24,7 @@ import {
 import type { ChatFileDraft, StreamingBlock, ChatStreamPendingMessage } from "../../lib/types";
 import { MarkdownContent } from "../../markdown-content";
 import { createClientId } from "../../lib/utils";
+import { IconButton } from "../../components/shared/IconButton";
 
 export function HomeChatWorkspace({
   selectedProject,
@@ -117,9 +119,9 @@ export function HomeChatWorkspace({
           <div className="flex items-center justify-between gap-2">
             <div>
               <div className="app-text text-sm font-medium">聊天会话</div>
-              <div className="app-text-faint mt-1 text-xs">不同于代码执行会话</div>
             </div>
-            <button onClick={onCreate} className="app-button-secondary rounded-lg border px-2.5 py-1.5 text-xs">
+            <button onClick={onCreate} className="app-button-secondary inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs">
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
               新建
             </button>
           </div>
@@ -135,14 +137,14 @@ export function HomeChatWorkspace({
                 <div className="app-text truncate font-medium">{session.title}</div>
                 <div className="app-text-faint mt-1 truncate text-xs">{formatDateTime(session.updatedAt)}</div>
               </button>
-              <button
-                type="button"
+              <IconButton
+                icon={deletingChatId === session.id ? LoaderCircle : Trash2}
+                label={deletingChatId === session.id ? "删除中" : "删除"}
                 disabled={deletingChatId === session.id}
                 onClick={() => onDelete(session)}
-                className="app-button-secondary ml-2 shrink-0 rounded-md border px-2 py-1 text-[11px] opacity-0 group-hover:opacity-100 disabled:opacity-50"
-              >
-                {deletingChatId === session.id ? "删除中..." : "删除"}
-              </button>
+                size="sm"
+                className={`ml-2 opacity-0 group-hover:opacity-100 ${deletingChatId === session.id ? "[&_svg]:animate-spin" : ""}`}
+              />
             </div>
           ))}
         </div>
@@ -198,14 +200,12 @@ export function HomeChatWorkspace({
             {chatFile ? (
               <div className="app-card app-border app-text-muted mb-2 flex items-center justify-between rounded-lg border px-3 py-2 text-xs">
                 <span className="truncate">已选择文件：{chatFile.name}</span>
-                <button type="button" onClick={() => onFileChange(null)} className="app-text-faint app-hover-text">
-                  移除
-                </button>
+                <IconButton icon={X} label="移除文件" onClick={() => onFileChange(null)} size="xs" className="border-0 bg-transparent" />
               </div>
             ) : null}
             <div className="app-input app-border flex items-end gap-2 rounded-2xl border p-2">
-              <label className="app-button-secondary shrink-0 cursor-pointer rounded-xl border px-3 py-2 text-sm">
-                选择文件
+              <label className="app-button-secondary inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border" title="选择文件" aria-label="选择文件">
+                <Paperclip className="h-4 w-4" aria-hidden="true" />
                 <input
                   type="file"
                   className="hidden"
@@ -237,7 +237,8 @@ export function HomeChatWorkspace({
                 className="app-text app-placeholder-faint max-h-36 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
                 placeholder="输入消息。我会在需要时帮你搜索、创建笔记、任务或 Prompt。"
               />
-              <button disabled={creating || sending || !!streamingChatId} className="app-button-primary shrink-0 rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50">
+              <button disabled={creating || sending || !!streamingChatId} className="app-button-primary inline-flex shrink-0 items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50">
+                {streamingChatId || sending || creating ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
                 {streamingChatId ? "接收中..." : sending ? "发送中..." : creating ? "创建中..." : "发送"}
               </button>
             </div>
@@ -301,9 +302,7 @@ export function ChatMessageBubble({
               autoFocus
             />
             <div className="flex items-center justify-end gap-2">
-              <button type="button" onClick={onCancelEditMessage} className="app-button-secondary rounded-md border px-2.5 py-1 text-xs">
-                取消
-              </button>
+              <IconButton icon={X} label="取消编辑" onClick={onCancelEditMessage} size="xs" />
               <span className="app-text-faint text-[11px]">Enter 发送 · Shift+Enter 换行 · Esc 取消</span>
             </div>
           </div>
@@ -436,11 +435,13 @@ export function renderToolCallBlock(
         {tc.status === "pending_confirmation" ? <span className="app-text-warning ml-auto shrink-0 text-[11px]">等待确认</span> : tc.status === "rejected" ? <span className="app-text-danger ml-auto shrink-0 text-[11px]">已拒绝</span> : null}
       </div>
       {tc.status === "pending_confirmation" ? (
-        <div className="mt-2 flex gap-2">
-          <button type="button" onClick={() => onConfirmTool(tc.id, true)} className="app-button-success rounded-md border px-2.5 py-1 text-[11px]">
+        <div className="mt-2 flex gap-1.5">
+          <button type="button" onClick={() => onConfirmTool(tc.id, true)} className="app-button-success inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px]">
+            <Check className="h-3.5 w-3.5" aria-hidden="true" />
             执行
           </button>
-          <button type="button" onClick={() => onConfirmTool(tc.id, false)} className="app-button-danger rounded-md border px-2.5 py-1 text-[11px]">
+          <button type="button" onClick={() => onConfirmTool(tc.id, false)} className="app-button-danger inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px]">
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
             拒绝
           </button>
         </div>
@@ -457,13 +458,17 @@ export function renderToolCallBlock(
                     next.delete(tc.id);
                     return next;
                   });
-                }} className="app-text-success ml-1">收起</button>
+                }} className="app-text-success ml-1 inline-flex items-center align-middle" aria-label="收起工具结果" title="收起工具结果">
+                  <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
               ) : null}
             </div>
           ) : (
             <div className="app-text-faint">
               {result.result.slice(0, 80)}...
-              <button onClick={() => setExpandedToolCalls((prev) => new Set([...prev, tc.id]))} className="app-text-success ml-1">展开</button>
+              <button onClick={() => setExpandedToolCalls((prev) => new Set([...prev, tc.id]))} className="app-text-success ml-1 inline-flex items-center align-middle" aria-label="展开工具结果" title="展开工具结果">
+                <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
             </div>
           )}
         </div>

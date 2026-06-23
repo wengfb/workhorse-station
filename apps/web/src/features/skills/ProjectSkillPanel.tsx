@@ -1,8 +1,10 @@
 import React from "react";
+import { Copy, FilePenLine, LoaderCircle, PackagePlus, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import type { ProjectSummary, ProjectSkillSummary } from "@workhorse-station/shared";
 import { EmptyProjectNotice } from "../shared/EmptyProjectNotice";
 import { PathBlock } from "../shared/PathBlock";
 import { DetailRow } from "../../components/shared/DetailComponents";
+import { IconButton } from "../../components/shared/IconButton";
 
 export function ProjectSkillPanel({
   project,
@@ -52,10 +54,9 @@ export function ProjectSkillPanel({
             <div className="app-text-faint mt-1 break-all text-xs">来源：{project.path}/.claude/skills/*</div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={onRefresh} className="app-border app-text-muted app-hover-accent app-hover-border app-hover-text rounded-lg border px-2.5 py-2 text-sm" title="刷新">
-              ⟳
-            </button>
-            <button onClick={onCreate} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
+            <IconButton icon={RefreshCw} label="刷新" onClick={onRefresh} size="md" />
+            <button onClick={onCreate} className="app-button-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium">
+              <Plus className="h-4 w-4" aria-hidden="true" />
               新建
             </button>
           </div>
@@ -96,7 +97,6 @@ export function ProjectSkillPanel({
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="app-text font-medium">Skill 详情</div>
-            <p className="app-text-faint mt-1 text-xs">可查看路径并直接编辑当前 Skill 的 SKILL.md。</p>
           </div>
           <span className="app-card app-border app-text-muted rounded-full border px-2 py-1 text-xs">{skills.length} 个</span>
         </div>
@@ -112,22 +112,46 @@ export function ProjectSkillPanel({
               <PathBlock label="项目路径" value={selectedSkill.projectPath ?? "无项目级文件夹"} />
               <PathBlock label="全局路径" value={selectedSkill.globalPath ?? "无全局级文件夹"} />
             </div>
-            <div className="app-border flex flex-wrap gap-2 border-t pt-4">
-              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onRename(selectedSkill)} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-lg border px-3 py-2 text-xs disabled:opacity-50">
-                重命名项目 Skill
-              </button>
-              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onCopyToGlobal(selectedSkill)} className="app-button-info rounded-lg border px-3 py-2 text-xs disabled:opacity-50">
-                复制到全局
-              </button>
-              <button disabled={operationName === selectedSkill.name} onClick={() => onEditDocument(selectedSkill)} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-lg border px-3 py-2 text-xs disabled:opacity-50">
-                编辑文档
-              </button>
-              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onAddProjectSkillToStore(selectedSkill)} className="app-button-success rounded-lg border px-3 py-2 text-xs disabled:opacity-50">
-                添加到技能仓库
-              </button>
-              <button disabled={!selectedSkill.hasProject || operationName === selectedSkill.name} onClick={() => onDelete(selectedSkill)} className="app-button-danger rounded-lg border px-3 py-2 text-xs disabled:opacity-50">
-                {operationName === selectedSkill.name ? "处理中" : "删除项目 Skill"}
-              </button>
+            <div className="app-border flex flex-wrap gap-1.5 border-t pt-4">
+              <IconButton
+                icon={Pencil}
+                label="重命名项目 Skill"
+                disabled={!selectedSkill.hasProject || operationName === selectedSkill.name}
+                onClick={() => onRename(selectedSkill)}
+                size="md"
+              />
+              <IconButton
+                icon={Copy}
+                label="复制到全局"
+                variant="info"
+                disabled={!selectedSkill.hasProject || operationName === selectedSkill.name}
+                onClick={() => onCopyToGlobal(selectedSkill)}
+                size="md"
+              />
+              <IconButton
+                icon={FilePenLine}
+                label="编辑文档"
+                disabled={operationName === selectedSkill.name}
+                onClick={() => onEditDocument(selectedSkill)}
+                size="md"
+              />
+              <IconButton
+                icon={PackagePlus}
+                label="添加到技能仓库"
+                variant="success"
+                disabled={!selectedSkill.hasProject || operationName === selectedSkill.name}
+                onClick={() => onAddProjectSkillToStore(selectedSkill)}
+                size="md"
+              />
+              <IconButton
+                icon={operationName === selectedSkill.name ? LoaderCircle : Trash2}
+                label={operationName === selectedSkill.name ? "处理中" : "删除项目 Skill"}
+                variant="danger"
+                disabled={!selectedSkill.hasProject || operationName === selectedSkill.name}
+                onClick={() => onDelete(selectedSkill)}
+                size="md"
+                className={operationName === selectedSkill.name ? "[&_svg]:animate-spin" : undefined}
+              />
             </div>
           </div>
         ) : (

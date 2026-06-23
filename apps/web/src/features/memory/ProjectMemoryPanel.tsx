@@ -1,4 +1,5 @@
 import React, { useEffect, useState, type FormEvent } from "react";
+import { FilePenLine, LoaderCircle, Plus, RefreshCw, Trash2 } from "lucide-react";
 import type {
   AgentDocResponse,
   AgentProvider,
@@ -8,6 +9,7 @@ import type {
   RuleSummary
 } from "@workhorse-station/shared";
 import { Select } from "../../components/ui/Select";
+import { IconButton } from "../../components/shared/IconButton";
 import { formatError } from "../../lib/format-utils";
 import { Modal } from "../shared/Modal";
 import {
@@ -319,9 +321,7 @@ export function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                 options={providerOptions}
               />
             </div>
-            <button onClick={() => void loadAgentDoc()} className="app-button-secondary rounded-lg border px-2.5 py-1.5 text-sm" title="刷新">
-              ⟳
-            </button>
+            <IconButton icon={RefreshCw} label="刷新" onClick={() => void loadAgentDoc()} size="md" className="h-8 w-8" />
             {agentDocEditing ? (
               <>
                 <button
@@ -343,8 +343,9 @@ export function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                   setAgentDocDraft(agentDoc?.content ?? "");
                   setAgentDocEditing(true);
                 }}
-                className="app-button-secondary rounded-lg border px-3 py-1.5 text-sm"
+                className="app-button-secondary inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"
               >
+                <FilePenLine className="h-4 w-4" aria-hidden="true" />
                 编辑
               </button>
             )}
@@ -376,10 +377,9 @@ export function ProjectMemoryPanel({ projectId }: { projectId: string }) {
             <div className="app-text-faint mt-1 text-xs">{provider === "claude" ? "来源：项目 .claude/rules/*.md，签入代码库。" : "Codex 当前没有独立规则目录映射。"} </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => void loadRules()} className="app-button-secondary rounded-lg border px-2.5 py-1.5 text-sm" title="刷新">
-              ⟳
-            </button>
-            <button onClick={() => void handleCreateRule()} disabled={!rulesAvailable} className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50">
+            <IconButton icon={RefreshCw} label="刷新" onClick={() => void loadRules()} size="md" className="h-8 w-8" />
+            <button onClick={() => void handleCreateRule()} disabled={!rulesAvailable} className="app-button-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50">
+              <Plus className="h-4 w-4" aria-hidden="true" />
               新建
             </button>
           </div>
@@ -399,12 +399,16 @@ export function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                       <span className="app-text font-medium">{rule.name}</span>
                     </div>
                     <div className="flex gap-1">
-                      <button onClick={() => openEditRule(rule)} disabled={busy} className="app-button-secondary rounded border px-2 py-0.5 text-xs disabled:opacity-50">
-                        编辑
-                      </button>
-                      <button onClick={() => void handleDeleteRule(rule)} disabled={busy} className="app-button-danger rounded border px-2 py-0.5 text-xs disabled:opacity-50">
-                        {busy ? "删除中..." : "删除"}
-                      </button>
+                      <IconButton icon={FilePenLine} label="编辑" onClick={() => openEditRule(rule)} disabled={busy} size="xs" />
+                      <IconButton
+                        icon={busy ? LoaderCircle : Trash2}
+                        label={busy ? "删除中" : "删除"}
+                        variant="danger"
+                        onClick={() => void handleDeleteRule(rule)}
+                        disabled={busy}
+                        size="xs"
+                        className={busy ? "[&_svg]:animate-spin" : undefined}
+                      />
                     </div>
                   </div>
                 );
@@ -421,10 +425,9 @@ export function ProjectMemoryPanel({ projectId }: { projectId: string }) {
             <div className="app-text-faint mt-1 text-xs">{provider === "claude" ? "来源：~/.claude/projects/<project>/memory/，Claude Code 自动生成。" : "Codex 当前没有等价的自动记忆目录映射。"} </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => void loadMemories()} className="app-button-secondary rounded-lg border px-2.5 py-1.5 text-sm" title="刷新">
-              ⟳
-            </button>
-            <button onClick={openCreateMemory} disabled={!memoriesAvailable} className="app-button-primary rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50">
+            <IconButton icon={RefreshCw} label="刷新" onClick={() => void loadMemories()} size="md" className="h-8 w-8" />
+            <button onClick={openCreateMemory} disabled={!memoriesAvailable} className="app-button-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50">
+              <Plus className="h-4 w-4" aria-hidden="true" />
               新建
             </button>
           </div>
@@ -450,12 +453,16 @@ export function ProjectMemoryPanel({ projectId }: { projectId: string }) {
                         <div className="app-text-fainter mt-1 break-all text-xs">{memory.path}</div>
                       </div>
                       <div className="flex gap-1">
-                        <button onClick={() => void openEditMemory(memory)} disabled={busy} className="app-button-secondary rounded border px-2 py-0.5 text-xs disabled:opacity-50">
-                          编辑
-                        </button>
-                        <button onClick={() => void handleDeleteMemory(memory)} disabled={busy} className="app-button-danger rounded border px-2 py-0.5 text-xs disabled:opacity-50">
-                          {busy ? "删除中..." : "删除"}
-                        </button>
+                        <IconButton icon={FilePenLine} label="编辑" onClick={() => void openEditMemory(memory)} disabled={busy} size="xs" />
+                        <IconButton
+                          icon={busy ? LoaderCircle : Trash2}
+                          label={busy ? "删除中" : "删除"}
+                          variant="danger"
+                          onClick={() => void handleDeleteMemory(memory)}
+                          disabled={busy}
+                          size="xs"
+                          className={busy ? "[&_svg]:animate-spin" : undefined}
+                        />
                       </div>
                     </div>
                   </div>

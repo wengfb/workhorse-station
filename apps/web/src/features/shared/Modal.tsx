@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { X } from "lucide-react";
+import { IconButton } from "../../components/shared/IconButton";
 
 export function Modal({
   title,
@@ -21,7 +23,7 @@ export function Modal({
             <div className="text-base font-semibold">{title}</div>
             {description ? <div className="app-text-muted mt-1 text-xs">{description}</div> : null}
           </div>
-          <button type="button" onClick={onClose} className="app-button-secondary rounded-md border px-2 py-1 text-sm" aria-label="关闭">✕</button>
+          <IconButton icon={X} label="关闭" onClick={onClose} size="md" />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
         {footer ? <div className="app-border shrink-0 border-t px-5 py-4">{footer}</div> : null}

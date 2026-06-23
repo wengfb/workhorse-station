@@ -1,4 +1,4 @@
-import { Moon, Sun } from "lucide-react";
+import { Moon, Sun, TerminalSquare } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   ExecutionListItem,
@@ -2972,10 +2972,9 @@ export function App() {
   }
   return (
     <div className="app-theme flex h-full flex-col">
-      <header className="app-header app-border flex flex-wrap items-center gap-3 border-b px-4 py-3 sm:px-5">
+      <header className="app-header app-border flex flex-wrap items-center gap-2.5 border-b px-4 py-2.5 sm:px-5">
         <div className="mr-1 min-w-44">
           <div className="text-sm font-semibold tracking-wide">Workhorse Station</div>
-          <div className="app-text-faint text-xs">全局工作台 / 项目执行上下文</div>
         </div>
 
         <TopModeNav
@@ -3013,7 +3012,7 @@ export function App() {
         <button
           type="button"
           onClick={toggleUiTheme}
-          className="app-button-secondary flex h-10 w-10 items-center justify-center rounded-lg border"
+          className="app-button-secondary flex h-9 w-9 items-center justify-center rounded-lg border"
           aria-label={uiTheme === "dark" ? "切换到亮色主题" : "切换到暗色主题"}
           title={uiTheme === "dark" ? "切换到亮色主题" : "切换到暗色主题"}
         >
@@ -3021,8 +3020,9 @@ export function App() {
         </button>
         <button
           onClick={openSessionViewer}
-          className="app-button-secondary rounded-lg border px-3 py-2 text-sm"
+          className="app-button-secondary inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm"
         >
+          <TerminalSquare className="h-4 w-4" aria-hidden="true" />
           会话
         </button>
         <StatusPill connected={apiConnected} loading={apiState.loading} />

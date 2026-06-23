@@ -1,5 +1,7 @@
 import React, { useState, type FormEvent } from "react";
+import { FilePenLine, LoaderCircle, PackagePlus, Pencil, Plus, RefreshCw, Send, Trash2 } from "lucide-react";
 import type { InstallTarget, StoreSkillStatus, ChatSkill } from "@workhorse-station/shared";
+import { IconButton } from "../../components/shared/IconButton";
 
 export function SkillStorePanel({
   skills,
@@ -79,13 +81,11 @@ export function SkillStorePanel({
       <div className="app-border flex items-start justify-between gap-3 border-b px-4 py-3">
         <div>
           <div className="app-text text-sm font-medium">技能仓库</div>
-          <div className="app-text-faint mt-1 text-xs">来源：~/.workhorse/skills/*，统一管理并安装到各目标。</div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onRefreshStore} className="app-border app-text-muted app-hover-accent app-hover-border app-hover-text rounded-lg border px-2.5 py-2 text-sm" title="刷新">
-            ⟳
-          </button>
-          <button onClick={openCreate} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
+          <IconButton icon={RefreshCw} label="刷新" onClick={onRefreshStore} size="md" />
+          <button onClick={openCreate} className="app-button-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium">
+            <Plus className="h-4 w-4" aria-hidden="true" />
             新建
           </button>
         </div>
@@ -133,25 +133,26 @@ export function SkillStorePanel({
                             key={target.key}
                             disabled={disabled}
                             onClick={() => onInstall(item, target.key)}
-                            className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50"
+                            className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs disabled:opacity-50"
                             title={target.requiresProject && !hasProjectContext ? "请先选择一个项目" : target.title}
                           >
+                            <PackagePlus className="h-3.5 w-3.5" aria-hidden="true" />
                             {target.label}
                           </button>
                         );
                       })}
-                      <button disabled={busy} onClick={() => onSendToProject(item)} className="app-button-success rounded-md border px-2 py-1 text-xs disabled:opacity-50" title="发送到指定项目">
-                        发送到项目
-                      </button>
-                      <button disabled={busy} onClick={() => onRename(item)} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50">
-                        重命名
-                      </button>
-                      <button disabled={busy} onClick={() => onEditDocument(item)} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50">
-                        编辑文档
-                      </button>
-                      <button disabled={busy} onClick={() => onDelete(item)} className="app-button-danger rounded-md border px-2 py-1 text-xs disabled:opacity-50">
-                        {busy ? "处理中" : "删除"}
-                      </button>
+                      <IconButton icon={Send} label="发送到指定项目" variant="success" disabled={busy} onClick={() => onSendToProject(item)} size="sm" />
+                      <IconButton icon={Pencil} label="重命名" disabled={busy} onClick={() => onRename(item)} size="sm" />
+                      <IconButton icon={FilePenLine} label="编辑文档" disabled={busy} onClick={() => onEditDocument(item)} size="sm" />
+                      <IconButton
+                        icon={busy ? LoaderCircle : Trash2}
+                        label={busy ? "处理中" : "删除"}
+                        variant="danger"
+                        disabled={busy}
+                        onClick={() => onDelete(item)}
+                        size="sm"
+                        className={busy ? "[&_svg]:animate-spin" : undefined}
+                      />
                     </div>
                   </div>
                 </div>
@@ -169,7 +170,6 @@ export function SkillStorePanel({
               <form onSubmit={handleSubmitCreate}>
                 <div className="p-4 pb-0">
                   <h3 className="app-text text-sm font-medium">新建 Skill</h3>
-                  <p className="app-text-faint mt-1 text-xs">在 ~/.workhorse/skills/ 下创建新的 Skill 文件夹。</p>
                 </div>
                 <div className="space-y-3 px-4 pt-4">
                   <div>
@@ -220,11 +220,8 @@ export function SkillStorePanel({
         <div className="mb-3 flex items-center justify-between">
           <div>
             <div className="app-text text-sm font-medium">Chat Skills</div>
-            <div className="app-text-faint mt-0.5 text-xs">AI Chat 运行时加载的 Skill，来源：~/.workhorse/chat-skills/*</div>
           </div>
-          <button onClick={onRefreshChatSkills} className="app-border app-text-muted app-hover-accent app-hover-border app-hover-text rounded-lg border px-2.5 py-2 text-sm" title="刷新">
-            ⟳
-          </button>
+          <IconButton icon={RefreshCw} label="刷新" onClick={onRefreshChatSkills} size="md" />
         </div>
         {chatSkillsError ? <p className="app-danger-soft mb-3 rounded-lg border p-3 text-xs">{chatSkillsError}</p> : null}
         {chatSkillsLoading ? <div className="app-border app-text-muted rounded-lg border p-3 text-xs">Chat Skills 加载中...</div> : null}
@@ -243,9 +240,15 @@ export function SkillStorePanel({
                       </div>
                       <div className="app-text-fainter mt-1 break-all text-xs">{skill.path}</div>
                     </div>
-                    <button disabled={busy} onClick={() => onDeleteChatSkill(skill)} className="app-button-danger shrink-0 rounded-md border px-2 py-1 text-xs disabled:opacity-50">
-                      {busy ? "处理中" : "移除"}
-                    </button>
+                    <IconButton
+                      icon={busy ? LoaderCircle : Trash2}
+                      label={busy ? "处理中" : "移除"}
+                      variant="danger"
+                      disabled={busy}
+                      onClick={() => onDeleteChatSkill(skill)}
+                      size="sm"
+                      className={busy ? "[&_svg]:animate-spin" : undefined}
+                    />
                   </div>
                 </div>
               );

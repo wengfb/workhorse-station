@@ -38,7 +38,7 @@ export function ProjectMenu({
       <div className="app-button-secondary app-border flex overflow-hidden rounded-lg border text-sm">
         <button
           onClick={onEnterCurrent}
-          className="app-hover-accent-strong min-w-0 flex-1 px-3 py-2 text-left"
+          className="app-hover-accent-strong min-w-0 flex-1 px-3 py-1.5 text-left"
         >
           <span className="block truncate">项目：{selectedProject?.name ?? "未选择"}</span>
         </button>
@@ -47,7 +47,7 @@ export function ProjectMenu({
           aria-label={open ? "收起项目列表" : "展开项目列表"}
           aria-expanded={open}
           onClick={() => onOpenChange(!open)}
-          className="app-border app-text-faint app-hover-accent-strong app-hover-text border-l px-3 py-2"
+          className="app-border app-text-faint app-hover-accent-strong app-hover-text border-l px-3 py-1.5"
         >
           <span className={`block text-xs transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
         </button>

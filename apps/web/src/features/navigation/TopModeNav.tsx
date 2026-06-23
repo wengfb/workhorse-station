@@ -11,12 +11,12 @@ export function TopModeNav({
   onChange: (value: HomeMode) => void;
 }) {
   return (
-    <nav className="app-input app-border flex rounded-lg border p-1">
+    <nav className="app-input app-border flex rounded-lg border p-0.5">
       {modes.map((mode) => (
         <button
           key={mode.id}
           onClick={() => onChange(mode.id)}
-          className={`rounded-md px-3 py-1.5 text-sm ${value === mode.id ? "app-button-primary" : "app-text-faint app-hover-accent app-hover-text"}`}
+          className={`rounded-md px-3 py-1 text-sm ${value === mode.id ? "app-button-primary" : "app-text-faint app-hover-accent app-hover-text"}`}
         >
           {mode.label}
         </button>

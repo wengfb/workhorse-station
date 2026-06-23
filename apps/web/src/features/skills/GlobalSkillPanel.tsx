@@ -1,5 +1,7 @@
 import React from "react";
+import { FilePenLine, LoaderCircle, Plus, RefreshCw, Send, Trash2 } from "lucide-react";
 import type { ProjectSummary, SkillSummary, ProjectSkillSummary } from "@workhorse-station/shared";
+import { IconButton } from "../../components/shared/IconButton";
 
 export function GlobalSkillPanel({
   selectedProject,
@@ -33,13 +35,11 @@ export function GlobalSkillPanel({
       <div className="app-border flex items-start justify-between gap-3 border-b px-4 py-3">
         <div>
           <div className="app-text text-sm font-medium">全局 Skill 文件夹</div>
-          <div className="app-text-faint mt-1 text-xs">来源：~/.claude/skills/*，支持直接编辑 SKILL.md。</div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onRefresh} className="app-border app-text-muted app-hover-accent app-hover-border app-hover-text rounded-lg border px-2.5 py-2 text-sm" title="刷新">
-            ⟳
-          </button>
-          <button onClick={onCreate} className="app-button-primary rounded-lg px-3 py-2 text-sm font-medium">
+          <IconButton icon={RefreshCw} label="刷新" onClick={onRefresh} size="md" />
+          <button onClick={onCreate} className="app-button-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium">
+            <Plus className="h-4 w-4" aria-hidden="true" />
             新建
           </button>
         </div>
@@ -63,16 +63,18 @@ export function GlobalSkillPanel({
                       </div>
                       <div className="app-text-faint mt-1 break-all text-xs">{skill.path}</div>
                     </div>
-                    <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                      <button disabled={busy} onClick={() => onEditDocument(skill)} className="app-border app-text-soft app-hover-accent app-hover-border app-hover-text rounded-md border px-2 py-1 text-xs disabled:opacity-50">
-                        编辑文档
-                      </button>
-                      <button disabled={busy} onClick={() => onCopyToProject(skill)} className="app-button-success rounded-md border px-2 py-1 text-xs disabled:opacity-50">
-                        发送到项目
-                      </button>
-                      <button disabled={busy} onClick={() => onDelete(skill)} className="app-button-danger rounded-md border px-2 py-1 text-xs disabled:opacity-50">
-                        {busy ? "处理中" : "删除"}
-                      </button>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                      <IconButton icon={FilePenLine} label="编辑文档" disabled={busy} onClick={() => onEditDocument(skill)} size="sm" />
+                      <IconButton icon={Send} label="发送到项目" variant="success" disabled={busy} onClick={() => onCopyToProject(skill)} size="sm" />
+                      <IconButton
+                        icon={busy ? LoaderCircle : Trash2}
+                        label={busy ? "处理中" : "删除"}
+                        variant="danger"
+                        disabled={busy}
+                        onClick={() => onDelete(skill)}
+                        size="sm"
+                        className={busy ? "[&_svg]:animate-spin" : undefined}
+                      />
                     </div>
                   </div>
                 </div>

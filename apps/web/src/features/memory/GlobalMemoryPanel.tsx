@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
+import { FilePenLine, RefreshCw } from "lucide-react";
 import type { AgentDocResponse, AgentProvider, ProjectSummary } from "@workhorse-station/shared";
 import { Select } from "../../components/ui/Select";
+import { IconButton } from "../../components/shared/IconButton";
 import { getGlobalAgentDoc, updateGlobalAgentDoc } from "../../api";
 import { formatError } from "../../lib/format-utils";
 
@@ -73,18 +75,18 @@ export function GlobalMemoryPanel({ selectedProject, onRefresh }: { selectedProj
                 options={providerOptions}
               />
             </div>
-            <button
+            <IconButton
+              icon={RefreshCw}
+              label="刷新"
               onClick={() => {
                 if (onRefresh) {
                   onRefresh();
                 }
                 void loadContent();
               }}
-              className="app-button-secondary rounded-lg border px-2.5 py-1.5 text-sm"
-              title="刷新"
-            >
-              ⟳
-            </button>
+              size="md"
+              className="h-8 w-8"
+            />
             {editing ? (
               <>
                 <button
@@ -106,8 +108,9 @@ export function GlobalMemoryPanel({ selectedProject, onRefresh }: { selectedProj
                   setEditDraft(doc?.content ?? "");
                   setEditing(true);
                 }}
-                className="app-button-secondary rounded-lg border px-3 py-1.5 text-sm"
+                className="app-button-secondary inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"
               >
+                <FilePenLine className="h-4 w-4" aria-hidden="true" />
                 编辑
               </button>
             )}
@@ -136,7 +139,6 @@ export function GlobalMemoryPanel({ selectedProject, onRefresh }: { selectedProj
         <section className="app-panel app-border rounded-xl border">
           <div className="app-border border-b px-4 py-3">
             <div className="app-text text-sm font-medium">项目级指令与记忆</div>
-            <div className="app-text-faint mt-1 text-xs">进入项目「{selectedProject.name}」的记忆标签页管理项目级 {provider === "codex" ? "AGENTS.md" : "CLAUDE.md"}、规则和自动记忆。</div>
           </div>
         </section>
       ) : null}
