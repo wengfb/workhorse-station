@@ -22,6 +22,9 @@ import { registerWorkspaceTerminalRoutes } from "./terminals/workspace-terminal-
 import { WorkspaceTerminalRuntimeManager } from "./terminals/workspace-terminal-runtime-manager.js";
 import { registerTodoRoutes } from "./todos/todo-routes.js";
 import { registerWorktreeRoutes } from "./worktrees/worktree-routes.js";
+import { loadRootEnv } from "./env.js";
+
+loadRootEnv();
 
 const host = process.env.API_HOST ?? "0.0.0.0";
 const port = Number(process.env.API_PORT ?? 3002);

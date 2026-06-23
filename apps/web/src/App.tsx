@@ -1132,16 +1132,16 @@ export function App() {
 
   async function reloadExecutions(preferred?: SelectedExecution | null) {
     try {
-      const [allData, runningData] = await Promise.all([getExecutions(), getRunningExecutions()]);
+      const [allData, runningData] = await Promise.all([getExecutions(80), getRunningExecutions()]);
       const nextExecution =
         (preferred ? allData.executions.find((item) => item.kind === preferred.kind && item.id === preferred.id) : null) ??
         (selectedExecution ? allData.executions.find((item) => item.kind === selectedExecution.kind && item.id === selectedExecution.id) : null) ??
         allData.executions[0] ??
         null;
 
-      setExecutionItems(allData.executions);
+      setExecutionItems((current) => mergePreservingStoppingExecutions(current, allData.executions));
       setSelectedExecution(nextExecution ? { kind: nextExecution.kind, id: nextExecution.id } : null);
-      setRunningSessions(runningData.executions);
+      setRunningSessions((current) => mergePreservingStoppingExecutions(current, runningData.executions));
       setSessionsError(null);
       return runningData.executions;
     } catch (error) {
@@ -1159,20 +1159,23 @@ export function App() {
       const nextSession =
         (preferredSessionId ? data.sessions.find((session) => session.id === preferredSessionId) : null) ?? data.sessions.find((session) => session.id === selectedSessionId) ?? data.sessions[0] ?? null;
 
-      setSessions(data.sessions);
+      setSessions((current) => mergePreservingStoppingSessions(current, data.sessions));
       setSelectedSessionId(nextSession?.id ?? null);
 
       // 用最新列表数据更新 detail 中的轻量字段（runtimeStatus 等可能已变化）
       if (nextSession && selectedSessionDetail?.id === nextSession.id) {
+        const keepLocalStopping =
+          selectedSessionDetail.runtimeStatus === "stopping" &&
+          (nextSession.runtimeStatus === "running" || nextSession.runtimeStatus === "starting");
         setSelectedSessionDetail((prev) =>
           prev
             ? {
                 ...prev,
                 name: nextSession.name,
                 status: nextSession.status,
-                runtimeStatus: nextSession.runtimeStatus,
+                runtimeStatus: keepLocalStopping ? prev.runtimeStatus : nextSession.runtimeStatus,
                 summary: nextSession.summary,
-                pid: nextSession.pid,
+                pid: keepLocalStopping ? prev.pid : nextSession.pid,
                 exitCode: nextSession.exitCode,
                 lastActivityAt: nextSession.lastActivityAt,
                 updatedAt: nextSession.updatedAt,
@@ -1189,6 +1192,154 @@ export function App() {
     } finally {
       setSessionsLoading(false);
     }
+  }
+
+  function mergePreservingStoppingSessions(current: SessionListItem[], next: SessionListItem[]) {
+    const stoppingIds = new Set(current.filter((item) => item.runtimeStatus === "stopping").map((item) => item.id));
+
+    return next.map((item) =>
+      stoppingIds.has(item.id) && (item.runtimeStatus === "running" || item.runtimeStatus === "starting")
+        ? { ...item, runtimeStatus: "stopping" as const }
+        : item
+    );
+  }
+
+  function mergePreservingStoppingExecutions(current: ExecutionListItem[], next: ExecutionListItem[]) {
+    const stoppingIds = new Set(current.filter((item) => item.kind === "session" && item.runtimeStatus === "stopping").map((item) => item.id));
+
+    return next.map((item) =>
+      item.kind === "session" && stoppingIds.has(item.id) && (item.runtimeStatus === "running" || item.runtimeStatus === "starting")
+        ? { ...item, runtimeStatus: "stopping" as const }
+        : item
+    );
+  }
+
+  function upsertCreatedSession(session: SessionSummary, project: ProjectSummary) {
+    const sessionListItem: SessionListItem = {
+      id: session.id,
+      projectId: session.projectId,
+      provider: session.provider,
+      providerThreadId: session.providerThreadId,
+      providerMetadata: session.providerMetadata,
+      worktreeId: session.worktreeId,
+      todoId: session.todoId,
+      promptDraftId: session.promptDraftId,
+      requestedWorktreeName: session.requestedWorktreeName,
+      source: session.source,
+      name: session.name,
+      status: session.status,
+      runtimeStatus: session.runtimeStatus,
+      summary: session.summary,
+      pid: session.pid,
+      cwd: session.cwd,
+      resolvedWorktreePath: session.resolvedWorktreePath,
+      exitCode: session.exitCode,
+      lastActivityAt: session.lastActivityAt,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt
+    };
+    const executionItem: Extract<ExecutionListItem, { kind: "session" }> = {
+      kind: "session",
+      id: session.id,
+      projectId: session.projectId,
+      projectName: project.name,
+      provider: session.provider,
+      name: session.name,
+      status: session.status,
+      runtimeStatus: session.runtimeStatus,
+      summary: session.summary,
+      source: session.source,
+      todoId: session.todoId,
+      worktreeId: session.worktreeId,
+      requestedWorktreeName: session.requestedWorktreeName,
+      pid: session.pid,
+      cwd: session.cwd,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt
+    };
+
+    setSessions((current) => [sessionListItem, ...current.filter((item) => item.id !== session.id)]);
+    setExecutionItems((current) => [executionItem, ...current.filter((item) => !(item.kind === "session" && item.id === session.id))]);
+    setRunningSessions((current) => [executionItem, ...current.filter((item) => !(item.kind === "session" && item.id === session.id))]);
+    setSelectedSessionDetail(session);
+  }
+
+  function upsertSessionState(session: SessionSummary, projectName: string | null) {
+    const sessionListItem: SessionListItem = {
+      id: session.id,
+      projectId: session.projectId,
+      provider: session.provider,
+      providerThreadId: session.providerThreadId,
+      providerMetadata: session.providerMetadata,
+      worktreeId: session.worktreeId,
+      todoId: session.todoId,
+      promptDraftId: session.promptDraftId,
+      requestedWorktreeName: session.requestedWorktreeName,
+      source: session.source,
+      name: session.name,
+      status: session.status,
+      runtimeStatus: session.runtimeStatus,
+      summary: session.summary,
+      pid: session.pid,
+      cwd: session.cwd,
+      resolvedWorktreePath: session.resolvedWorktreePath,
+      exitCode: session.exitCode,
+      lastActivityAt: session.lastActivityAt,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt
+    };
+    const executionItem: Extract<ExecutionListItem, { kind: "session" }> = {
+      kind: "session",
+      id: session.id,
+      projectId: session.projectId,
+      projectName,
+      provider: session.provider,
+      name: session.name,
+      status: session.status,
+      runtimeStatus: session.runtimeStatus,
+      summary: session.summary,
+      source: session.source,
+      todoId: session.todoId,
+      worktreeId: session.worktreeId,
+      requestedWorktreeName: session.requestedWorktreeName,
+      pid: session.pid,
+      cwd: session.cwd,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt
+    };
+
+    setSessions((current) => [sessionListItem, ...current.filter((item) => item.id !== session.id)]);
+    setExecutionItems((current) => [executionItem, ...current.filter((item) => !(item.kind === "session" && item.id === session.id))]);
+    setRunningSessions((current) => [executionItem, ...current.filter((item) => !(item.kind === "session" && item.id === session.id))]);
+    setSelectedSessionDetail(session);
+  }
+
+  function markSessionStoppingLocally(sessionId: string) {
+    setSessions((current) =>
+      current.map((item) =>
+        item.id === sessionId
+          ? { ...item, runtimeStatus: "stopping" }
+          : item
+      )
+    );
+    setExecutionItems((current) =>
+      current.map((item) =>
+        item.kind === "session" && item.id === sessionId
+          ? { ...item, runtimeStatus: "stopping" }
+          : item
+      )
+    );
+    setRunningSessions((current) =>
+      current.map((item) => (item.kind === "session" && item.id === sessionId ? { ...item, runtimeStatus: "stopping" } : item))
+    );
+    setSelectedSessionDetail((current) => (current?.id === sessionId ? { ...current, runtimeStatus: "stopping" } : current));
+  }
+
+  function removeSessionLocally(sessionId: string) {
+    setSessions((current) => current.filter((item) => item.id !== sessionId));
+    setExecutionItems((current) => current.filter((item) => !(item.kind === "session" && item.id === sessionId)));
+    setRunningSessions((current) => current.filter((item) => !(item.kind === "session" && item.id === sessionId)));
+    setSelectedSessionDetail((current) => (current?.id === sessionId ? null : current));
   }
 
   function startCreateProject() {
@@ -2465,18 +2616,21 @@ export function App() {
 
     try {
       const data = await createSession(selectedProject.id, sessionDraftToCreateSessionRequest(sessionDraft, sessionLaunchSource));
+      upsertCreatedSession(data.session, selectedProject);
       setSelectedExecution({ kind: "session", id: data.session.id });
       setSelectedSessionId(data.session.id);
       setSelectedPromptDraftId(data.session.promptDraftId ?? null);
       setSessionDraft(sessionToDraft(data.session, promptDrafts));
-      await Promise.all([
+      setSessionCreateModalOpen(false);
+      setExecutionModalMode("session");
+      void Promise.all([
         reloadSessions(selectedProject.id, data.session.id),
         reloadWorktrees(selectedProject.id, data.session.worktreeId ?? selectedWorktreeId),
         data.session.todoId ? projectTodosList.refresh(data.session.todoId) : Promise.resolve(),
         sessionDraft.promptDraftId ? reloadPromptDrafts(selectedProject.id, sessionDraft.promptDraftId) : Promise.resolve()
-      ]);
-      setSessionCreateModalOpen(false);
-      setExecutionModalMode("session");
+      ]).catch((error) => {
+        setSessionsError(formatError(error, "会话状态刷新失败"));
+      });
     } catch (error) {
       setSessionsError(formatError(error, "会话启动失败"));
     } finally {
@@ -2496,10 +2650,13 @@ export function App() {
 
     try {
       await stopSession(targetProjectId, session.id);
-      await Promise.all([
+      markSessionStoppingLocally(session.id);
+      void Promise.all([
         reloadExecutions({ kind: "session", id: session.id }),
         selectedProjectId === targetProjectId ? reloadSessions(targetProjectId, session.id) : Promise.resolve()
-      ]);
+      ]).catch((error) => {
+        setSessionsError(formatError(error, "会话状态刷新失败"));
+      });
     } catch (error) {
       setSessionsError(formatError(error, "会话停止失败"));
     } finally {
@@ -2574,10 +2731,13 @@ export function App() {
       const remainingSessions = sessions.filter((item) => item.id !== session.id);
       const nextSessionId = selectedSessionId === session.id ? remainingSessions[0]?.id ?? null : selectedSessionId;
       const nextExecution = nextSessionId ? { kind: "session" as const, id: nextSessionId } : null;
-      await Promise.all([
+      removeSessionLocally(session.id);
+      void Promise.all([
         reloadExecutions(nextExecution),
         selectedProjectId === targetProjectId ? reloadSessions(targetProjectId, nextSessionId) : Promise.resolve()
-      ]);
+      ]).catch((error) => {
+        setSessionsError(formatError(error, "会话状态刷新失败"));
+      });
 
       if (selectedSessionId === session.id) {
         setSelectedPromptDraftId(null);
@@ -2607,15 +2767,19 @@ export function App() {
 
     try {
       const data = await continueSession(targetProjectId, session.id);
+      const projectName = projects.find((project) => project.id === targetProjectId)?.name ?? selectedProject?.name ?? null;
+      upsertSessionState(data.session, projectName);
       setSelectedExecution({ kind: "session", id: data.session.id });
       setSelectedSessionId(data.session.id);
       if (selectedProjectId !== targetProjectId) {
         setSelectedProjectId(targetProjectId);
       }
-      await Promise.all([
+      void Promise.all([
         reloadExecutions({ kind: "session", id: data.session.id }),
         reloadSessions(targetProjectId, data.session.id)
-      ]);
+      ]).catch((error) => {
+        setSessionsError(formatError(error, "会话状态刷新失败"));
+      });
     } catch (error) {
       setSessionsError(formatError(error, "会话继续失败"));
     } finally {

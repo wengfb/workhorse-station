@@ -668,11 +668,11 @@ export function SessionModal({
                                 </button>
                               ) : (
                                 <button
-                                  disabled={updatingSessionId === sessionRecord.id || sessionRecord.runtimeStatus === "stopped" || sessionRecord.runtimeStatus === "failed"}
+                                  disabled={updatingSessionId === sessionRecord.id || sessionRecord.runtimeStatus === "stopping" || sessionRecord.runtimeStatus === "stopped" || sessionRecord.runtimeStatus === "failed"}
                                   onClick={() => onStopSession(sessionRecord)}
                                   className="app-button-warning rounded-md border px-1.5 py-1 text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                  {updatingSessionId === sessionRecord.id ? "停止中" : "停止"}
+                                  {updatingSessionId === sessionRecord.id || sessionRecord.runtimeStatus === "stopping" ? "停止中" : "停止"}
                                 </button>
                               )
                             ) : null}

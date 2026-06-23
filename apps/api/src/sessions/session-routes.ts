@@ -53,6 +53,7 @@ import { createReadStream } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import type { WorkspaceTerminalRuntimeManager } from "../terminals/workspace-terminal-runtime-manager.js";
+import { createRuntimeEvent } from "./session-events.js";
 
 type ProjectParams = {
   projectId: string;
@@ -105,90 +106,35 @@ export async function registerSessionRoutes(
   server.post<{ Params: ProjectParams; Body: CreateSessionRequest }>("/api/projects/:projectId/sessions", async (request, reply): Promise<ApiResponse<SessionResponse>> => {
     await assertProjectExists(database, request.params.projectId);
     const input = await buildSessionInput(database, request.params.projectId, request.body);
-    const resolvedWorktree = await resolveSessionWorktree(database, {
-      projectId: request.params.projectId,
-      worktreeId: input.worktreeId,
-      requestedWorktreeName: input.requestedWorktreeName
-    });
 
     const session = await createSessionRecord(database.db, {
       ...input,
-      worktreeId: resolvedWorktree.worktreeId,
-      requestedWorktreeName: resolvedWorktree.requestedWorktreeName,
       status: "queued",
       runtimeStatus: "starting",
       providerThreadId: null,
       providerMetadata: null,
       pid: null,
-      cwd: resolvedWorktree.cwd,
-      resolvedWorktreePath: resolvedWorktree.resolvedWorktreePath,
+      cwd: null,
+      resolvedWorktreePath: null,
       exitCode: null,
       lastActivityAt: null
     });
     await database.persist();
 
-    try {
-      const runtime = await runtimeManager.startSession({
-        sessionId: session.id,
-        projectId: request.params.projectId,
-        provider: session.provider,
-        cwd: resolvedWorktree.cwd,
-        resolvedWorktreePath: resolvedWorktree.resolvedWorktreePath,
-        prompt: input.prompt,
-        resumeSessionId: input.resumeSessionId ?? undefined,
-        forkSession: input.forkSession ?? false
-      });
+    void startSessionInBackground({
+      database,
+      runtimeManager,
+      projectId: request.params.projectId,
+      session,
+      sessionInput: input
+    });
 
-      const launchedSession = await updateSessionLaunch(database.db, request.params.projectId, session.id, {
-        providerThreadId: runtime.providerThreadId,
-        providerMetadata: runtime.providerMetadata,
-        status: "running",
-        runtimeStatus: runtime.runtimeStatus,
-        worktreeId: resolvedWorktree.worktreeId,
-        requestedWorktreeName: resolvedWorktree.requestedWorktreeName,
-        pid: runtime.pid,
-        cwd: runtime.cwd,
-        resolvedWorktreePath: resolvedWorktree.resolvedWorktreePath,
-        lastActivityAt: runtime.lastActivityAt,
-        summary: input.summary
-      });
+    reply.status(201);
 
-      if (!launchedSession) {
-        throw new Error("Failed to read launched session");
-      }
-
-      const resolvedSession = launchedSession;
-
-      // codex 日志匹配可能阻塞 3s，放到后台执行，不影响接口响应
-      if (launchedSession.provider === "codex") {
-        resolveProviderSessionState(database, request.params.projectId, launchedSession)
-          .then((resolved) => {
-            if (resolved.providerThreadId !== launchedSession.providerThreadId) {
-              return database.persist();
-            }
-          })
-          .catch((err) => console.error("[Session] codex 异步状态解析失败:", err));
-      }
-
-      await maybeMarkTodoInProgress(database, request.params.projectId, resolvedSession.todoId);
-      await database.persist();
-      reply.status(201);
-
-      return {
-        ok: true,
-        data: { session: resolvedSession }
-      };
-    } catch (error) {
-      await updateSessionCompletion(database.db, request.params.projectId, session.id, {
-        status: "failed",
-        runtimeStatus: "failed",
-        exitCode: 1,
-        lastActivityAt: formatMysqlDateTime(),
-        summary: error instanceof Error ? error.message : formatProviderStartFailure(session.provider)
-      });
-      await database.persist();
-      throw new HttpError(500, "session_start_failed", error instanceof Error ? error.message : formatProviderStartFailure(session.provider));
-    }
+    return {
+      ok: true,
+      data: { session }
+    };
   });
 
   server.patch<{ Params: ProjectSessionParams; Body: UpdateSessionRequest }>("/api/projects/:projectId/sessions/:sessionId", async (request): Promise<ApiResponse<SessionResponse>> => {
@@ -233,8 +179,16 @@ export async function registerSessionRoutes(
       throw new HttpError(404, "session_not_found", "会话不存在");
     }
 
-    await runtimeManager.stopSession(request.params.projectId, request.params.sessionId);
-    const session = (await getProjectSession(database.db, request.params.projectId, request.params.sessionId)) ?? currentSession;
+    const stoppedRuntime = await runtimeManager.stopSession(request.params.projectId, request.params.sessionId);
+    const session = stoppedRuntime
+      ? {
+          ...currentSession,
+          runtimeStatus: stoppedRuntime.runtimeStatus,
+          pid: stoppedRuntime.pid,
+          lastActivityAt: stoppedRuntime.lastActivityAt,
+          updatedAt: stoppedRuntime.lastActivityAt ?? currentSession.updatedAt
+        }
+      : currentSession;
 
     return {
       ok: true,
@@ -476,7 +430,7 @@ export async function registerSessionRoutes(
 
   server.delete<{ Params: ProjectSessionParams }>("/api/projects/:projectId/sessions/:sessionId", async (request): Promise<ApiResponse<DeleteSessionResponse>> => {
     await assertProjectExists(database, request.params.projectId);
-    const stoppedRuntime = await runtimeManager.stopSession(request.params.projectId, request.params.sessionId);
+    const stoppedRuntime = Boolean(await runtimeManager.stopSession(request.params.projectId, request.params.sessionId));
 
     if (!(await deleteSessionRecord(database.db, request.params.projectId, request.params.sessionId))) {
       throw new HttpError(404, "session_not_found", "会话不存在");
@@ -491,7 +445,7 @@ export async function registerSessionRoutes(
   });
 
   server.get<{ Querystring: { limit?: string } }>("/api/executions", async (request): Promise<ApiResponse<ExecutionsResponse>> => {
-    const limit = request.query.limit ? Math.min(Math.max(Number(request.query.limit) || 50, 1), 200) : undefined;
+    const limit = Math.min(Math.max(Number(request.query.limit) || 100, 1), 200);
     const sessionItems = await listExecutionSessions(database.db, limit);
     const terminalItems = workspaceTerminalRuntimeManager.list();
     const projectNames = await listProjectNameMap(database);
@@ -504,7 +458,7 @@ export async function registerSessionRoutes(
 
     return {
       ok: true,
-      data: { executions: typeof limit === "number" ? executions.slice(0, limit) : executions }
+      data: { executions: executions.slice(0, limit) }
     };
   });
 
@@ -544,7 +498,111 @@ async function assertProjectExists(database: DatabaseState, projectId: string) {
   }
 }
 
-async function buildSessionInput(database: DatabaseState, projectId: string, body: CreateSessionRequest | undefined): Promise<SessionWriteInput> {
+type CreateSessionInput = SessionWriteInput & {
+  resumeSessionId: string | null;
+  forkSession: boolean | null;
+};
+
+type ResolvedSessionWorktree = {
+  worktreeId: string | null;
+  requestedWorktreeName: string | null;
+  resolvedWorktreePath: string | null;
+  cwd: string;
+};
+
+async function startSessionInBackground(input: {
+  database: DatabaseState;
+  runtimeManager: SessionRuntimeManager;
+  projectId: string;
+  session: SessionSummary;
+  sessionInput: CreateSessionInput;
+}) {
+  let resolvedWorktree: ResolvedSessionWorktree | null = null;
+
+  try {
+    resolvedWorktree = await resolveSessionWorktree(input.database, {
+      projectId: input.projectId,
+      worktreeId: input.sessionInput.worktreeId,
+      requestedWorktreeName: input.sessionInput.requestedWorktreeName
+    });
+
+    const runtime = await input.runtimeManager.startSession({
+      sessionId: input.session.id,
+      projectId: input.projectId,
+      provider: input.session.provider,
+      cwd: resolvedWorktree.cwd,
+      resolvedWorktreePath: resolvedWorktree.resolvedWorktreePath,
+      prompt: input.sessionInput.prompt,
+      resumeSessionId: input.sessionInput.resumeSessionId ?? undefined,
+      forkSession: input.sessionInput.forkSession ?? false
+    });
+
+    const launchedSession = await updateSessionLaunch(input.database.db, input.projectId, input.session.id, {
+      providerThreadId: runtime.providerThreadId,
+      providerMetadata: runtime.providerMetadata,
+      status: "running",
+      runtimeStatus: runtime.runtimeStatus,
+      worktreeId: resolvedWorktree.worktreeId,
+      requestedWorktreeName: resolvedWorktree.requestedWorktreeName,
+      pid: runtime.pid,
+      cwd: runtime.cwd,
+      resolvedWorktreePath: resolvedWorktree.resolvedWorktreePath,
+      lastActivityAt: runtime.lastActivityAt,
+      summary: input.sessionInput.summary
+    });
+
+    if (!launchedSession) {
+      throw new Error("Failed to read launched session");
+    }
+
+    await maybeMarkTodoInProgress(input.database, input.projectId, launchedSession.todoId);
+    await input.database.persist();
+    input.runtimeManager.emit(
+      "event",
+      createRuntimeEvent({
+        type: "session.runtime",
+        sessionId: launchedSession.id,
+        runtimeStatus: launchedSession.runtimeStatus,
+        cwd: launchedSession.cwd,
+        pid: launchedSession.pid
+      })
+    );
+
+    void resolveProviderSessionStateInBackground(input.database, input.projectId, launchedSession);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : formatProviderStartFailure(input.session.provider);
+    await updateSessionCompletion(input.database.db, input.projectId, input.session.id, {
+      status: "failed",
+      runtimeStatus: "failed",
+      exitCode: 1,
+      lastActivityAt: formatMysqlDateTime(),
+      summary: message
+    });
+    await input.database.persist();
+    input.runtimeManager.emit(
+      "event",
+      createRuntimeEvent({
+        type: "session.error",
+        sessionId: input.session.id,
+        runtimeStatus: "failed",
+        cwd: resolvedWorktree?.cwd ?? input.session.cwd,
+        pid: null,
+        message
+      })
+    );
+  }
+}
+
+async function resolveProviderSessionStateInBackground(database: DatabaseState, projectId: string, session: SessionSummary) {
+  try {
+    await resolveProviderSessionState(database, projectId, session);
+    await database.persist();
+  } catch (error) {
+    console.error("[SessionRoutes] failed to resolve provider session state:", error);
+  }
+}
+
+async function buildSessionInput(database: DatabaseState, projectId: string, body: CreateSessionRequest | undefined): Promise<CreateSessionInput> {
   if (!isObject(body)) {
     throw new HttpError(400, "validation_error", "请求体必须是 JSON 对象");
   }

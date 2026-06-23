@@ -155,6 +155,15 @@ export class SessionRuntimeManager extends EventEmitter {
         state.bufferDirty = true;
         state.bufferDirtyAt ??= Date.now();
 
+        await this.flushSession(input.sessionId, true);
+        await updateSessionCompletion(this.database.db, input.projectId, input.sessionId, {
+          status: stoppedByUser || exitCode === 0 ? "completed" : "failed",
+          runtimeStatus: state.runtimeStatus,
+          exitCode: stoppedByUser ? null : exitCode,
+          lastActivityAt: state.lastActivityAt,
+          summary: stoppedByUser || exitCode === 0 ? currentSummary : currentSummary ?? formatProviderExitSummary(input.provider, exitCode)
+        });
+        await this.database.persist();
         this.emit(
           "event",
           createRuntimeEvent({
@@ -166,16 +175,6 @@ export class SessionRuntimeManager extends EventEmitter {
             exitCode: stoppedByUser ? null : exitCode
           })
         );
-
-        await this.flushSession(input.sessionId, true);
-        await updateSessionCompletion(this.database.db, input.projectId, input.sessionId, {
-          status: stoppedByUser || exitCode === 0 ? "completed" : "failed",
-          runtimeStatus: state.runtimeStatus,
-          exitCode: stoppedByUser ? null : exitCode,
-          lastActivityAt: state.lastActivityAt,
-          summary: stoppedByUser || exitCode === 0 ? currentSummary : currentSummary ?? formatProviderExitSummary(input.provider, exitCode)
-        });
-        await this.database.persist();
         this.sessions.delete(input.sessionId);
       })().catch((error) => {
         console.error("[SessionRuntime] exit handler error:", error);
@@ -231,19 +230,30 @@ export class SessionRuntimeManager extends EventEmitter {
     const session = this.sessions.get(sessionId);
 
     if (!session) {
-      return false;
+      return null;
     }
 
     session.stopRequested = true;
     session.runtimeStatus = "stopping";
     session.lastActivityAt = formatMysqlDateTime();
     session.runtimeDirty = true;
+    await updateSessionRuntime(this.database.db, projectId, sessionId, {
+      runtimeStatus: session.runtimeStatus,
+      pid: session.pid,
+      lastActivityAt: session.lastActivityAt
+    });
+    await this.database.persist();
+    session.runtimeDirty = false;
     this.emit("event", createRuntimeEvent({ type: "session.runtime", sessionId, runtimeStatus: session.runtimeStatus, cwd: session.cwd, pid: session.pid }));
     session.pty.stop();
     void this.flushSession(sessionId, true).catch((error) => {
       console.error("[SessionRuntime] stop flush error:", error);
     });
-    return true;
+    return {
+      runtimeStatus: session.runtimeStatus,
+      pid: session.pid,
+      lastActivityAt: session.lastActivityAt
+    };
   }
 
   private async flushSession(sessionId: string, force = false) {

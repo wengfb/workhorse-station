@@ -101,6 +101,14 @@ const OVERVIEW_SESSION_SELECT = `SELECT s.id, s.project_id, s.provider, s.provid
      FROM sessions s
      JOIN projects p ON s.project_id = p.id`;
 
+const OVERVIEW_SESSION_LIST_SELECT = `SELECT s.id, s.project_id, s.provider, s.name, s.status, s.runtime_status, s.summary, s.created_at, s.updated_at, p.name AS project_name
+     FROM sessions s
+     JOIN projects p ON s.project_id = p.id`;
+
+const EXECUTION_SESSION_SELECT = `SELECT s.id, s.project_id, s.provider, s.worktree_id, s.todo_id, s.requested_worktree_name, s.source, s.name, s.status, s.runtime_status, s.summary, s.pid, s.cwd, s.created_at, s.updated_at, p.name AS project_name
+     FROM sessions s
+     JOIN projects p ON s.project_id = p.id`;
+
 export async function listSessions(db: DatabaseExecutor, projectId: string): Promise<SessionListItem[]> {
   const rows = await queryRows<SessionListRow>(
     db,
@@ -318,7 +326,7 @@ export async function deleteSessionRecord(db: DatabaseExecutor, projectId: strin
 export async function listRunningSessions(db: DatabaseExecutor): Promise<OverviewSessionSummary[]> {
   const rows = await queryRows<OverviewSessionRow>(
     db,
-    `${OVERVIEW_SESSION_SELECT}
+    `${OVERVIEW_SESSION_LIST_SELECT}
      WHERE s.status IN ('running', 'queued')
      ORDER BY s.updated_at DESC`
   );
@@ -328,7 +336,7 @@ export async function listRunningSessions(db: DatabaseExecutor): Promise<Overvie
 export async function listRecentSessions(db: DatabaseExecutor, limit: number): Promise<OverviewSessionSummary[]> {
   const rows = await queryRows<OverviewSessionRow>(
     db,
-    `${OVERVIEW_SESSION_SELECT}
+    `${OVERVIEW_SESSION_LIST_SELECT}
      ORDER BY s.updated_at DESC
      LIMIT ?`,
     [limit]
@@ -338,7 +346,7 @@ export async function listRecentSessions(db: DatabaseExecutor, limit: number): P
 
 export async function listExecutionSessions(db: DatabaseExecutor, limit?: number): Promise<ExecutionListItem[]> {
   const sql =
-    `${OVERVIEW_SESSION_SELECT}
+    `${EXECUTION_SESSION_SELECT}
      ORDER BY s.updated_at DESC` +
     (typeof limit === "number" ? " LIMIT ?" : "");
   const rows = await queryRows<OverviewSessionRow>(db, sql, typeof limit === "number" ? [limit] : []);
@@ -348,7 +356,7 @@ export async function listExecutionSessions(db: DatabaseExecutor, limit?: number
 export async function listRunningExecutionSessions(db: DatabaseExecutor): Promise<ExecutionListItem[]> {
   const rows = await queryRows<OverviewSessionRow>(
     db,
-    `${OVERVIEW_SESSION_SELECT}
+    `${EXECUTION_SESSION_SELECT}
      WHERE s.status IN ('running', 'queued')
      ORDER BY s.updated_at DESC`
   );

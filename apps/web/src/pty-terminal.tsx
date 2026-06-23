@@ -268,6 +268,7 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
   runtimeStatusRef.current = runtimeStatus;
 
   const loadedSourceKeyRef = useRef<string | null>(null);
+  const loadedLiveRef = useRef(false);
 
   const closeSocket = () => {
     const socket = socketRef.current;
@@ -508,7 +509,11 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
     }
 
     closeSocket();
+
+    const isSameSource = loadedSourceKeyRef.current === sourceKey;
+    const becameLive = isLive && !loadedLiveRef.current;
     loadedSourceKeyRef.current = sourceKey;
+    loadedLiveRef.current = isLive;
 
     // 检查缓存：如果有快照，直接恢复；否则看是否有连接池中的 WS 可复用
     const cachedSnapshot = snapshotCache.get(sourceKey);
@@ -519,6 +524,10 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
 
     terminal.options.cursorBlink = isLive;
     terminal.options.disableStdin = !isLive;
+
+    if (!isSameSource) {
+      resetTerminalState();
+    }
 
     let receivedOutput = false;
 
@@ -647,15 +656,14 @@ export function PtyTerminal<TEvent extends PtyTerminalEvent>({
       openSocket();
     }
 
-    // 如果有缓存快照，直接恢复，跳过 HTTP 请求
     if (cachedSnapshot) {
       snapshotCache.delete(sourceKey);
       renderSnapshot(token, cachedSnapshot, !isLive, false);
-      return;
     }
 
-    // 首次加载或缓存已过期，走 HTTP 拉取
-    void loadSnapshotRef.current().then(maybeHydrateFromSnapshot).catch(() => {});
+    if (!cachedSnapshot || becameLive || !isSameSource) {
+      void loadSnapshotRef.current().then(maybeHydrateFromSnapshot).catch(() => {});
+    }
 
     return () => {
       if (activeTokenRef.current === token) {
