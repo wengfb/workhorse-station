@@ -2154,9 +2154,6 @@ export function App() {
     setTodosError(null);
 
     try {
-      if (newStatus === "completed" && !todoStatuses.includes("completed")) {
-        setTodoStatuses([...todoStatuses, "completed"]);
-      }
       await updateTodo(selectedProject.id, todo.id, { status: newStatus });
       await projectTodosList.refresh(todo.id);
     } catch (error) {
