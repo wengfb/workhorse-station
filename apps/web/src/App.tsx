@@ -702,19 +702,19 @@ export function App() {
   }, [selectedExecution, sessions, selectedSessionId]);
 
   useEffect(() => {
-    if (selectedSession) {
+    if (selectedSessionId && selectedSession?.id === selectedSessionId) {
       setSessionDraft(sessionToDraft(selectedSession, promptDrafts));
       setSelectedPromptDraftId(selectedSession.promptDraftId ?? null);
       setSessionLaunchSource(selectedSession.source);
       return;
     }
 
-    if (selectedPromptDraft) {
+    if (selectedPromptDraftId && selectedPromptDraft) {
       setSessionDraft(promptDraftToSessionDraft(selectedPromptDraft));
       setSessionLaunchSource(selectedPromptDraft.source);
       return;
     }
-  }, [selectedSessionId, selectedPromptDraftId, selectedProjectId, sessions, promptDrafts]);
+  }, [selectedSession, selectedSessionId, selectedPromptDraft, selectedPromptDraftId, selectedProjectId, sessions, promptDrafts]);
 
   // 选中聊天会话时按需加载消息历史
   useEffect(() => {
@@ -1158,7 +1158,9 @@ export function App() {
     try {
       const data = await getSessions(projectId);
       const nextSession =
-        (preferredSessionId ? data.sessions.find((session) => session.id === preferredSessionId) : null) ?? data.sessions.find((session) => session.id === selectedSessionId) ?? data.sessions[0] ?? null;
+        (preferredSessionId ? data.sessions.find((session) => session.id === preferredSessionId) : null) ??
+        (selectedSessionId ? data.sessions.find((session) => session.id === selectedSessionId) : null) ??
+        null;
 
       setSessions((current) => mergePreservingStoppingSessions(current, data.sessions));
       setSelectedSessionId(nextSession?.id ?? null);
@@ -2475,6 +2477,7 @@ export function App() {
 
     setSelectedExecution(null);
     setSelectedSessionId(null);
+    setSelectedSessionDetail(null);
     setSelectedPromptDraftId(null);
     setSessionDraft(nextDraft);
     setExecutionModalMode(null);
